@@ -1,4 +1,6 @@
-#!/Users/leticiacavalcanti/Desktop/OptiMeal/venv/bin/python3.13
+#!/bin/sh
+'''exec' "/Users/leticiacavalcanti/Personal/00_학교/00_졸업 프로젝트/Develop/OptiMeal/venv/bin/python3.13" "$0" "$@"
+' '''
 import sys
 from pip._internal.cli.main import main
 if __name__ == '__main__':

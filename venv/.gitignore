@@ -1,5 +1,4 @@
-    venv/
-    __pycache__/
-    .env
-    .DS_Store
-    postgres_data/
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*
+# PostgreSQL Data (Team Local Only)
+pg_data/

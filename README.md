@@ -9,4 +9,4 @@
     4. `pip install -r requirements.txt`
     5. `docker compose up -d` 
     (Docker Desktop 실행 필수)
-    6. `uvicorn main:app --reload`
+    6. `uvicorn main:app --reload`/
