@@ -265,7 +265,79 @@ GitHub에서 PR을 만들 때 아래 형식을 사용한다.
 
 ---
 
-## 8. 규칙 요약
+## 8. 최초 참여 시 환경 세팅 (처음 한 번만)
+
+GitHub 저장소가 만들어진 후, 팀원 각자의 상황에 따라 아래 중 하나를 선택한다.
+
+---
+
+### 케이스 A: 내 컴퓨터에 프로젝트 파일이 없는 경우 (권장)
+
+```bash
+# 저장소를 통째로 가져오기 (git init 불필요)
+git clone https://github.com/[팀계정]/OptiMeal.git
+cd OptiMeal
+
+# 환경 세팅
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+### 케이스 B: 이미 `git init`을 한 경우
+
+로컬에서 이미 `git init`을 했거나 이미 커밋이 있는 경우.
+
+#### B-1. 로컬 커밋이 없는 경우 (git init만 한 상태)
+
+```bash
+cd [프로젝트폴더]
+
+# 원격 저장소 연결
+git remote add origin https://github.com/[팀계정]/OptiMeal.git
+
+# GitHub의 내용을 로컬로 가져와서 main 브랜치를 맞춤
+git fetch origin
+git reset --hard origin/main
+
+# 이후 정상 작동 확인
+git log --oneline
+git status
+```
+
+#### B-2. 로컬 커밋이 있는 경우 (내가 작업을 이미 시작한 상태)
+
+```bash
+cd [프로젝트폴더]
+
+# 원격 저장소 연결
+git remote add origin https://github.com/[팀계정]/OptiMeal.git
+git fetch origin
+
+# 두 히스토리를 합치기 (서로 다른 출발점이므로 --allow-unrelated-histories 필요)
+git merge --allow-unrelated-histories origin/main
+
+# 충돌이 생기면 → 이 가이드 4절(충돌 해결) 참고
+# 충돌 해결 후
+git push origin main
+```
+
+> **⚠ 주의**: 로컬에서 수정한 파일이 GitHub의 파일과 다를 경우 충돌이 발생한다.
+> 충돌이 너무 많으면 B-1 방법(reset --hard)을 쓰고, 내 작업 파일만 따로 복사해서 이후 task/ 브랜치에서 다시 추가하는 것이 빠르다.
+
+#### B-3. 판단 기준
+
+| 상황 | 선택 |
+|------|------|
+| 로컬에 중요한 작업 커밋이 없다 | B-1 (reset) |
+| 로컬에 GitHub에 없는 작업 커밋이 있다 | B-2 (merge) |
+| 잘 모르겠다 | B-1 후 내 파일만 task/ 브랜치로 다시 추가 |
+
+---
+
+## 9. 규칙 요약
 
 | 규칙 | 내용 |
 |------|------|
