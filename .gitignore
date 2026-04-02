@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# 테스트 캐시
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code (팀원 공유 제외)
+.claude/
+CLAUDE.md
+tasks/todo.md
+tasks/lessons.md
+
+# 개인 설정 / 보안
+config/db_config.yaml
+*.env
+.env*
+secrets/
+
+# 산출물 중 대용량
+reports/**/*.pdf
