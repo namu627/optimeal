@@ -11,10 +11,10 @@
 
 ```
 main
- ├── task/D1-lookup-fallback        ← W 담당 (이번 주)
- ├── task/D2-inverse-transform      ← X 담당 (이번 주)
- ├── task/E-paper-limitations       ← Y 담당 (이번 주)
- └── task/F-next-sprint-plan        ← Z 담당 (이번 주)
+ ├── task/Back-lookup-fallback        ← 남유찬 (이번 주)
+ ├── task/Back-inverse-transform      ← 박소희, 박미연 (이번 주)
+ ├── task/Common-paper-limitations       ← 권성민 (이번 주)
+ └── task/Common-next-sprint-plan        ← 권성민 (이번 주)
 ```
 
 ### 브랜치 2종류만 사용
@@ -34,17 +34,17 @@ main
 
 ```
 task/[태스크ID]-[내용 2~4단어]
+태스크ID는 간트차트의 태스크별 '파트이름'을 그대로 사용한다.
 
 예시:
-  task/D1-lookup-fallback
-  task/D2-inverse-transform
-  task/E-paper-limitations
-  task/F-next-sprint-plan
-  task/ML-ingredient-classifier
-  task/stat-mixedlm-rerun
+  task/Data-lookup-fallback
+  task/Data-inverse-transform
+  task/Common-paper-limitations
+  task/Common-next-sprint-plan
+  task/AI-ingredient-classifier
+  task/Back-mixedlm-rerun
 ```
 
-- 태스크 ID는 해당 주차 태스크 문서(`tasks/MMDD-MMDD_태스크_분할.md`)의 `[A]`, `[B]` 등과 일치시킨다.
 - 영어 소문자와 하이픈(`-`)만 사용. 공백·한국어 금지.
 
 ---
@@ -83,11 +83,11 @@ git push
 [태스크ID]: 한 줄 요약 (50자 이내)
 
 # 예시:
-D1: v_scaling_lookup 조회 함수 구현
-D1: Fallback 체인 추가 (category_mean → 전체평균)
-D2: Y = a × base × N^b 역변환 함수 구현
-D2: 단위 테스트 3케이스 추가 (seasoning, main, sub)
-E: H0₁ 한계 절 초안 작성
+Back: v_scaling_lookup 조회 함수 구현
+Back: Fallback 체인 추가 (category_mean → 전체평균)
+Back: Y = a × base × N^b 역변환 함수 구현
+Back: 단위 테스트 3케이스 추가 (seasoning, main, sub)
+Common: H0₁ 한계 절 초안 작성
 ```
 
 ### 3-3. main에 최신 작업 반영받기 (충돌 예방)
@@ -114,7 +114,7 @@ git push
 
 # 2. GitHub에서 Pull Request 생성
 #    - 제목: "[태스크ID] 태스크 이름"  예) "[D1] v_scaling_lookup 조회 함수 + Fallback 체인"
-#    - 리뷰어: 태스크 분할표의 검토 담당자 지정 (보통 Z)
+#    - 리뷰어: 협업 팀원.
 
 # 3. 리뷰어가 승인하면 GitHub에서 "Merge pull request" 클릭
 #    (또는 리뷰어가 직접 merge)
@@ -173,25 +173,25 @@ git commit -m "D1: merge origin/main, lookup.py 충돌 해결"
 ## 5. 이번 주 브랜치 예시 (3/30~4/6 스프린트)
 
 ```bash
-# W — D1 담당
-git checkout -b task/D1-lookup-fallback
+# 남유찬
+git checkout -b task/Back-lookup-fallback
 
-# X — D2 담당
-git checkout -b task/D2-inverse-transform
+# 박소희, 박미연
+git checkout -b task/Back-inverse-transform
 
-# Y — E 담당
-git checkout -b task/E-paper-limitations
+# 권성민
+git checkout -b task/Common-paper-limitations
 
-# Z — F 담당 (+ 리뷰)
-git checkout -b task/F-next-sprint-plan
+# 권성민
+git checkout -b task/Common-next-sprint-plan
 ```
 
 ### 의존성이 있는 태스크 처리 (D1 + D2 → D 통합테스트)
 
 ```
-D1 브랜치 (W) ──┐
-                ├── main에 각각 병합 → W, X 둘 다 main pull 후 통합테스트 진행
-D2 브랜치 (X) ──┘
+D1 브랜치 (남유찬)       ──┐
+                        ├── main에 각각 병합 → 남유찬, 박미연, 박소희 셋 다 main pull 후 통합테스트 진행
+D2 브랜치 (박소희, 박미연) ──┘
 ```
 
 D1, D2가 모두 main에 병합된 뒤:
@@ -261,7 +261,7 @@ GitHub에서 PR을 만들 때 아래 형식을 사용한다.
 - fallback.py L42: category_mean 집계 방식 의도 확인 요청
 ```
 
-**리뷰어**: 태스크 분할표의 검토 담당자 (이번 주는 Z)
+**리뷰어**: 태스크 분할표의 검토 담당자 
 
 ---
 
