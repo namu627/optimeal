@@ -1,0 +1,66 @@
+# docker-compose.yml
+# OptiMeal 개발 환경 — PostgreSQL 18.1 + Python 3.12
+# 사용법:
+#   1) cp .env.example .env  → .env 값 채우기
+#   2) docker compose up -d
+#   3) docker compose exec app bash  → 개발 셸 진입
+
+services:
+
+  # ─────────────────────────────────────────────
+  # DB 서비스: PostgreSQL 18.1
+  # init 스크립트: docker/init/*.sql 순서대로 자동 실행
+  # ─────────────────────────────────────────────
+  db:
+    image: postgres:18.1
+    container_name: optimeal_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # 데이터 영속성
+      - postgres_data:/var/lib/postgresql/data
+      # init 스크립트 (컨테이너 최초 기동 시 1회 실행)
+      - ./docker/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─────────────────────────────────────────────
+  # 앱 서비스: Python 3.12 개발 환경 (쉘 대기)
+  # FastAPI 실행은 추후 command 변경으로 추가 예정
+  # ─────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: optimeal_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # DB 호스트는 compose 서비스명 사용
+      POSTGRES_HOST: db
+    volumes:
+      # 소스 코드 마운트 (라이브 편집 지원)
+      - .:/workspace
+    working_dir: /workspace
+    # 개발 환경용 쉘 대기 — FastAPI 실행 시 아래로 교체:
+    #   command: uvicorn module_4.backend.src.main:app --host 0.0.0.0 --port 8000 --reload
+    command: tail -f /dev/null
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+    name: optimeal_postgres_data

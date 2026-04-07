@@ -35,5 +35,8 @@ config/db_config.yaml
 .env*
 secrets/
 
+# 원본 데이터 (xlsx — 학술 재현성 보호, 팀 내부 배포)
+*.xlsx
+
 # 산출물 중 대용량
 reports/**/*.pdf
