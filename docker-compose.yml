@@ -23,7 +23,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       # 데이터 영속성
-      - postgres_data:/var/lib/postgresql/data
+      # postgres 18+: /var/lib/postgresql/data 가 아닌 /var/lib/postgresql 에 마운트해야 함
+      - postgres_data:/var/lib/postgresql
       # init 스크립트 (컨테이너 최초 기동 시 1회 실행)
       - ./docker/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
