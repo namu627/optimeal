@@ -658,6 +658,29 @@ GROUP BY cm_primary.method_name, cm_secondary.method_name
 ORDER BY recipe_count DESC;
 
 
+-- ============================================================================
+-- 스키마 버전 관리 테이블
+-- ============================================================================
+-- 목적: 현재 적용된 스키마 버전 추적
+--       load_recipe_data.py 실행 시 버전 확인 기준
+-- 관리 규칙:
+--   - 초기 버전: v1 (현재 파일)
+--   - 이후 변경은 migrations/v2_변경내용.sql 형식으로 관리
+-- ============================================================================
+CREATE TABLE schema_version (
+    version     VARCHAR(20)  PRIMARY KEY,
+    applied_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    description TEXT
+);
+
+-- 현재 스키마를 v1으로 기록
+INSERT INTO schema_version (version, description)
+VALUES (
+    'v1',
+    '초기 스키마: 모듈2 핵심 테이블 (recipe, ingredient, scaling_coefficient 등 17개 테이블)'
+);
+
+
 -- 유사도 매칭 현황 뷰
 CREATE OR REPLACE VIEW v_similarity_summary AS
 SELECT

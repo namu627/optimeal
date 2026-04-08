@@ -13,6 +13,7 @@
   - 재료명정규화테이블_최종_*_권성민.xlsx  → ingredient_synonym 테이블
 """
 
+import hashlib
 import os
 import re
 import sys
@@ -31,6 +32,9 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # 데이터 위치:   /workspace/data/raw/
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data" / "raw"
+
+# 현재 스키마 버전 (schema_version 테이블 기준)
+SCHEMA_VERSION = "v1"
 
 # 적재 대상 파일명
 FILE_SMALL_RECIPE    = "소규모_레시피_DB_남유찬_v0_10.xlsx"
@@ -213,6 +217,74 @@ def check_file(file_path: Path) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────
+# 파일 해시 및 적재 이력 관리
+# ─────────────────────────────────────────────────────────────────
+def compute_file_hash(file_path: Path) -> str:
+    """파일 SHA256 해시 계산 (64자리 16진수 문자열 반환)."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        # 대용량 파일 대응: 64KB 청크 단위로 읽기
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def ensure_data_load_log_table(engine):
+    """
+    data_load_log 테이블이 없으면 생성.
+    - 파일명, 파일해시(UNIQUE), 적재일시, 행수, 스키마버전 기록
+    """
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS data_load_log (
+                log_id         SERIAL        PRIMARY KEY,
+                file_name      VARCHAR(500)  NOT NULL,
+                file_hash      VARCHAR(64)   NOT NULL UNIQUE,
+                loaded_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+                row_count      INT,
+                schema_version VARCHAR(20)
+            )
+        """))
+
+
+def is_already_loaded(engine, file_hash: str) -> bool:
+    """동일 해시로 이미 적재된 파일인지 data_load_log에서 확인."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT log_id FROM data_load_log WHERE file_hash = :h"),
+            {"h": file_hash}
+        ).fetchone()
+    return row is not None
+
+
+def record_load_log(engine, file_name: str, file_hash: str, row_count: int):
+    """적재 완료 후 data_load_log에 이력 기록."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO data_load_log (file_name, file_hash, row_count, schema_version)
+                VALUES (:fn, :fh, :rc, :sv)
+            """),
+            {"fn": file_name, "fh": file_hash, "rc": row_count, "sv": SCHEMA_VERSION}
+        )
+
+
+def get_schema_version(engine) -> str:
+    """
+    DB schema_version 테이블에서 현재 적용 중인 스키마 버전 조회.
+    테이블이 없거나 조회 실패 시 안내 문자열 반환.
+    """
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1")
+            ).fetchone()
+            return row.version if row else "(버전 없음)"
+    except Exception:
+        return "(schema_version 테이블 없음)"
+
+
+# ─────────────────────────────────────────────────────────────────
 # 1. 레시피 xlsx 적재 (소규모/대규모 공용)
 # ─────────────────────────────────────────────────────────────────
 def load_recipes(engine, file_path: Path, serving_category: str):
@@ -227,6 +299,13 @@ def load_recipes(engine, file_path: Path, serving_category: str):
         return {}
 
     print(f"\n[1] 레시피 적재 ({serving_category}): {file_path.name}")
+
+    # ── 파일 해시 계산 및 중복 적재 확인 ──
+    file_hash = compute_file_hash(file_path)
+    print(f"  파일 해시 (SHA256): {file_hash[:16]}...")
+    if is_already_loaded(engine, file_hash):
+        print(f"  [스킵] 이미 적재된 버전입니다. (hash: {file_hash[:16]}...)")
+        return {}
 
     # 엑셀 구조: row0=메모, row1=컬럼명(영문), row2=컬럼설명(한글), row3~=데이터
     df = pd.read_excel(file_path, header=1, skiprows=[2])
@@ -309,6 +388,8 @@ def load_recipes(engine, file_path: Path, serving_category: str):
             recipe_id_map[orig_id] = new_id
             inserted += 1
 
+    # ── 적재 이력 기록 ──
+    record_load_log(engine, file_path.name, file_hash, len(df))
     print(f"  신규 삽입: {inserted}건 / 중복 스킵: {skipped}건")
     return recipe_id_map
 
@@ -327,6 +408,13 @@ def load_recipe_similarity(engine, file_path: Path, recipe_id_map: dict):
         return
 
     print(f"\n[2] recipe_similarity 적재: {file_path.name}")
+
+    # ── 파일 해시 계산 및 중복 적재 확인 ──
+    file_hash = compute_file_hash(file_path)
+    print(f"  파일 해시 (SHA256): {file_hash[:16]}...")
+    if is_already_loaded(engine, file_hash):
+        print(f"  [스킵] 이미 적재된 버전입니다. (hash: {file_hash[:16]}...)")
+        return
 
     # cp949 인코딩으로 읽기
     df = pd.read_csv(file_path, encoding="cp949")
@@ -393,6 +481,8 @@ def load_recipe_similarity(engine, file_path: Path, recipe_id_map: dict):
                 else:
                     skipped += 1
 
+    # ── 적재 이력 기록 ──
+    record_load_log(engine, file_path.name, file_hash, len(df))
     print(f"  신규 삽입: {inserted}건 / 중복 스킵: {skipped}건 / 레시피 미매핑: {no_recipe}건")
 
 
@@ -413,6 +503,13 @@ def load_ml_training_dataset(engine, file_path: Path, recipe_id_map: dict):
         return
 
     print(f"\n[3] ml_training_dataset 적재: {file_path.name}")
+
+    # ── 파일 해시 계산 및 중복 적재 확인 ──
+    file_hash = compute_file_hash(file_path)
+    print(f"  파일 해시 (SHA256): {file_hash[:16]}...")
+    if is_already_loaded(engine, file_hash):
+        print(f"  [스킵] 이미 적재된 버전입니다. (hash: {file_hash[:16]}...)")
+        return
 
     # 이미 데이터 있으면 스킵
     with engine.connect() as conn:
@@ -541,6 +638,8 @@ def load_ml_training_dataset(engine, file_path: Path, recipe_id_map: dict):
                 )
                 inserted += 1
 
+    # ── 적재 이력 기록 ──
+    record_load_log(engine, file_path.name, file_hash, len(df))
     print(f"  신규 삽입: {inserted}건 / 레시피 미매핑 스킵: {skipped}건")
 
 
@@ -559,6 +658,13 @@ def load_ingredient_synonym(engine, file_path: Path):
         return
 
     print(f"\n[4] ingredient_synonym 적재: {file_path.name}")
+
+    # ── 파일 해시 계산 및 중복 적재 확인 ──
+    file_hash = compute_file_hash(file_path)
+    print(f"  파일 해시 (SHA256): {file_hash[:16]}...")
+    if is_already_loaded(engine, file_hash):
+        print(f"  [스킵] 이미 적재된 버전입니다. (hash: {file_hash[:16]}...)")
+        return
 
     # 엑셀 구조: row0=색상 메모, row1=컬럼명, row2~=데이터
     df = pd.read_excel(file_path, header=1)
@@ -624,6 +730,8 @@ def load_ingredient_synonym(engine, file_path: Path):
                 else:
                     skipped += 1
 
+    # ── 적재 이력 기록 ──
+    record_load_log(engine, file_path.name, file_hash, len(df))
     print(f"  신규 삽입: {inserted}건 / 중복 스킵: {skipped}건")
 
 
@@ -659,6 +767,13 @@ def main():
     print(f"  데이터 경로: {DATA_DIR}")
 
     engine = get_engine()
+
+    # ── data_load_log 테이블 보장 ──
+    ensure_data_load_log_table(engine)
+
+    # ── 현재 DB 스키마 버전 출력 ──
+    db_schema_ver = get_schema_version(engine)
+    print(f"  DB 스키마 버전: {db_schema_ver}")
 
     # ── 1. 소규모 레시피 xlsx 적재 ──
     small_map = load_recipes(
