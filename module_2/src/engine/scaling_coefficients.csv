@@ -1,25 +1,25 @@
 coefficient_id,group_type,ingredient_category,power_law_a,power_law_b,se_b,ci_lower,ci_upper,r_squared,n_obs,estimation_method,lookup_priority,source,notes
-1,,main,7.9677,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept+0. 참조용(엔진 룩업은 id 10~24 사용)
-2,,seasoning,6.3028,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.2344. 참조용(엔진 룩업은 id 10~24 사용)
-3,,sub,5.7500,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.3262. 참조용(엔진 룩업은 id 10~24 사용)
-4,,main,1.0,1.1526,0.3430,0.4805,1.8248,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). 엔진 role별 b 적용 시 사용. CI 좁음(신뢰도 high)
-5,,seasoning,1.0,0.3483,0.5851,-0.7984,1.4951,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
-6,,sub,1.0,0.4544,0.5605,-0.6442,1.5530,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
-7,dry_heat,,1.0,0.2008,0.4172,-0.6221,1.0237,0.0547,197,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
-8,moist_heat,,1.0,0.7715,0.2540,0.2714,1.2716,0.0260,268,curve_fit,2,통계분석,OLS 서브셋(robustness check). 랜덤효과 미반영 — 참조용
-9,no_heat,,1.0,0.6716,0.3593,-0.0388,1.3820,0.0438,142,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
-10,dry_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
-11,moist_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
-12,no_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
-13,dry_heat,부재료,5.7500,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
-14,moist_heat,부재료,5.7500,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
-15,no_heat,부재료,5.7500,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
-16,dry_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
-17,moist_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
-18,no_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.9720,,607,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
-19,dry_heat,수분류,5.7500,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
-20,moist_heat,수분류,5.7500,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
-21,no_heat,수분류,5.7500,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
-22,dry_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
-23,moist_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
-24,no_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.9720,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+1,,main,7.9677,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept+0. 참조용(엔진 룩업은 id 10~24 사용)
+2,,seasoning,6.3028,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.2344. 참조용(엔진 룩업은 id 10~24 사용)
+3,,sub,5.75,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.3262. 참조용(엔진 룩업은 id 10~24 사용)
+4,,main,1,1.1526,0.343,0.4805,1.8248,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). 엔진 role별 b 적용 시 사용. CI 좁음(신뢰도 high)
+5,,seasoning,1,0.3483,0.5851,-0.7984,1.4951,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
+6,,sub,1,0.4544,0.5605,-0.6442,1.553,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
+7,dry_heat,,1,0.2008,0.4172,-0.6221,1.0237,0.0547,197,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
+8,moist_heat,,1,0.7715,0.254,0.2714,1.2716,0.026,268,curve_fit,2,통계분석,OLS 서브셋(robustness check). 랜덤효과 미반영 — 참조용
+9,no_heat,,1,0.6716,0.3593,-0.0388,1.382,0.0438,142,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
+10,dry_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+11,moist_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+12,no_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+13,dry_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+14,moist_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+15,no_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+16,dry_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+17,moist_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+18,no_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+19,dry_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+20,moist_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+21,no_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+22,dry_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+23,moist_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+24,no_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
