@@ -586,7 +586,7 @@ def load_ml_training_dataset(engine, file_path: Path, recipe_id_map: dict):
             "scaling_ratio":         round(scaling_ratio, 4),
             "ratio":                 float(row["ratio"]) if pd.notna(row.get("ratio")) else None,
             "ing_name":              ing_name,
-            "ingredient_category":   str(row.get("derived_category", "") or "").strip() or None,
+            "ingredient_category":   row.get("derived_category") if pd.notna(row.get("derived_category")) else None,
             "is_seasoning":          is_seasoning,
             "ingredient_role":       ing_role,
             "base_amount_g":         float(row["base"]) if pd.notna(row.get("base")) else 0.0,
