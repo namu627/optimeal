@@ -396,7 +396,7 @@ CREATE TABLE scaling_coefficient (
 
     -- 멱함수 파라미터 [ADR-001 Option A]
     power_law_a                 DECIMAL(8,4)  DEFAULT 1.0000,
-    power_law_b                 DECIMAL(5,3)  NOT NULL,
+    power_law_b                 DECIMAL(8,4)  NOT NULL,
     -- 하위호환 컬럼 (power_law_b와 동일)
     scaling_exponent            DECIMAL(5,3)  NOT NULL,
 
