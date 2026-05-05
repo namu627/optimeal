@@ -33,6 +33,7 @@ tasks/lessons.md
 config/db_config.yaml
 *.env
 .env*
+!.env.example
 secrets/
 
 # 원본 데이터 (xlsx/csv — 학술 재현성 보호, 팀 내부 배포)
