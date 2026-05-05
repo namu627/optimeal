@@ -305,7 +305,21 @@ def load_recipes(engine, file_path: Path, serving_category: str):
     print(f"  파일 해시 (SHA256): {file_hash[:16]}...")
     if is_already_loaded(engine, file_hash):
         print(f"  [스킵] 이미 적재된 버전입니다. (hash: {file_hash[:16]}...)")
-        return {}
+        # 스킵되더라도 notes 컬럼에서 원본 ID → DB ID 매핑 복원
+        recipe_id_map = {}
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(f"SELECT recipe_id, notes FROM recipe WHERE serving_category = :sc AND notes LIKE '[orig:%'"),
+                {"sc": serving_category}
+            ).fetchall()
+            for r in rows:
+                # notes = '[orig:A1034]' 형태에서 원본 ID 추출
+                import re
+                m = re.search(r'\[orig:(.+?)\]', r.notes or "")
+                if m:
+                    recipe_id_map[m.group(1)] = r.recipe_id
+        print(f"  매핑 복원: {len(recipe_id_map)}건")
+        return recipe_id_map
 
     # 엑셀 구조: row0=메모, row1=컬럼명(영문), row2=컬럼설명(한글), row3~=데이터
     df = pd.read_excel(file_path, header=1, skiprows=[2])
