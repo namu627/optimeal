@@ -14,7 +14,12 @@
 --   id 10~24: 엔진 룩업 실제 대상
 --              group_type(3종) × ingredient_category 한국어 5분류 = 15행
 --
--- 주의: MixedLM b=0.6163은 이 파일에서만 적재 — 코드 하드코딩 금지 (ADR-003)
+-- [v2 변경 — 2026-04-22]
+--   id 10~24 power_law_b, se_b를 5분류 MixedLM 실제 추정값으로 교체
+--   (기존 B_simple 플레이스홀더 0.6163 → 카테고리별 개별 추정값)
+--   출처: scaling_coefficients.csv (generate_scaling_coefficient.py 산출)
+--
+-- 주의: MixedLM b값은 이 파일에서만 적재 — 코드 하드코딩 금지 (ADR-003)
 -- ============================================================================
 
 -- 기존 데이터 초기화 (재실행 안전성)
@@ -137,19 +142,20 @@ VALUES
 -- 엔진 룩업 대상 행 (id 10~24)
 -- group_type(3종) × ingredient_category 한국어 5분류 = 15행
 -- v_scaling_lookup 뷰에서 이 행들이 실제 조회된다
+-- [v2] power_law_b, se_b를 5분류 MixedLM 실제 추정값으로 교체 (2026-04-22)
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- ── 주재료 (a=7.9677, b=0.6163) ─────────────────────────────────────────────
+-- ── 주재료 (a=7.9677, b=0.9330, se=0.0110) ───────────────────────────────────
 -- id 10: dry_heat × 주재료
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('dry_heat', '주재료', 7.9677, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163.',
+    ('dry_heat', '주재료', 7.9677, 0.9330, 0.9330,
+     0.0110, 0.9110, 0.9540,
+     145, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 11: moist_heat × 주재료
@@ -158,10 +164,10 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('moist_heat', '주재료', 7.9677, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163.',
+    ('moist_heat', '주재료', 7.9677, 0.9330, 0.9330,
+     0.0110, 0.9110, 0.9540,
+     145, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 12: no_heat × 주재료
@@ -170,23 +176,23 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('no_heat', '주재료', 7.9677, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163.',
+    ('no_heat', '주재료', 7.9677, 0.9330, 0.9330,
+     0.0110, 0.9110, 0.9540,
+     145, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
--- ── 부재료 (a=5.7500, b=0.6163) ─────────────────────────────────────────────
+-- ── 부재료 (a=5.7500, b=0.8950, se=0.0210) ───────────────────────────────────
 -- id 13: dry_heat × 부재료
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('dry_heat', '부재료', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163.',
+    ('dry_heat', '부재료', 5.7500, 0.8950, 0.8950,
+     0.0210, 0.8540, 0.9370,
+     390, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 14: moist_heat × 부재료
@@ -195,10 +201,10 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('moist_heat', '부재료', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163.',
+    ('moist_heat', '부재료', 5.7500, 0.8950, 0.8950,
+     0.0210, 0.8540, 0.9370,
+     390, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 15: no_heat × 부재료
@@ -207,23 +213,23 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('no_heat', '부재료', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163.',
+    ('no_heat', '부재료', 5.7500, 0.8950, 0.8950,
+     0.0210, 0.8540, 0.9370,
+     390, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
--- ── 양념류 (a=6.3028, b=0.6163) ─────────────────────────────────────────────
+-- ── 양념류 (a=6.3028, b=0.6550, se=0.0200) ───────────────────────────────────
 -- id 16: dry_heat × 양념류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('dry_heat', '양념류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163.',
+    ('dry_heat', '양념류', 6.3028, 0.6550, 0.6550,
+     0.0200, 0.6150, 0.6940,
+     415, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 17: moist_heat × 양념류
@@ -232,10 +238,10 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('moist_heat', '양념류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163.',
+    ('moist_heat', '양념류', 6.3028, 0.6550, 0.6550,
+     0.0200, 0.6150, 0.6940,
+     415, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 18: no_heat × 양념류
@@ -244,84 +250,84 @@ INSERT INTO scaling_coefficient
      se_b, confidence_interval_lower, confidence_interval_upper,
      sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('no_heat', '양념류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     607, 'mixedlm', '통계분석',
-     'B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163.',
+    ('no_heat', '양념류', 6.3028, 0.6550, 0.6550,
+     0.0200, 0.6150, 0.6940,
+     415, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
--- ── 수분류 (a=5.7500, category_mean fallback) ────────────────────────────────
+-- ── 수분류 (a=5.7500, b=1.0580, se=0.0270) ───────────────────────────────────
 -- id 19: dry_heat × 수분류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('dry_heat', '수분류', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '부재료(sub) 계열 a값 fallback. 독립 통계 미산출.',
+    ('dry_heat', '수분류', 5.7500, 1.0580, 1.0580,
+     0.0270, 1.0050, 1.1120,
+     17, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 20: moist_heat × 수분류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('moist_heat', '수분류', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '부재료(sub) 계열 a값 fallback. 독립 통계 미산출.',
+    ('moist_heat', '수분류', 5.7500, 1.0580, 1.0580,
+     0.0270, 1.0050, 1.1120,
+     17, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 21: no_heat × 수분류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('no_heat', '수분류', 5.7500, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '부재료(sub) 계열 a값 fallback. 독립 통계 미산출.',
+    ('no_heat', '수분류', 5.7500, 1.0580, 1.0580,
+     0.0270, 1.0050, 1.1120,
+     17, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
--- ── 유지류 (a=6.3028, category_mean fallback) ────────────────────────────────
+-- ── 유지류 (a=6.3028, b=0.7570, se=0.0260) ───────────────────────────────────
 -- id 22: dry_heat × 유지류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('dry_heat', '유지류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출.',
+    ('dry_heat', '유지류', 6.3028, 0.7570, 0.7570,
+     0.0260, 0.7060, 0.8080,
+     47, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 23: moist_heat × 유지류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('moist_heat', '유지류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출.',
+    ('moist_heat', '유지류', 6.3028, 0.7570, 0.7570,
+     0.0260, 0.7060, 0.8080,
+     47, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- id 24: no_heat × 유지류
 INSERT INTO scaling_coefficient
     (group_type, ingredient_category, power_law_a, power_law_b, scaling_exponent,
      se_b, confidence_interval_lower, confidence_interval_upper,
-     estimation_method, source, notes, is_active)
+     sample_size, estimation_method, source, notes, is_active)
 VALUES
-    ('no_heat', '유지류', 6.3028, 0.6163, 0.6163,
-     0.1814, 0.2607, 0.9720,
-     'category_mean', '통계분석',
-     '양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출.',
+    ('no_heat', '유지류', 6.3028, 0.7570, 0.7570,
+     0.0260, 0.7060, 0.8080,
+     47, 'mixedlm', '통계분석',
+     'ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py',
      TRUE);
 
 -- 적재 확인
