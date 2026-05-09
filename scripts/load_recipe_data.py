@@ -431,7 +431,7 @@ def load_recipe_similarity(engine, file_path: Path, recipe_id_map: dict):
         return
 
     # cp949 인코딩으로 읽기
-    df = pd.read_csv(file_path, encoding="cp949")
+    df = pd.read_csv(file_path, encoding="utf-8")
     print(f"  파일 행 수: {len(df)}")
 
     inserted  = 0
