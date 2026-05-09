@@ -1,0 +1,51 @@
+{
+  "recipe_id": "SAMPLE_001",
+  "recipe_name": "제육볶음",
+  "cooking_method": "볶음",
+  "group_type": "dry_heat",
+  "base_serving": 1,
+  "target_serving_n": 100,
+  "feedback_round": 1,
+  "ingredients": [
+    {
+      "name": "돼지고기(앞다리살)",
+      "category": "주재료",
+      "base_amount_g": 150.0
+    },
+    {
+      "name": "양파",
+      "category": "부재료",
+      "base_amount_g": 50.0
+    },
+    {
+      "name": "대파",
+      "category": "부재료",
+      "base_amount_g": 20.0
+    },
+    {
+      "name": "고추장",
+      "category": "양념류",
+      "base_amount_g": 30.0
+    },
+    {
+      "name": "간장",
+      "category": "양념류",
+      "base_amount_g": 15.0
+    },
+    {
+      "name": "설탕",
+      "category": "양념류",
+      "base_amount_g": 10.0
+    },
+    {
+      "name": "참기름",
+      "category": "유지류",
+      "base_amount_g": 5.0
+    },
+    {
+      "name": "물",
+      "category": "수분류",
+      "base_amount_g": 30.0
+    }
+  ]
+}

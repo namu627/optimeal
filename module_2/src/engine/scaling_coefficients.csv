@@ -1,25 +1,332 @@
 coefficient_id,group_type,ingredient_category,power_law_a,power_law_b,se_b,ci_lower,ci_upper,r_squared,n_obs,estimation_method,lookup_priority,source,notes
-1,,main,7.9677,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept+0. 참조용(엔진 룩업은 id 10~24 사용)
-2,,seasoning,6.3028,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.2344. 참조용(엔진 룩업은 id 10~24 사용)
-3,,sub,5.75,0.6163,0.1814,0.2607,0.972,,607,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.3262. 참조용(엔진 룩업은 id 10~24 사용)
-4,,main,1,1.1526,0.343,0.4805,1.8248,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). 엔진 role별 b 적용 시 사용. CI 좁음(신뢰도 high)
-5,,seasoning,1,0.3483,0.5851,-0.7984,1.4951,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
-6,,sub,1,0.4544,0.5605,-0.6442,1.553,,607,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
-7,dry_heat,,1,0.2008,0.4172,-0.6221,1.0237,0.0547,197,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
-8,moist_heat,,1,0.7715,0.254,0.2714,1.2716,0.026,268,curve_fit,2,통계분석,OLS 서브셋(robustness check). 랜덤효과 미반영 — 참조용
-9,no_heat,,1,0.6716,0.3593,-0.0388,1.382,0.0438,142,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
-10,dry_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-11,moist_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-12,no_heat,주재료,7.9677,0.933,0.011,0.911,0.954,,145,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-13,dry_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-14,moist_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-15,no_heat,부재료,5.75,0.895,0.021,0.854,0.937,,390,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-16,dry_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-17,moist_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-18,no_heat,양념류,6.3028,0.655,0.02,0.615,0.694,,415,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-19,dry_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-20,moist_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-21,no_heat,수분류,5.75,1.058,0.027,1.005,1.112,,17,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-22,dry_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-23,moist_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
-24,no_heat,유지류,6.3028,0.757,0.026,0.706,0.808,,47,mixedlm,2,통계분석,ingredient_category 5분류 MixedLM. DB INSERT 대상. generate_scaling_coefficient.py
+1,,main,7.9677,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept+0. 참조용(엔진 룩업은 id 10~24 사용)
+2,,seasoning,6.3028,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.2344. 참조용(엔진 룩업은 id 10~24 사용)
+3,,sub,5.75,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. group_type 무관 적용. log(a)=intercept-0.3262. 참조용(엔진 룩업은 id 10~24 사용)
+4,,main,1.0,1.1526,0.343,0.4805,1.8248,,607.0,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). 엔진 role별 b 적용 시 사용. CI 좁음(신뢰도 high)
+5,,seasoning,1.0,0.3483,0.5851,-0.7984,1.4951,,607.0,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
+6,,sub,1.0,0.4544,0.5605,-0.6442,1.553,,607.0,mixedlm_interaction,2,통계분석,상호작용항 모델. a=1.0(미보정). CI가 0 포함 — 신뢰도 medium
+7,dry_heat,,1.0,0.2008,0.4172,-0.6221,1.0237,0.0547,197.0,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
+8,moist_heat,,1.0,0.7715,0.254,0.2714,1.2716,0.026,268.0,curve_fit,2,통계분석,OLS 서브셋(robustness check). 랜덤효과 미반영 — 참조용
+9,no_heat,,1.0,0.6716,0.3593,-0.0388,1.382,0.0438,142.0,curve_fit,2,통계분석,OLS 서브셋(robustness check). CI가 0 포함. 랜덤효과 미반영 — 참조용
+10,dry_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
+11,moist_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
+12,no_heat,주재료,7.9677,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=주재료 intercept exp(2.0754). b=전체 평균 0.6163. generate_scaling_coefficient.py
+13,dry_heat,부재료,5.75,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
+14,moist_heat,부재료,5.75,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
+15,no_heat,부재료,5.75,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=부재료(sub) intercept exp(2.0754-0.3262). b=전체 평균 0.6163. generate_scaling_coefficient.py
+16,dry_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
+17,moist_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
+18,no_heat,양념류,6.3028,0.6163,0.1814,0.2607,0.972,,607.0,mixedlm,2,통계분석,B_simple 채택 모델. a=양념류(seasoning) intercept exp(2.0754-0.2344). b=전체 평균 0.6163. generate_scaling_coefficient.py
+19,dry_heat,수분류,5.75,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+20,moist_heat,수분류,5.75,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+21,no_heat,수분류,5.75,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,부재료(sub) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+22,dry_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+23,moist_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+24,no_heat,유지류,6.3028,0.6163,0.1814,0.2607,0.972,,,category_mean,3,통계분석,양념류(seasoning) 계열 a값 fallback. 독립 통계 미산출. generate_scaling_coefficient.py
+25,dry_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 돼지고기(앞다리살)(주재료) | 평가자: | Δ_g:+15000.0 | rubric_avg:4.67
+26,dry_heat,부재료,5.75,0.7457,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 양파(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+27,dry_heat,부재료,5.75,0.7572,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 대파(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:4.67
+28,dry_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 고추장(양념류) | 평가자: | Δ_g:+2700.0 | rubric_avg:4.67
+29,dry_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+30,dry_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 설탕(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+31,dry_heat,수분류,5.75,0.7517,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 물(수분류) | 평가자: | Δ_g:+2550.0 | rubric_avg:4.67
+32,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 제육볶음 | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:4.67
+33,dry_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 오징어(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:4.67
+34,dry_heat,부재료,5.75,0.7611,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 양파(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+35,dry_heat,부재료,5.75,0.7557,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 당근(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:4.67
+36,dry_heat,양념류,6.3028,0.743,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 고추장(양념류) | 평가자: | Δ_g:+1800.0 | rubric_avg:4.67
+37,dry_heat,양념류,6.3028,0.7603,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 고춧가루(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+38,dry_heat,양념류,6.3028,0.7583,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+39,dry_heat,양념류,6.3028,0.7569,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 설탕(양념류) | 평가자: | Δ_g:+540.0 | rubric_avg:4.67
+40,dry_heat,수분류,5.75,0.7602,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 물(수분류) | 평가자: | Δ_g:+2000.0 | rubric_avg:4.67
+41,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 오징어볶음 | 식용유(유지류) | 평가자: | Δ_g:+850.0 | rubric_avg:4.67
+42,dry_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 닭고기(허벅지)(주재료) | 평가자: | Δ_g:+16000.0 | rubric_avg:4.67
+43,dry_heat,부재료,5.75,0.7583,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 양배추(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+44,dry_heat,부재료,5.75,0.76,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+45,dry_heat,양념류,6.3028,0.7558,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 고추장(양념류) | 평가자: | Δ_g:+2520.0 | rubric_avg:4.67
+46,dry_heat,양념류,6.3028,0.755,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+47,dry_heat,양념류,6.3028,0.7543,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 설탕(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+48,dry_heat,양념류,6.3028,0.7537,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:4.67
+49,dry_heat,수분류,5.75,0.7574,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 물(수분류) | 평가자: | Δ_g:+2125.0 | rubric_avg:4.67
+50,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 닭갈비 | 식용유(유지류) | 평가자: | Δ_g:+850.0 | rubric_avg:4.67
+51,dry_heat,주재료,7.9677,0.7403,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 소고기(불고기용)(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+52,dry_heat,부재료,5.75,0.7613,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 양파(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+53,dry_heat,부재료,5.75,0.7622,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 당근(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:5.0
+54,dry_heat,양념류,6.3028,0.7532,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 간장(양념류) | 평가자: | Δ_g:+1800.0 | rubric_avg:5.0
+55,dry_heat,양념류,6.3028,0.7528,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 설탕(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+56,dry_heat,수분류,5.75,0.756,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 배즙(수분류) | 평가자: | Δ_g:+1700.0 | rubric_avg:5.0
+57,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 소불고기볶음 | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+58,dry_heat,주재료,7.9677,0.7394,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 어묵(사각)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+59,dry_heat,부재료,5.75,0.7629,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+60,dry_heat,부재료,5.75,0.7635,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 당근(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:5.0
+61,dry_heat,양념류,6.3028,0.7525,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 간장(양념류) | 평가자: | Δ_g:+1080.0 | rubric_avg:5.0
+62,dry_heat,양념류,6.3028,0.7522,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 설탕(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+63,dry_heat,양념류,6.3028,0.7519,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 고춧가루(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+64,dry_heat,수분류,5.75,0.7551,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 물(수분류) | 평가자: | Δ_g:+1700.0 | rubric_avg:5.0
+65,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 어묵볶음 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+66,dry_heat,주재료,7.9677,0.7388,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 두부(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+67,dry_heat,부재료,5.75,0.764,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 김치(부재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+68,dry_heat,주재료,7.9677,0.7384,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 돼지고기(목살)(주재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+69,dry_heat,양념류,6.3028,0.7517,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+70,dry_heat,양념류,6.3028,0.7515,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+71,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+72,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 두부김치볶음 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+73,dry_heat,주재료,7.9677,0.7366,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 느타리버섯(주재료) | 평가자: | Δ_g:+7000.0 | rubric_avg:4.33
+74,dry_heat,부재료,5.75,0.7611,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 팽이버섯(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:4.33
+75,dry_heat,부재료,5.75,0.7617,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 당근(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:4.33
+76,dry_heat,양념류,6.3028,0.7513,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.33
+77,dry_heat,양념류,6.3028,0.7511,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 소금(양념류) | 평가자: | Δ_g:+180.0 | rubric_avg:4.33
+78,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:4.33
+79,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 버섯볶음 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:4.33
+80,dry_heat,주재료,7.9677,0.739,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 숙주나물(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.67
+81,dry_heat,부재료,5.75,0.7622,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 부추(부재료) | 평가자: | Δ_g:+1000.0 | rubric_avg:4.67
+82,dry_heat,양념류,6.3028,0.751,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+83,dry_heat,양념류,6.3028,0.7509,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:4.67
+84,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:4.67
+85,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 숙주나물볶음 | 식용유(유지류) | 평가자: | Δ_g:+510.0 | rubric_avg:4.67
+86,dry_heat,주재료,7.9677,0.7429,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 애호박볶음 | 애호박(주재료) | 평가자: | Δ_g:+15000.0 | rubric_avg:5.0
+87,dry_heat,부재료,5.75,0.7626,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 애호박볶음 | 양파(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:5.0
+88,dry_heat,양념류,6.3028,0.7508,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 애호박볶음 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:5.0
+89,dry_heat,유지류,6.3028,0.7427,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 애호박볶음 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+90,dry_heat,유지류,6.3028,0.7404,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 애호박볶음 | 식용유(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+91,dry_heat,주재료,7.9677,0.7423,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 소고기(채)(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:4.67
+92,dry_heat,부재료,5.75,0.763,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 고추(청·홍)(부재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:4.67
+93,dry_heat,부재료,5.75,0.7633,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+94,dry_heat,양념류,6.3028,0.7507,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 간장(양념류) | 평가자: | Δ_g:+1080.0 | rubric_avg:4.67
+95,dry_heat,양념류,6.3028,0.7506,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 굴소스(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+96,dry_heat,양념류,6.3028,0.7505,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 설탕(양념류) | 평가자: | Δ_g:+360.0 | rubric_avg:4.67
+97,dry_heat,수분류,5.75,0.7545,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 물(수분류) | 평가자: | Δ_g:+1275.0 | rubric_avg:4.67
+98,dry_heat,유지류,6.3028,0.7406,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:4.67
+99,dry_heat,유지류,6.3028,0.7407,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R1 고추잡채 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:4.67
+100,dry_heat,주재료,7.9677,0.7418,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 삼치구이 | 삼치(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+101,dry_heat,양념류,6.3028,0.7504,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 삼치구이 | 소금(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+102,dry_heat,수분류,5.75,0.7541,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 삼치구이 | 청주(수분류) | 평가자: | Δ_g:+850.0 | rubric_avg:5.0
+103,dry_heat,유지류,6.3028,0.7408,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 삼치구이 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+104,dry_heat,주재료,7.9677,0.7413,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 돼지불고기(직화) | 돼지고기(목살)(주재료) | 평가자: | Δ_g:+13000.0 | rubric_avg:5.0
+105,dry_heat,부재료,5.75,0.7636,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 돼지불고기(직화) | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+106,dry_heat,양념류,6.3028,0.7503,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 돼지불고기(직화) | 간장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+107,dry_heat,양념류,6.3028,0.7502,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 돼지불고기(직화) | 설탕(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+108,dry_heat,유지류,6.3028,0.7409,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 돼지불고기(직화) | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+109,dry_heat,주재료,7.9677,0.7409,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 동태(포)(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.0
+110,dry_heat,부재료,5.75,0.7639,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 밀가루(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:4.0
+111,dry_heat,부재료,5.75,0.7641,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 달걀(부재료) | 평가자: | Δ_g:+2500.0 | rubric_avg:4.0
+112,dry_heat,양념류,6.3028,0.7501,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 소금(양념류) | 평가자: | Δ_g:+180.0 | rubric_avg:4.0
+113,dry_heat,양념류,6.3028,0.75,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 후추(양념류) | 평가자: | Δ_g:+45.0 | rubric_avg:4.0
+114,dry_heat,유지류,6.3028,0.741,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 동태전 | 식용유(유지류) | 평가자: | Δ_g:+1020.0 | rubric_avg:4.0
+115,dry_heat,주재료,7.9677,0.7406,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 감자전 | 감자(채)(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:3.67
+116,dry_heat,양념류,6.3028,0.7499,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 감자전 | 소금(양념류) | 평가자: | Δ_g:+180.0 | rubric_avg:3.67
+117,dry_heat,부재료,5.75,0.7613,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 감자전 | 전분(부재료) | 평가자: | Δ_g:+500.0 | rubric_avg:3.67
+118,dry_heat,유지류,6.3028,0.7411,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 감자전 | 식용유(유지류) | 평가자: | Δ_g:+1275.0 | rubric_avg:3.67
+119,dry_heat,주재료,7.9677,0.7403,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 호박전 | 애호박(슬라이스)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:4.67
+120,dry_heat,부재료,5.75,0.7616,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 호박전 | 밀가루(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:4.67
+121,dry_heat,부재료,5.75,0.7619,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 호박전 | 달걀(부재료) | 평가자: | Δ_g:+2500.0 | rubric_avg:4.67
+122,dry_heat,양념류,6.3028,0.7498,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 호박전 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:4.67
+123,dry_heat,유지류,6.3028,0.7412,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 호박전 | 식용유(유지류) | 평가자: | Δ_g:+1020.0 | rubric_avg:4.67
+124,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 콩나물국 | 콩나물(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+125,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 콩나물국 | 대파(부재료) | 평가자: | Δ_g:+1000.0 | rubric_avg:5.0
+126,moist_heat,양념류,6.3028,0.6755,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 콩나물국 | 간장(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+127,moist_heat,양념류,6.3028,0.7119,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 콩나물국 | 소금(양념류) | 평가자: | Δ_g:+180.0 | rubric_avg:5.0
+128,moist_heat,수분류,5.75,0.7249,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 콩나물국 | 물(육수)(수분류) | 평가자: | Δ_g:+12750.0 | rubric_avg:5.0
+129,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 미역(불린)(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+130,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 소고기(국거리)(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+131,moist_heat,양념류,6.3028,0.724,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+132,moist_heat,양념류,6.3028,0.73,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:5.0
+133,moist_heat,수분류,5.75,0.7383,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 물(수분류) | 평가자: | Δ_g:+21250.0 | rubric_avg:5.0
+134,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 미역국 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+135,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 북어채(주재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:5.0
+136,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 두부(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+137,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 대파(부재료) | 평가자: | Δ_g:+1000.0 | rubric_avg:5.0
+138,moist_heat,양념류,6.3028,0.7336,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+139,moist_heat,양념류,6.3028,0.736,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:5.0
+140,moist_heat,수분류,5.75,0.7428,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 물(수분류) | 평가자: | Δ_g:+21250.0 | rubric_avg:5.0
+141,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 북어국 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+142,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 시금치된장국 | 시금치(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+143,moist_heat,양념류,6.3028,0.7377,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 시금치된장국 | 된장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+144,moist_heat,양념류,6.3028,0.739,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 시금치된장국 | 마늘(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+145,moist_heat,양념류,6.3028,0.74,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 시금치된장국 | 소금(양념류) | 평가자: | Δ_g:+90.0 | rubric_avg:5.0
+146,moist_heat,수분류,5.75,0.745,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 시금치된장국 | 물(멸치육수)(수분류) | 평가자: | Δ_g:+21250.0 | rubric_avg:5.0
+147,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 무(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.33
+148,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 대파(부재료) | 평가자: | Δ_g:+1000.0 | rubric_avg:4.33
+149,moist_heat,양념류,6.3028,0.7408,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.33
+150,moist_heat,양념류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:4.33
+151,moist_heat,수분류,5.75,0.7463,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 물(수분류) | 평가자: | Δ_g:+21250.0 | rubric_avg:4.33
+152,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R2 무국 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:4.33
+153,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 갈비(소)(주재료) | 평가자: | Δ_g:+20000.0 | rubric_avg:4.67
+154,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 당근(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+155,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 무(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+156,moist_heat,양념류,6.3028,0.7421,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 간장(양념류) | 평가자: | Δ_g:+2250.0 | rubric_avg:4.67
+157,moist_heat,양념류,6.3028,0.7398,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 설탕(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+158,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:4.67
+159,moist_heat,수분류,5.75,0.7472,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 갈비찜 | 물(수분류) | 평가자: | Δ_g:+8500.0 | rubric_avg:4.67
+160,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 달걀찜 | 달걀(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+161,moist_heat,양념류,6.3028,0.7404,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 달걀찜 | 새우젓(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+162,moist_heat,양념류,6.3028,0.7409,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 달걀찜 | 소금(양념류) | 평가자: | Δ_g:+90.0 | rubric_avg:5.0
+163,moist_heat,수분류,5.75,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 달걀찜 | 물(육수)(수분류) | 평가자: | Δ_g:+6800.0 | rubric_avg:5.0
+164,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 달걀찜 | 참기름(유지류) | 평가자: | Δ_g:+170.0 | rubric_avg:5.0
+165,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 고등어(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+166,moist_heat,부재료,5.75,0.7688,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 무(부재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:5.0
+167,moist_heat,양념류,6.3028,0.7414,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 고추장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+168,moist_heat,양념류,6.3028,0.7418,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+169,moist_heat,양념류,6.3028,0.7422,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+170,moist_heat,수분류,5.75,0.7483,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 물(수분류) | 평가자: | Δ_g:+6800.0 | rubric_avg:5.0
+171,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 고등어조림 | 식용유(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+172,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 두부(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:5.0
+173,moist_heat,부재료,5.75,0.7618,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 대파(부재료) | 평가자: | Δ_g:+500.0 | rubric_avg:5.0
+174,moist_heat,양념류,6.3028,0.7425,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 간장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+175,moist_heat,양념류,6.3028,0.7428,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+176,moist_heat,양념류,6.3028,0.7431,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 설탕(양념류) | 평가자: | Δ_g:+360.0 | rubric_avg:5.0
+177,moist_heat,수분류,5.75,0.7487,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 물(수분류) | 평가자: | Δ_g:+5100.0 | rubric_avg:5.0
+178,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 두부조림 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+179,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 감자(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.67
+180,moist_heat,양념류,6.3028,0.7433,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 간장(양념류) | 평가자: | Δ_g:+1080.0 | rubric_avg:4.67
+181,moist_heat,양념류,6.3028,0.7428,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 설탕(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:4.67
+182,moist_heat,양념류,6.3028,0.743,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 고춧가루(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:4.67
+183,moist_heat,수분류,5.75,0.749,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 물(수분류) | 평가자: | Δ_g:+5100.0 | rubric_avg:4.67
+184,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 감자조림 | 식용유(유지류) | 평가자: | Δ_g:+510.0 | rubric_avg:4.67
+185,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 닭고기(토막)(주재료) | 평가자: | Δ_g:+18000.0 | rubric_avg:4.67
+186,moist_heat,부재료,5.75,0.7625,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 당근(부재료) | 평가자: | Δ_g:+2500.0 | rubric_avg:4.67
+187,moist_heat,부재료,5.75,0.7631,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 감자(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+188,moist_heat,양념류,6.3028,0.7432,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 간장(양념류) | 평가자: | Δ_g:+1800.0 | rubric_avg:4.67
+189,moist_heat,양념류,6.3028,0.7434,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 고추장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+190,moist_heat,양념류,6.3028,0.7421,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 설탕(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:4.67
+191,moist_heat,수분류,5.75,0.7492,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 물(수분류) | 평가자: | Δ_g:+6800.0 | rubric_avg:4.67
+192,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 닭찜 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:4.67
+193,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 시금치무침 | 시금치(데친)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+194,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 시금치무침 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+195,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 시금치무침 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+196,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 시금치무침 | 소금(양념류) | 평가자: | Δ_g:+90.0 | rubric_avg:5.0
+197,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 콩나물무침 | 콩나물(데친)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+198,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 콩나물무침 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+199,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 콩나물무침 | 고춧가루(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+200,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 콩나물무침 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+201,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 오이무침 | 오이(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+202,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 오이무침 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+203,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 오이무침 | 식초(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+204,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 오이무침 | 설탕(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+205,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 오이무침 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+206,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 도라지무침 | 도라지(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+207,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 도라지무침 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+208,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 도라지무침 | 간장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+209,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 도라지무침 | 설탕(양념류) | 평가자: | Δ_g:+360.0 | rubric_avg:5.0
+210,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R3 도라지무침 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+211,dry_heat,주재료,7.9677,0.74,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 당면(불린)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+212,dry_heat,주재료,7.9677,0.7398,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 소고기(채)(주재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+213,dry_heat,부재료,5.75,0.7622,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 시금치(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+214,dry_heat,부재료,5.75,0.7625,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 당근(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:5.0
+215,dry_heat,부재료,5.75,0.7627,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 양파(부재료) | 평가자: | Δ_g:+2500.0 | rubric_avg:5.0
+216,dry_heat,양념류,6.3028,0.7498,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 설탕(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+217,dry_heat,유지류,6.3028,0.7413,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 참기름(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+218,dry_heat,유지류,6.3028,0.7414,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 잡채 | 식용유(유지류) | 평가자: | Δ_g:+850.0 | rubric_avg:5.0
+219,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 두부(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+220,moist_heat,부재료,5.75,0.7636,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 호박(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+221,moist_heat,부재료,5.75,0.764,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 양파(부재료) | 평가자: | Δ_g:+2000.0 | rubric_avg:5.0
+222,moist_heat,양념류,6.3028,0.7423,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 된장(양념류) | 평가자: | Δ_g:+1800.0 | rubric_avg:5.0
+223,moist_heat,양념류,6.3028,0.7425,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 고추장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+224,moist_heat,수분류,5.75,0.7494,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 된장찌개 | 물(멸치육수)(수분류) | 평가자: | Δ_g:+17000.0 | rubric_avg:5.0
+225,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 소시지(주재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:5.0
+226,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 햄(주재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+227,moist_heat,부재료,5.75,0.7643,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 두부(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+228,moist_heat,부재료,5.75,0.7646,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 김치(부재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:5.0
+229,moist_heat,양념류,6.3028,0.7405,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 고추장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+230,moist_heat,양념류,6.3028,0.7407,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+231,moist_heat,양념류,6.3028,0.7409,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 간장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+232,moist_heat,수분류,5.75,0.7496,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 부대찌개 | 물(수분류) | 평가자: | Δ_g:+17000.0 | rubric_avg:5.0
+233,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 순두부(주재료) | 평가자: | Δ_g:+15000.0 | rubric_avg:5.0
+234,moist_heat,부재료,5.75,0.7649,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 돼지고기(다짐)(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+235,moist_heat,양념류,6.3028,0.7411,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 고춧가루(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+236,moist_heat,양념류,6.3028,0.7413,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+237,moist_heat,양념류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 새우젓(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+238,moist_heat,수분류,5.75,0.7497,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 물(육수)(수분류) | 평가자: | Δ_g:+15300.0 | rubric_avg:5.0
+239,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 순두부찌개 | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+240,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 김치찌개 | 김치(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.67
+241,moist_heat,부재료,5.75,0.7651,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 김치찌개 | 돼지고기(목살)(부재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:4.67
+242,moist_heat,부재료,5.75,0.7653,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 김치찌개 | 두부(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+243,moist_heat,양념류,6.3028,0.7401,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 김치찌개 | 고추장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:4.67
+244,moist_heat,수분류,5.75,0.7498,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 김치찌개 | 물(수분류) | 평가자: | Δ_g:+15300.0 | rubric_avg:4.67
+245,dry_heat,주재료,7.9677,0.7396,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 낙지(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.67
+246,dry_heat,부재료,5.75,0.7629,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+247,dry_heat,부재료,5.75,0.7631,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 대파(부재료) | 평가자: | Δ_g:+1500.0 | rubric_avg:4.67
+248,dry_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 고추장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+249,dry_heat,양념류,6.3028,0.7505,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 고춧가루(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+250,dry_heat,양념류,6.3028,0.7504,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+251,dry_heat,수분류,5.75,0.7538,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 물(수분류) | 평가자: | Δ_g:+2550.0 | rubric_avg:4.67
+252,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 낙지볶음찜 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:4.67
+253,dry_heat,주재료,7.9677,0.7394,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 삼겹살(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+254,dry_heat,부재료,5.75,0.7633,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 양파(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+255,dry_heat,양념류,6.3028,0.7497,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 고추장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+256,dry_heat,양념류,6.3028,0.7497,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+257,dry_heat,양념류,6.3028,0.7497,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 설탕(양념류) | 평가자: | Δ_g:+540.0 | rubric_avg:5.0
+258,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 고추장삼겹살볶음 | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+259,dry_heat,주재료,7.9677,0.7392,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 두부(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:4.67
+260,dry_heat,부재료,5.75,0.7635,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 돼지고기(다짐)(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+261,dry_heat,양념류,6.3028,0.7488,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 두반장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+262,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 간장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:4.67
+263,dry_heat,수분류,5.75,0.7536,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 물(수분류) | 평가자: | Δ_g:+4250.0 | rubric_avg:4.67
+264,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 마파두부 | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:4.67
+265,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 떡(가래)(주재료) | 평가자: | Δ_g:+10000.0 | rubric_avg:5.0
+266,moist_heat,부재료,5.75,0.7655,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 어묵(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+267,moist_heat,양념류,6.3028,0.7403,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 고추장(양념류) | 평가자: | Δ_g:+2250.0 | rubric_avg:5.0
+268,moist_heat,양념류,6.3028,0.7405,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 고춧가루(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+269,moist_heat,양념류,6.3028,0.7393,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 설탕(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+270,moist_heat,양념류,6.3028,0.7395,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 간장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+271,moist_heat,수분류,5.75,0.7499,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 떡볶이 | 물(수분류) | 평가자: | Δ_g:+12750.0 | rubric_avg:5.0
+272,dry_heat,주재료,7.9677,0.7391,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 오징어+새우(혼합해물)(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:4.67
+273,dry_heat,부재료,5.75,0.7637,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 쪽파(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+274,dry_heat,부재료,5.75,0.7639,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 밀가루(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+275,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:4.67
+276,dry_heat,수분류,5.75,0.7534,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 물(반죽용)(수분류) | 평가자: | Δ_g:+4250.0 | rubric_avg:4.67
+277,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R4 해물파전 | 식용유(유지류) | 평가자: | Δ_g:+1275.0 | rubric_avg:4.67
+278,dry_heat,주재료,7.9677,0.739,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 돼지고기(앞다리살)(주재료) | 평가자: | Δ_g:+15000.0 | rubric_avg:4.67
+279,dry_heat,부재료,5.75,0.7633,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 양파(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+280,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 고추장(양념류) | 평가자: | Δ_g:+2700.0 | rubric_avg:4.67
+281,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+282,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 설탕(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+283,dry_heat,수분류,5.75,0.7532,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 물(수분류) | 평가자: | Δ_g:+2550.0 | rubric_avg:4.67
+284,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 제육볶음(재검증) | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:4.67
+285,dry_heat,주재료,7.9677,0.7389,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 닭고기(허벅지)(주재료) | 평가자: | Δ_g:+16000.0 | rubric_avg:4.67
+286,dry_heat,부재료,5.75,0.7635,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 양배추(부재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:4.67
+287,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 고추장(양념류) | 평가자: | Δ_g:+2520.0 | rubric_avg:4.67
+288,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+289,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 설탕(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:4.67
+290,dry_heat,수분류,5.75,0.7531,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 물(수분류) | 평가자: | Δ_g:+2125.0 | rubric_avg:4.67
+291,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 닭갈비(재검증) | 식용유(유지류) | 평가자: | Δ_g:+850.0 | rubric_avg:4.67
+292,dry_heat,주재료,7.9677,0.7388,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 삼치구이(재검증) | 삼치(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+293,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 삼치구이(재검증) | 소금(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+294,dry_heat,수분류,5.75,0.753,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 삼치구이(재검증) | 청주(수분류) | 평가자: | Δ_g:+850.0 | rubric_avg:5.0
+295,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 삼치구이(재검증) | 식용유(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+296,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 미역(불린)(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+297,moist_heat,부재료,5.75,0.7657,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 소고기(국거리)(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+298,moist_heat,양념류,6.3028,0.7397,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+299,moist_heat,양념류,6.3028,0.7399,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 소금(양념류) | 평가자: | Δ_g:+135.0 | rubric_avg:5.0
+300,moist_heat,수분류,5.75,0.75,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 물(수분류) | 평가자: | Δ_g:+21250.0 | rubric_avg:5.0
+301,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 미역국(재검증) | 참기름(유지류) | 평가자: | Δ_g:+255.0 | rubric_avg:5.0
+302,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 갈비(소)(주재료) | 평가자: | Δ_g:+20000.0 | rubric_avg:4.67
+303,moist_heat,부재료,5.75,0.7658,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 당근(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:4.67
+304,moist_heat,양념류,6.3028,0.7401,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 간장(양념류) | 평가자: | Δ_g:+2250.0 | rubric_avg:4.67
+305,moist_heat,양념류,6.3028,0.7395,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 설탕(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:4.67
+306,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 참기름(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:4.67
+307,moist_heat,수분류,5.75,0.7501,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 갈비찜(재검증) | 물(수분류) | 평가자: | Δ_g:+8500.0 | rubric_avg:4.67
+308,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 콩나물무침(재검증) | 콩나물(데친)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+309,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 콩나물무침(재검증) | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+310,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 콩나물무침(재검증) | 고춧가루(양념류) | 평가자: | Δ_g:+270.0 | rubric_avg:5.0
+311,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 콩나물무침(재검증) | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+312,dry_heat,주재료,7.9677,0.7387,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 잡채(재검증) | 당면(불린)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+313,dry_heat,주재료,7.9677,0.7386,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 잡채(재검증) | 소고기(채)(주재료) | 평가자: | Δ_g:+4000.0 | rubric_avg:5.0
+314,dry_heat,부재료,5.75,0.7637,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 잡채(재검증) | 시금치(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+315,dry_heat,양념류,6.3028,0.7478,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 잡채(재검증) | 설탕(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+316,dry_heat,유지류,6.3028,0.7415,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 잡채(재검증) | 참기름(유지류) | 평가자: | Δ_g:+680.0 | rubric_avg:5.0
+317,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 된장찌개(재검증) | 두부(주재료) | 평가자: | Δ_g:+6000.0 | rubric_avg:5.0
+318,moist_heat,부재료,5.75,0.7659,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 된장찌개(재검증) | 호박(부재료) | 평가자: | Δ_g:+3000.0 | rubric_avg:5.0
+319,moist_heat,양념류,6.3028,0.7397,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 된장찌개(재검증) | 된장(양념류) | 평가자: | Δ_g:+1800.0 | rubric_avg:5.0
+320,moist_heat,양념류,6.3028,0.7399,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 된장찌개(재검증) | 고추장(양념류) | 평가자: | Δ_g:+450.0 | rubric_avg:5.0
+321,moist_heat,수분류,5.75,0.7502,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 된장찌개(재검증) | 물(멸치육수)(수분류) | 평가자: | Δ_g:+17000.0 | rubric_avg:5.0
+322,moist_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 고등어(주재료) | 평가자: | Δ_g:+12000.0 | rubric_avg:5.0
+323,moist_heat,부재료,5.75,0.766,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 무(부재료) | 평가자: | Δ_g:+5000.0 | rubric_avg:5.0
+324,moist_heat,양념류,6.3028,0.7401,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 고추장(양념류) | 평가자: | Δ_g:+1350.0 | rubric_avg:5.0
+325,moist_heat,양념류,6.3028,0.7403,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 간장(양념류) | 평가자: | Δ_g:+900.0 | rubric_avg:5.0
+326,moist_heat,수분류,5.75,0.7503,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 물(수분류) | 평가자: | Δ_g:+6800.0 | rubric_avg:5.0
+327,moist_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 고등어조림(재검증) | 식용유(유지류) | 평가자: | Δ_g:+425.0 | rubric_avg:5.0
+328,no_heat,주재료,7.9677,0.7359,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 시금치무침(재검증) | 시금치(데친)(주재료) | 평가자: | Δ_g:+8000.0 | rubric_avg:5.0
+329,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 시금치무침(재검증) | 간장(양념류) | 평가자: | Δ_g:+720.0 | rubric_avg:5.0
+330,no_heat,유지류,6.3028,0.7426,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 시금치무침(재검증) | 참기름(유지류) | 평가자: | Δ_g:+340.0 | rubric_avg:5.0
+331,no_heat,양념류,6.3028,0.7482,0.1814,,,,,nutritionist_feedback,1,영양사피드백,R5 시금치무침(재검증) | 소금(양념류) | 평가자: | Δ_g:+90.0 | rubric_avg:5.0
