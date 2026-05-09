@@ -138,11 +138,10 @@ def _compute_lookup_priority(df: pd.DataFrame) -> pd.Series:
     is_stat = df["estimation_method"].isin(["mixedlm", "curve_fit"])
     priority[has_group & is_stat] = _PRIORITY_MIXEDLM
 
-    # 1순위: cooking_method_id 존재 + nutritionist_feedback (2순위보다 늦게 처리하여 덮어씀)
-    cmi_col = df.get("cooking_method_id", pd.Series(pd.NA, index=df.index))
-    has_method_id = cmi_col.notna()
+    # 1순위: nutritionist_feedback (group_type만 있어도 통계값보다 우선)
+    # cooking_method_id 유무와 관계없이 피드백 보정값 > 통계 도출값 (ADR-002 v3 의도)
     is_feedback = df["estimation_method"] == "nutritionist_feedback"
-    priority[has_method_id & is_feedback] = _PRIORITY_NUTRITIONIST
+    priority[has_group & is_feedback] = _PRIORITY_NUTRITIONIST
 
     return priority
 
@@ -360,15 +359,21 @@ def lookup_scaling_params(
     if by_category.empty:
         return None
 
-    # 1순위: nutritionist_feedback — cooking_method_id × ingredient_category
-    if cooking_method_id is not None:
-        p1 = by_category[
-            (by_category["cooking_method_id"] == cooking_method_id)
-            & (by_category["estimation_method"] == "nutritionist_feedback")
-        ]
-        if not p1.empty:
-            row = p1.sort_values("lookup_priority").iloc[0]
-            return _row_to_params(row)
+    # 1순위: nutritionist_feedback — group_type × ingredient_category
+    # cooking_method_id 있으면 더 구체적인 것 우선, 없으면 group_type 기반 최신값 사용
+    # ADR-002 v3: 피드백 보정값 > 통계 도출값
+    p1 = by_category[
+        (by_category["group_type"] == group_type)
+        & (by_category["estimation_method"] == "nutritionist_feedback")
+    ]
+    if not p1.empty:
+        if cooking_method_id is not None:
+            p1_specific = p1[p1["cooking_method_id"] == cooking_method_id]
+            if not p1_specific.empty:
+                p1 = p1_specific
+        # coefficient_id 내림차순 = 가장 최신 보정값 우선
+        row = p1.sort_values("coefficient_id", ascending=False).iloc[0]
+        return _row_to_params(row)
 
     # 2순위: mixedlm / curve_fit — group_type × ingredient_category
     p2 = by_category[

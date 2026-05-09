@@ -1,0 +1,92 @@
+{
+  "source": "피드백_전체_5회차_20260424_완성.xlsx::R4_R4_002_된장찌개",
+  "recipe_id": "R4_002",
+  "recipe_name": "된장찌개",
+  "feedback_round": 4,
+  "group_type": "moist_heat",
+  "evaluator_name": "",
+  "evaluator_id": "",
+  "evaluation_date": "2026-05-08",
+  "rubric_taste": 5,
+  "rubric_feasibility": 5,
+  "rubric_field": 5,
+  "rubric_avg": 5.0,
+  "overall_rating": "상용가능",
+  "comment": "",
+  "ingredient_updates": [
+    {
+      "ingredient_name": "두부",
+      "category": "주재료",
+      "delta_g_original": 6000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7359,
+      "b_feedback": 0.7359,
+      "b_new_raw": 0.7359,
+      "b_new": 0.7359,
+      "is_clipped": false,
+      "n_new": 12
+    },
+    {
+      "ingredient_name": "호박",
+      "category": "부재료",
+      "delta_g_original": 3000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7631,
+      "b_feedback": 0.7688,
+      "b_new_raw": 0.7636,
+      "b_new": 0.7636,
+      "is_clipped": false,
+      "n_new": 12
+    },
+    {
+      "ingredient_name": "양파",
+      "category": "부재료",
+      "delta_g_original": 2000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7636,
+      "b_feedback": 0.7688,
+      "b_new_raw": 0.764,
+      "b_new": 0.764,
+      "is_clipped": false,
+      "n_new": 13
+    },
+    {
+      "ingredient_name": "된장",
+      "category": "양념류",
+      "delta_g_original": 1800.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7421,
+      "b_feedback": 0.7482,
+      "b_new_raw": 0.7423,
+      "b_new": 0.7423,
+      "is_clipped": false,
+      "n_new": 28
+    },
+    {
+      "ingredient_name": "고추장",
+      "category": "양념류",
+      "delta_g_original": 450.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7423,
+      "b_feedback": 0.7482,
+      "b_new_raw": 0.7425,
+      "b_new": 0.7425,
+      "is_clipped": false,
+      "n_new": 29
+    },
+    {
+      "ingredient_name": "물(멸치육수)",
+      "category": "수분류",
+      "delta_g_original": 17000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7492,
+      "b_feedback": 0.7517,
+      "b_new_raw": 0.7494,
+      "b_new": 0.7494,
+      "is_clipped": false,
+      "n_new": 12
+    }
+  ],
+  "dry_run": false,
+  "processed_date": "2026-05-08"
+}

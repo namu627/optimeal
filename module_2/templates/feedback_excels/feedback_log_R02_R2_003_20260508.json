@@ -1,0 +1,68 @@
+{
+  "source": "피드백_전체_5회차_20260424_완성.xlsx::R2_R2_003_감자전",
+  "recipe_id": "R2_003",
+  "recipe_name": "감자전",
+  "feedback_round": 2,
+  "group_type": "dry_heat",
+  "evaluator_name": "",
+  "evaluator_id": "",
+  "evaluation_date": "2026-05-08",
+  "rubric_taste": 4,
+  "rubric_feasibility": 4,
+  "rubric_field": 4,
+  "rubric_avg": 4.0,
+  "overall_rating": "상용가능",
+  "comment": "",
+  "ingredient_updates": [
+    {
+      "ingredient_name": "감자(채)",
+      "category": "주재료",
+      "delta_g_original": 10000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7409,
+      "b_feedback": 0.7359,
+      "b_new_raw": 0.7406,
+      "b_new": 0.7406,
+      "is_clipped": false,
+      "n_new": 15
+    },
+    {
+      "ingredient_name": "소금",
+      "category": "양념류",
+      "delta_g_original": 180.0,
+      "delta_g_clipped": null,
+      "b_old": 0.75,
+      "b_feedback": 0.7482,
+      "b_new_raw": 0.7499,
+      "b_new": 0.7499,
+      "is_clipped": false,
+      "n_new": 32
+    },
+    {
+      "ingredient_name": "전분",
+      "category": "부재료",
+      "delta_g_original": 500.0,
+      "delta_g_clipped": null,
+      "b_old": 0.7641,
+      "b_feedback": 0.7056,
+      "b_new_raw": 0.7613,
+      "b_new": 0.7613,
+      "is_clipped": false,
+      "n_new": 21
+    },
+    {
+      "ingredient_name": "식용유",
+      "category": "유지류",
+      "delta_g_original": 1275.0,
+      "delta_g_clipped": null,
+      "b_old": 0.741,
+      "b_feedback": 0.7427,
+      "b_new_raw": 0.7411,
+      "b_new": 0.7411,
+      "is_clipped": false,
+      "n_new": 19
+    }
+  ],
+  "dry_run": false,
+  "processed_date": "2026-05-08"
+}
