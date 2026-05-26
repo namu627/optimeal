@@ -1,0 +1,32 @@
+{
+  "vocab_size": 482,
+  "embed_dim": 128,
+  "num_filters": 64,
+  "kernel_sizes": [
+    2,
+    3,
+    4
+  ],
+  "num_classes": 5,
+  "dropout": 0.3,
+  "max_length": 20,
+  "label2idx": {
+    "부재료": 0,
+    "수분류": 1,
+    "양념류": 2,
+    "유지류": 3,
+    "주재료": 4
+  },
+  "idx2label": {
+    "0": "부재료",
+    "1": "수분류",
+    "2": "양념류",
+    "3": "유지류",
+    "4": "주재료"
+  },
+  "batch_size": 32,
+  "lr": 0.001,
+  "epochs": 50,
+  "patience": 10,
+  "random_state": 42
+}
