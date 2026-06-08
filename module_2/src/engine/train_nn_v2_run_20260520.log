@@ -1,0 +1,44 @@
+[setup] device=mps epochs=60 batch=64 noise_sigma=0.05
+[data] X=(1435, 30, 9) groups=205 valid_slots=4249
+[lookup] mean b across 13 cells = 0.7466
+[cv] 5-Fold GroupKFold
+  [fold 0] epoch  12 | train_loss=0.3476 | test_mape=31.77%
+  [fold 0] epoch  24 | train_loss=0.2830 | test_mape=26.59%
+  [fold 0] epoch  36 | train_loss=0.2731 | test_mape=25.06%
+  [fold 0] epoch  48 | train_loss=0.2618 | test_mape=21.50%
+  [fold 0] epoch  60 | train_loss=0.2739 | test_mape=21.99%
+[fold 0] NN_MAPE=21.99% LOOKUP_MAPE=22.49% Δ=+0.50%p
+  [fold 1] epoch  12 | train_loss=0.3239 | test_mape=18.90%
+  [fold 1] epoch  24 | train_loss=0.2747 | test_mape=19.08%
+  [fold 1] epoch  36 | train_loss=0.2641 | test_mape=18.73%
+  [fold 1] epoch  48 | train_loss=0.2679 | test_mape=18.70%
+  [fold 1] epoch  60 | train_loss=0.2537 | test_mape=20.12%
+[fold 1] NN_MAPE=20.12% LOOKUP_MAPE=20.64% Δ=+0.51%p
+  [fold 2] epoch  12 | train_loss=0.3433 | test_mape=18.11%
+  [fold 2] epoch  24 | train_loss=0.2717 | test_mape=16.94%
+  [fold 2] epoch  36 | train_loss=0.2695 | test_mape=17.83%
+  [fold 2] epoch  48 | train_loss=0.2582 | test_mape=18.24%
+  [fold 2] epoch  60 | train_loss=0.2563 | test_mape=18.76%
+[fold 2] NN_MAPE=18.76% LOOKUP_MAPE=23.81% Δ=+5.05%p
+  [fold 3] epoch  12 | train_loss=0.3870 | test_mape=22.50%
+  [fold 3] epoch  24 | train_loss=0.3582 | test_mape=18.74%
+  [fold 3] epoch  36 | train_loss=0.3117 | test_mape=18.49%
+  [fold 3] epoch  48 | train_loss=0.3315 | test_mape=19.02%
+  [fold 3] epoch  60 | train_loss=0.3418 | test_mape=19.28%
+[fold 3] NN_MAPE=19.28% LOOKUP_MAPE=20.79% Δ=+1.51%p
+  [fold 4] epoch  12 | train_loss=0.3212 | test_mape=20.77%
+  [fold 4] epoch  24 | train_loss=0.2655 | test_mape=18.99%
+  [fold 4] epoch  36 | train_loss=0.2616 | test_mape=17.95%
+  [fold 4] epoch  48 | train_loss=0.2679 | test_mape=18.41%
+  [fold 4] epoch  60 | train_loss=0.2537 | test_mape=18.10%
+[fold 4] NN_MAPE=18.10% LOOKUP_MAPE=20.57% Δ=+2.47%p
+[cv] NN mean MAPE     = 19.65% ± 1.34%
+[cv] LOOKUP mean MAPE = 21.66% ± 1.29%
+[cv] Δ (LOOKUP - NN)  = +2.01%p
+[final] training on full dataset
+  [final] epoch  12 | train_loss=0.3085
+  [final] epoch  24 | train_loss=0.2820
+  [final] epoch  36 | train_loss=0.2934
+  [final] epoch  48 | train_loss=0.2724
+  [final] epoch  60 | train_loss=0.2711
+[final] saved → /Users/leticiacavalcanti/Drive/04_School/00_OptiMeal/01_Claude-code/module_2/src/engine/nn_model_v2.pt

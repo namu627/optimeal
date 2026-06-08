@@ -57,6 +57,20 @@ def lookup_df():
 
 
 @pytest.fixture(scope="module")
+def lookup_mixedlm():
+    """
+    MixedLM 파라미터만 포함한 룩업 테이블 (b=0.6163, 한국어 9행).
+
+    선형 vs MixedLM MAPE 비교 전용.
+    기존 대규모 레시피 데이터(baseline_result.csv)를 target으로 삼을 때
+    공정한 비교를 위해 피드백 보정값을 제외하고 통계 추정값만 사용한다.
+    """
+    csv_path = Path(__file__).parent.parent / "src" / "engine" / "scaling_coefficients.csv"
+    df = build_lookup_table(csv_path)
+    return df[df["estimation_method"] == "mixedlm"].copy()
+
+
+@pytest.fixture(scope="module")
 def df_b():
     """df_B.csv — MixedLM 학습용 데이터셋."""
     csv_path = Path(__file__).parent.parent / "df_B.csv"
@@ -457,12 +471,22 @@ class TestMapeCompletionCriteria:
     """
     MAPE 완료 기준 검증.
 
-    [기준 데이터 변경]
-    - 구 기준(폐기): baseline_result.csv — 2000년대 초반 대규모 레시피.
-      영양사 피드백이 현장 최신 레시피 기준으로 수집되어 모집단 불일치 발생.
-      최신 b값으로 구 데이터 MAPE를 계산하면 오히려 높아지는 것이 방법론적으로 정상임.
-    - 신 기준: 피드백_전체_5회차_완성.xlsx — 영양사 최종 승인량 (modern ground truth).
-      피드백 보정 b값의 유효성은 해당 데이터 대비 선형 모델 대비 개선 여부로 판단.
+    [방법론 확정 — 2026-05-12]
+    target = 기존 대규모 레시피 데이터 (baseline_result.csv, 실제 측정값)
+    비교 모델 = 선형(b=1) vs MixedLM(b=0.6163, lookup_mixedlm)
+
+    피드백 보정 b(≈0.74)의 MAPE는 측정하지 않는다.
+    이유:
+      1) 피드백 수집 방식(Y_final = Y_engine + Δ_g)으로 인해 ground truth가 엔진 출력에
+         종속되어 독립적 target 설정 불가 (닻내림 효과, 반사실적 선형 MAPE).
+      2) 피드백 보정 b는 동일 피드백 데이터로 학습된 in-sample 수치 (3.65%).
+      3) 피드백 보정 b는 "전문가 보정 최종 파라미터"로만 기술한다.
+
+    [현재 측정 결과 — 2026-05-12]
+      baseline_result.csv (n=342): 선형 32.68%, MixedLM 34.31% → 개선 미달(FAIL)
+      df_B.csv in-sample (n=607): 선형 65.37%, MixedLM 67.57% → 개선 미달(FAIL)
+    원인: MixedLM은 log(ratio) RSS를 최소화하며 MAPE를 직접 최소화하지 않음.
+          a값(5.75~7.97)으로 인한 예측 ratio와 실제 ratio 간 불일치.
     """
 
     def test_fallback_b_less_than_1(self):
@@ -476,43 +500,56 @@ class TestMapeCompletionCriteria:
         assert not math.isnan(mape)
         assert mape > 0
 
-    def test_mape_with_baseline_pipeline_informational(self, baseline_pipeline_result, lookup_df):
+    def test_mape_with_baseline_data(self, baseline_pipeline_result, lookup_mixedlm):
         """
-        [참조 전용 — assertion 없음]
-        baseline_result.csv (2000년대 초반 데이터) 기준 MAPE.
+        ★ 완료 기준 검증 — 기존 대규모 레시피 데이터 기준 선형 vs MixedLM MAPE.
 
-        최신 b값(영양사 피드백 보정)이 구 데이터에서 MAPE가 높아지는 것은
-        모집단 불일치(2000년대 레시피 vs 현장 최신 레시피) 때문으로,
-        이를 완료 기준으로 사용하는 것은 방법론적으로 부적합함.
-        수치는 참고 기록용으로만 출력한다.
+        ground truth = baseline_result.csv의 target_amount_g (실제 측정 대규모 레시피량).
+        비교 파라미터 = MixedLM 통계 추정값 전용 (b=0.6163, 피드백 보정값 제외).
+
+        완료 기준: MixedLM MAPE < 선형 Baseline MAPE (개선 입증).
+
+        [현재 상태 — 2026-05-12: FAIL]
+          선형 32.68%, MixedLM 34.31% → MixedLM이 선형보다 1.63%p 높음.
+          원인: MixedLM은 log(ratio) RSS 최적화이며 MAPE 직접 최소화 아님.
+          후속 조치 필요: a값 재검토 또는 평가 지표 변경 검토.
         """
+        import numpy as np
+
         df = baseline_pipeline_result.copy()
         if "ratio_actual" in df.columns:
             df = df[(df["ratio_actual"] >= 0.2) & (df["ratio_actual"] <= 3.0)]
 
-        mape_rulebased = calc_mape_fallback(df, lookup_df)
+        mape_mixedlm = calc_mape_fallback(df, lookup_mixedlm)
 
-        # 선형 Baseline MAPE (참고)
-        import numpy as np
         actual = df["target_amount_g"]
         linear = df["base_amount_g"] * df["target_serving_size"]
         mape_linear = float(np.mean(np.abs((actual - linear) / actual.clip(lower=1.0))) * 100)
 
-        print(f"\n[참조 전용 — 구 데이터 기준]")
-        print(f"  선형 Baseline MAPE = {mape_linear:.2f}%")
-        print(f"  Rule-based MAPE    = {mape_rulebased:.2f}%")
-        print(f"  ※ 신 기준: test_mape_with_feedback_excel 참조")
+        improvement = (mape_linear - mape_mixedlm) / mape_linear * 100
 
-        assert not math.isnan(mape_rulebased)
+        print(f"\n[★ 완료 기준 — 기존 대규모 레시피 기준]")
+        print(f"  n = {len(df)}건 (baseline_result.csv, ratio [0.2, 3.0])")
+        print(f"  선형 Baseline MAPE      = {mape_linear:.4f}%")
+        print(f"  MixedLM(b=0.6163) MAPE  = {mape_mixedlm:.4f}%")
+        print(f"  개선율                  = {improvement:+.2f}%")
 
-    def test_mape_with_feedback_excel(self, feedback_excel_data, lookup_df):
+        assert not math.isnan(mape_mixedlm)
+        assert mape_mixedlm < mape_linear, (
+            f"MixedLM MAPE({mape_mixedlm:.2f}%) ≥ 선형({mape_linear:.2f}%): 개선 미달. "
+            f"a값 재검토 또는 평가 지표 변경 필요."
+        )
+
+    def test_mape_with_feedback_excel_informational(self, feedback_excel_data, lookup_df):
         """
-        ★ 완료 기준 검증 — 영양사 피드백 최종 승인량 기준 MAPE.
+        [참조 전용 — assertion 없음] 영양사 피드백 최종 승인량 기준 MAPE.
 
-        ground truth = 피드백_전체_5회차_완성.xlsx 내 '최종량(자동계산)'.
-        = 엔진 계산량 + 영양사 조정량(Δ_g) → 영양사가 승인한 현장 적용 수치.
-
-        완료 기준: Rule-based MAPE < 선형 Baseline MAPE (개선 입증).
+        [방법론적 문제로 완료 기준에서 제외 — 2026-05-12]
+        ground truth = Y_final = Y_engine + Δ_g 로, target이 엔진 출력에 종속.
+          - MAPE_MixedLM = |Δ_g| / Y_final → 예측 정확도가 아닌 영양사 수정량 크기를 측정
+          - MAPE_선형은 반사실적(counterfactual) 계산값 (실제 관찰값 아님)
+          - 두 수치의 계산 방식이 비대칭 → 공정한 비교 불가
+        수치는 참고 기록용으로만 출력한다.
         """
         import numpy as np
 
@@ -536,15 +573,13 @@ class TestMapeCompletionCriteria:
         mape_lin = float(np.mean(apes_linear))
         improvement = (mape_lin - mape_rb) / mape_lin * 100
 
-        print(f"\n[★ 완료 기준 — 피드백 최종 승인량 기준]")
+        print(f"\n[참조 전용 — 피드백 승인량 기준, 방법론 문제로 완료기준 제외]")
         print(f"  n = {len(apes_rulebased)}건")
-        print(f"  선형 Baseline MAPE = {mape_lin:.2f}%")
-        print(f"  Rule-based MAPE    = {mape_rb:.2f}%")
-        print(f"  개선율             = {improvement:+.1f}%")
+        print(f"  선형 Baseline MAPE = {mape_lin:.2f}%  (반사실적 계산)")
+        print(f"  Rule-based MAPE    = {mape_rb:.2f}%  (in-sample, |Δ_g|/Y_final)")
+        print(f"  개선율             = {improvement:+.1f}%  (비교 불가)")
 
-        assert mape_rb < mape_lin, (
-            f"Rule-based MAPE({mape_rb:.2f}%) ≥ 선형 Baseline({mape_lin:.2f}%): 개선 미달"
-        )
+        assert not math.isnan(mape_rb)
 
 
 # ===========================================================================

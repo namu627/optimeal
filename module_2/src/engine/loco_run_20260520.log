@@ -1,0 +1,60 @@
+[setup] device=mps epochs_per_cell=40
+[data] df_B rows=607, b_table cells=13
+[loco] 13개 셀 후보 (b 정의 ∩ 데이터 존재):
+  - (dry_heat, 부재료)
+  - (dry_heat, 수분류)
+  - (dry_heat, 양념류)
+  - (dry_heat, 유지류)
+  - (dry_heat, 주재료)
+  - (moist_heat, 부재료)
+  - (moist_heat, 수분류)
+  - (moist_heat, 양념류)
+  - (moist_heat, 유지류)
+  - (moist_heat, 주재료)
+  - (no_heat, 양념류)
+  - (no_heat, 유지류)
+  - (no_heat, 주재료)
+
+[loco 1/13] hold-out (dry_heat, 부재료)
+  n_slots= 532 | b_true=0.7637 b_lookup=0.7660 | NN=421.31% LOOKUP=0.99% Δ=-420.33%p
+
+[loco 2/13] hold-out (dry_heat, 수분류)
+  n_slots=  21 | b_true=0.7530 b_lookup=0.7503 | NN=513.73% LOOKUP=1.14% Δ=-512.58%p
+
+[loco 3/13] hold-out (dry_heat, 양념류)
+  n_slots= 385 | b_true=0.7478 b_lookup=0.7442 | NN=214.00% LOOKUP=1.50% Δ=-212.50%p
+
+[loco 4/13] hold-out (dry_heat, 유지류)
+  n_slots= 196 | b_true=0.7415 b_lookup=0.7426 | NN=57.68% LOOKUP=0.47% Δ=-57.21%p
+
+[loco 5/13] hold-out (dry_heat, 주재료)
+  n_slots= 245 | b_true=0.7386 b_lookup=0.7359 | NN=39.96% LOOKUP=1.14% Δ=-38.81%p
+
+[loco 6/13] hold-out (moist_heat, 부재료)
+  n_slots= 826 | b_true=0.7660 b_lookup=0.7637 | NN=57.84% LOOKUP=0.97% Δ=-56.86%p
+
+[loco 7/13] hold-out (moist_heat, 수분류)
+  n_slots=  98 | b_true=0.7503 b_lookup=0.7530 | NN=81.51% LOOKUP=1.16% Δ=-80.35%p
+
+[loco 8/13] hold-out (moist_heat, 양념류)
+  n_slots= 609 | b_true=0.7403 b_lookup=0.7480 | NN=38.75% LOOKUP=3.34% Δ=-35.41%p
+
+[loco 9/13] hold-out (moist_heat, 유지류)
+  n_slots=  49 | b_true=0.7426 b_lookup=0.7421 | NN=45.11% LOOKUP=0.23% Δ=-44.87%p
+
+[loco 10/13] hold-out (moist_heat, 주재료)
+  n_slots= 294 | b_true=0.7359 b_lookup=0.7372 | NN=71.14% LOOKUP=0.58% Δ=-70.56%p
+
+[loco 11/13] hold-out (no_heat, 양념류)
+  n_slots= 574 | b_true=0.7482 b_lookup=0.7440 | NN=34.48% LOOKUP=1.75% Δ=-32.73%p
+
+[loco 12/13] hold-out (no_heat, 유지류)
+  n_slots=  84 | b_true=0.7426 b_lookup=0.7421 | NN=22.24% LOOKUP=0.23% Δ=-22.00%p
+
+[loco 13/13] hold-out (no_heat, 주재료)
+  n_slots=  63 | b_true=0.7359 b_lookup=0.7372 | NN=37.00% LOOKUP=0.58% Δ=-36.42%p
+
+[loco] saved → /Users/leticiacavalcanti/Drive/04_School/00_OptiMeal/01_Claude-code/module_2/src/engine/loco_results_20260520.csv
+[loco] NN 우위 셀: 0/13, lookup 우위: 13/13
+[loco] 평균 Δ (LOOKUP - NN) = -124.66%p
+[verdict] NN > LOOKUP — 시나리오 (c) lookup 회귀 검토 필요

@@ -1,0 +1,47 @@
+[setup] device=mps epochs=40 sigma=0.05
+[data] X=(1435, 30, 9) groups=205 valid_slots=4249
+[loco] 13개 셀
+
+[loco 1/13] hold-out (dry_heat, 부재료)
+  n_slots= 532 | b_true=0.7637 b_lookup=0.7660 | NN=47.94% LOOKUP=16.19% Δ=-31.75%p
+
+[loco 2/13] hold-out (dry_heat, 수분류)
+  n_slots=  21 | b_true=0.7530 b_lookup=0.7503 | NN=42.23% LOOKUP=7.04% Δ=-35.19%p
+
+[loco 3/13] hold-out (dry_heat, 양념류)
+  n_slots= 385 | b_true=0.7478 b_lookup=0.7442 | NN=28.80% LOOKUP=15.99% Δ=-12.81%p
+
+[loco 4/13] hold-out (dry_heat, 유지류)
+  n_slots= 196 | b_true=0.7415 b_lookup=0.7426 | NN=43.03% LOOKUP=20.30% Δ=-22.73%p
+
+[loco 5/13] hold-out (dry_heat, 주재료)
+  n_slots= 245 | b_true=0.7386 b_lookup=0.7359 | NN=51.49% LOOKUP=18.32% Δ=-33.17%p
+
+[loco 6/13] hold-out (moist_heat, 부재료)
+  n_slots= 826 | b_true=0.7660 b_lookup=0.7637 | NN=41.00% LOOKUP=17.90% Δ=-23.10%p
+
+[loco 7/13] hold-out (moist_heat, 수분류)
+  n_slots=  98 | b_true=0.7503 b_lookup=0.7530 | NN=68.89% LOOKUP=23.90% Δ=-44.99%p
+
+[loco 8/13] hold-out (moist_heat, 양념류)
+  n_slots= 609 | b_true=0.7403 b_lookup=0.7480 | NN=48.38% LOOKUP=20.19% Δ=-28.19%p
+
+[loco 9/13] hold-out (moist_heat, 유지류)
+  n_slots=  49 | b_true=0.7426 b_lookup=0.7421 | NN=23.63% LOOKUP=15.83% Δ=-7.80%p
+
+[loco 10/13] hold-out (moist_heat, 주재료)
+  n_slots= 294 | b_true=0.7359 b_lookup=0.7372 | NN=55.26% LOOKUP=15.66% Δ=-39.59%p
+
+[loco 11/13] hold-out (no_heat, 양념류)
+  n_slots= 574 | b_true=0.7482 b_lookup=0.7440 | NN=43.62% LOOKUP=19.47% Δ=-24.15%p
+
+[loco 12/13] hold-out (no_heat, 유지류)
+  n_slots=  84 | b_true=0.7426 b_lookup=0.7421 | NN=21.11% LOOKUP=12.29% Δ=-8.82%p
+
+[loco 13/13] hold-out (no_heat, 주재료)
+  n_slots=  63 | b_true=0.7359 b_lookup=0.7372 | NN=42.00% LOOKUP=16.38% Δ=-25.62%p
+
+[loco] saved → /Users/leticiacavalcanti/Drive/04_School/00_OptiMeal/01_Claude-code/module_2/src/engine/loco_v2_results_20260520.csv
+[loco] NN 우위: 0/13, lookup 우위: 13/13
+[loco] 평균 Δ (LOOKUP - NN) = -25.99%p
+[verdict] NN > LOOKUP — lookup 회귀 검토.

@@ -1,0 +1,41 @@
+[setup] device=mps epochs=60 batch=64
+[data] X=(1435, 4, 30) groups=205 valid_slots=4249
+[cv] 5-Fold GroupKFold (group=small_recipe_id)
+  [fold 0] epoch  12 | train_loss=0.9613 | test_loss=0.7234 | test_mape=105.46%
+  [fold 0] epoch  24 | train_loss=0.4230 | test_loss=0.3126 | test_mape=62.34%
+  [fold 0] epoch  36 | train_loss=0.2972 | test_loss=0.2614 | test_mape=52.21%
+  [fold 0] epoch  48 | train_loss=0.2758 | test_loss=0.3377 | test_mape=53.10%
+  [fold 0] epoch  60 | train_loss=0.3078 | test_loss=0.3354 | test_mape=59.12%
+[fold 0] test_loss=0.3354 test_mape=59.12%
+  [fold 1] epoch  12 | train_loss=0.9183 | test_loss=0.7757 | test_mape=72.82%
+  [fold 1] epoch  24 | train_loss=0.4867 | test_loss=0.3375 | test_mape=58.05%
+  [fold 1] epoch  36 | train_loss=0.3181 | test_loss=0.2930 | test_mape=44.14%
+  [fold 1] epoch  48 | train_loss=0.2684 | test_loss=0.2865 | test_mape=40.60%
+  [fold 1] epoch  60 | train_loss=0.2687 | test_loss=0.2815 | test_mape=42.75%
+[fold 1] test_loss=0.2815 test_mape=42.75%
+  [fold 2] epoch  12 | train_loss=1.0324 | test_loss=0.7946 | test_mape=61.16%
+  [fold 2] epoch  24 | train_loss=0.4157 | test_loss=0.3960 | test_mape=33.15%
+  [fold 2] epoch  36 | train_loss=0.3342 | test_loss=0.2946 | test_mape=22.43%
+  [fold 2] epoch  48 | train_loss=0.2995 | test_loss=0.3245 | test_mape=22.23%
+  [fold 2] epoch  60 | train_loss=0.2773 | test_loss=0.3073 | test_mape=23.74%
+[fold 2] test_loss=0.3073 test_mape=23.74%
+  [fold 3] epoch  12 | train_loss=1.0109 | test_loss=1.0542 | test_mape=69.70%
+  [fold 3] epoch  24 | train_loss=0.4372 | test_loss=0.5836 | test_mape=47.79%
+  [fold 3] epoch  36 | train_loss=0.3412 | test_loss=0.4892 | test_mape=40.37%
+  [fold 3] epoch  48 | train_loss=0.3315 | test_loss=0.5047 | test_mape=45.70%
+  [fold 3] epoch  60 | train_loss=0.2836 | test_loss=0.5266 | test_mape=50.79%
+[fold 3] test_loss=0.5266 test_mape=50.79%
+  [fold 4] epoch  12 | train_loss=0.9454 | test_loss=0.5111 | test_mape=69.39%
+  [fold 4] epoch  24 | train_loss=0.4184 | test_loss=0.1270 | test_mape=28.14%
+  [fold 4] epoch  36 | train_loss=0.3306 | test_loss=0.1105 | test_mape=25.51%
+  [fold 4] epoch  48 | train_loss=0.2994 | test_loss=0.0869 | test_mape=19.94%
+  [fold 4] epoch  60 | train_loss=0.2934 | test_loss=0.1017 | test_mape=21.70%
+[fold 4] test_loss=0.1017 test_mape=21.70%
+[cv] mean MAPE = 39.62% ± 14.75%
+[final] training on full dataset
+  [final] epoch  12 | train_loss=0.7635
+  [final] epoch  24 | train_loss=0.3515
+  [final] epoch  36 | train_loss=0.2904
+  [final] epoch  48 | train_loss=0.2629
+  [final] epoch  60 | train_loss=0.2829
+[final] saved → /Users/leticiacavalcanti/Drive/04_School/00_OptiMeal/01_Claude-code/module_2/src/engine/nn_model.pt

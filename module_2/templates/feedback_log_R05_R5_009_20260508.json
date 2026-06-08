@@ -1,0 +1,92 @@
+{
+  "source": "피드백_전체_5회차_20260424_완성.xlsx::R5_R5_009_고등어조림(재검증)",
+  "recipe_id": "R5_009",
+  "recipe_name": "고등어조림(재검증)",
+  "feedback_round": 5,
+  "group_type": "moist_heat",
+  "evaluator_name": "",
+  "evaluator_id": "",
+  "evaluation_date": "2026-05-08",
+  "rubric_taste": 5,
+  "rubric_feasibility": 5,
+  "rubric_field": 5,
+  "rubric_avg": 5.0,
+  "overall_rating": "상용가능",
+  "comment": "",
+  "ingredient_updates": [
+    {
+      "ingredient_name": "고등어",
+      "category": "주재료",
+      "delta_g_original": 12000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7359,
+      "b_new_raw": 0.7359,
+      "b_new": 0.7359,
+      "is_clipped": false,
+      "n_new": 1
+    },
+    {
+      "ingredient_name": "무",
+      "category": "부재료",
+      "delta_g_original": 5000.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7688,
+      "b_new_raw": 0.7688,
+      "b_new": 0.7688,
+      "is_clipped": false,
+      "n_new": 1
+    },
+    {
+      "ingredient_name": "고추장",
+      "category": "양념류",
+      "delta_g_original": 1350.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7482,
+      "b_new_raw": 0.7482,
+      "b_new": 0.7482,
+      "is_clipped": false,
+      "n_new": 1
+    },
+    {
+      "ingredient_name": "간장",
+      "category": "양념류",
+      "delta_g_original": 900.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7482,
+      "b_new_raw": 0.7482,
+      "b_new": 0.7482,
+      "is_clipped": false,
+      "n_new": 1
+    },
+    {
+      "ingredient_name": "물",
+      "category": "수분류",
+      "delta_g_original": 6800.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7517,
+      "b_new_raw": 0.7517,
+      "b_new": 0.7517,
+      "is_clipped": false,
+      "n_new": 1
+    },
+    {
+      "ingredient_name": "식용유",
+      "category": "유지류",
+      "delta_g_original": 425.0,
+      "delta_g_clipped": null,
+      "b_old": 0.6163,
+      "b_feedback": 0.7427,
+      "b_new_raw": 0.7427,
+      "b_new": 0.7427,
+      "is_clipped": false,
+      "n_new": 1
+    }
+  ],
+  "dry_run": true,
+  "processed_date": "2026-05-08"
+}

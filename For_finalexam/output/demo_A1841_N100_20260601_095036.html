@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>OptiMeal 데모 — 삼색겨자냉채2 × N=100</title>
+  <style>
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  margin: 0; padding: 24px 32px;
+  background: #fafafa; color: #1f2328;
+  line-height: 1.55;
+}
+header {
+  border-bottom: 2px solid #1f2328;
+  padding-bottom: 12px; margin-bottom: 20px;
+}
+h1 { font-size: 22px; margin: 0 0 4px 0; }
+h2 { font-size: 16px; margin: 24px 0 10px; padding-bottom: 4px;
+     border-bottom: 1px solid #d0d7de; }
+.meta { color: #57606a; font-size: 13px; }
+.meta b { color: #1f2328; }
+.summary-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 12px; margin: 16px 0;
+}
+.summary-card {
+  background: #fff; border: 1px solid #d0d7de; border-radius: 6px;
+  padding: 10px 14px;
+}
+.summary-card .label { font-size: 12px; color: #57606a; }
+.summary-card .value { font-size: 18px; font-weight: 600; margin-top: 2px; }
+table {
+  width: 100%; border-collapse: collapse;
+  background: #fff; border: 1px solid #d0d7de;
+  font-size: 13px;
+}
+th, td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e6e9ec;
+  text-align: left; vertical-align: top;
+}
+th {
+  background: #f6f8fa; font-weight: 600;
+  border-bottom: 2px solid #d0d7de;
+}
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600;
+}
+.tag-nn { background: #ddf4ff; color: #0969da; }
+.tag-lk { background: #fff8c5; color: #9a6700; }
+.tag-skip { background: #ffebe9; color: #cf222e; }
+.formula {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px; color: #1f2328;
+  background: #f6f8fa; padding: 1px 6px; border-radius: 3px;
+}
+.note {
+  margin-top: 16px; padding: 12px 14px;
+  background: #fff8c5; border-left: 4px solid #9a6700;
+  border-radius: 4px; font-size: 12px; color: #57606a;
+}
+footer {
+  margin-top: 32px; padding-top: 12px;
+  border-top: 1px solid #d0d7de;
+  font-size: 11px; color: #57606a;
+}
+.method-cell { white-space: nowrap; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>OptiMeal 통합 데모 — 모듈 1 → 모듈 2 → N인분 스케일링</h1>
+    <div class="meta">
+      ADR-007 NN_v2 + lookup 하이브리드 ·
+      기말발표용 (1-5월 작업 증명) ·
+      생성 2026-06-01 09:50:36
+    </div>
+  </header>
+
+  <h2>입력</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">메뉴 (A1841 · 매칭됨)</div>
+      <div class="value">삼색겨자냉채2</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">조리 분류</div>
+      <div class="value">비가열 / 무치기</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">목표 인원수</div>
+      <div class="value">N = 100</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">1인분 재료 / 총량</div>
+      <div class="value">6개 / 78 g</div>
+    </div>
+  </div>
+
+  <h2>분기 요약</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">NN_v2 (학습 셀)</div>
+      <div class="value">3</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">lookup (미커버 셀)</div>
+      <div class="value">3</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">skip</div>
+      <div class="value">0</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">총 투입량 (g)</div>
+      <div class="value">78.00 → 2503.76</div>
+    </div>
+  </div>
+
+  <h2>재료별 계산 과정</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>재료명</th><th>카테고리</th>
+        <th class="num">1인분 (g)</th><th>분기 사유</th>
+        <th class="num">b</th><th>계산식</th>
+        <th class="num">N인분 (g)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td>콩나물</td>
+        <td>양념류</td>
+        <td class="num">40.00</td>
+        <td class="method-cell"><span class="tag tag-nn">NN_v2</span> 학습 셀 (no_heat × 양념류)</td>
+        <td class="num">0.7455</td>
+        <td><span class="formula">Y = base × N^b_NN = 40.00 × 100^0.7455</span></td>
+        <td class="num"><b>1239.13</b></td>
+      </tr>
+      <tr>
+        <td class="num">2</td>
+        <td>당근</td>
+        <td>부재료</td>
+        <td class="num">10.00</td>
+        <td class="method-cell"><span class="tag tag-lk">lookup</span> 미커버 셀 (no_heat × 부재료) → 카테고리 평균 fallback</td>
+        <td class="num">0.7649</td>
+        <td><span class="formula">Y = base × N^b_lookup = 10.00 × 100^0.7649</span></td>
+        <td class="num"><b>338.61</b></td>
+      </tr>
+      <tr>
+        <td class="num">3</td>
+        <td>오이</td>
+        <td>부재료</td>
+        <td class="num">15.00</td>
+        <td class="method-cell"><span class="tag tag-lk">lookup</span> 미커버 셀 (no_heat × 부재료) → 카테고리 평균 fallback</td>
+        <td class="num">0.7649</td>
+        <td><span class="formula">Y = base × N^b_lookup = 15.00 × 100^0.7649</span></td>
+        <td class="num"><b>507.92</b></td>
+      </tr>
+      <tr>
+        <td class="num">4</td>
+        <td>겨자가루</td>
+        <td>양념류</td>
+        <td class="num">5.00</td>
+        <td class="method-cell"><span class="tag tag-nn">NN_v2</span> 학습 셀 (no_heat × 양념류)</td>
+        <td class="num">0.7502</td>
+        <td><span class="formula">Y = base × N^b_NN = 5.00 × 100^0.7502</span></td>
+        <td class="num"><b>158.26</b></td>
+      </tr>
+      <tr>
+        <td class="num">5</td>
+        <td>설탕</td>
+        <td>양념류</td>
+        <td class="num">5.00</td>
+        <td class="method-cell"><span class="tag tag-nn">NN_v2</span> 학습 셀 (no_heat × 양념류)</td>
+        <td class="num">0.7502</td>
+        <td><span class="formula">Y = base × N^b_NN = 5.00 × 100^0.7502</span></td>
+        <td class="num"><b>158.26</b></td>
+      </tr>
+      <tr>
+        <td class="num">6</td>
+        <td>식초</td>
+        <td>부재료</td>
+        <td class="num">3.00</td>
+        <td class="method-cell"><span class="tag tag-lk">lookup</span> 미커버 셀 (no_heat × 부재료) → 카테고리 평균 fallback</td>
+        <td class="num">0.7649</td>
+        <td><span class="formula">Y = base × N^b_lookup = 3.00 × 100^0.7649</span></td>
+        <td class="num"><b>101.58</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>해설 — 분기 규칙 (ADR-007)</h2>
+  <ol>
+    <li><b>입력</b>: 1인분 레시피의 각 재료를
+        <code>(group_type, ingredient_category, base_amount)</code> 3-튜플로 표현.</li>
+    <li><b>셀 판정</b>: <code>(group_type, ingredient_category)</code> 조합이
+        <code>scaling_coefficients.csv</code>의 <code>nutritionist_feedback</code>
+        307행에 정의되어 있는가?
+        <ul>
+          <li><b>있음 → NN_v2</b>: per-slot one-hot feature를 DeepSets-context 모델에
+              입력하여 <code>log(Y)</code>를 추론. 학습 시 노이즈 σ=0.05.</li>
+          <li><b>없음 → lookup</b>: 같은 카테고리의 다른 셀들의 b 평균
+              (<code>category_mean</code>)을 사용하여
+              <code>Y = base × N^b</code>로 계산.</li>
+        </ul>
+    </li>
+    <li><b>출력</b>: 재료별 g 단위 + 사용 분기·b·식을 함께 보고.</li>
+  </ol>
+
+  <div class="note">
+    <b>면책</b>:
+    학습 타겟 <code>Y = base × N^(b_feedback + ε)</code>는 식약처 1인분 데이터에
+    영양사 50건 5회차 피드백을 적용한 <b>합성치</b>이다.
+    20년 전 대규모 실측 데이터(df_B의 Y)는 현재 기준 영양사 피드백을 반영할 수 없는
+    구조적 한계가 있어 학습 타겟으로 사용하지 않았다.
+    절대 MAPE 수치는 노이즈 σ에 의존하며, 본 데모는 분기 동작과 계산 과정의
+    시연을 목적으로 한다.
+  </div>
+
+  <footer>
+    OptiMeal · 비선형 AI 스케일링 모델 · 기말발표 데모 (For_finalexam) ·
+    관련 ADR: §ADR-001 (ratio 정의), §ADR-006 (NN 채택), §ADR-007 (하이브리드)
+  </footer>
+</body>
+</html>

@@ -3,8 +3,8 @@ lookup.py
 =========
 v_scaling_lookup 뷰 조회 함수.
 
-DB 스키마 v4.3의 v_scaling_lookup 뷰를 PostgreSQL에서 직접 조회한다.
-DB 연결 불가 시 scaling_coefficients.csv를 뷰 대용으로 사용한다 (fallback).
+DB 스키마 v4.3의 v_scaling_lookup 뷰 로직을 pandas로 재현한다.
+DB 미구축 단계에서 scaling_coefficients.csv를 뷰 대용으로 사용한다.
 
 룩업 우선순위 [ADR-002 v3, v_scaling_lookup 뷰 주석과 동일]:
   1순위: (cooking_method_id × ingredient_category) — estimation_method='nutritionist_feedback'
@@ -25,27 +25,11 @@ DB 연결 불가 시 scaling_coefficients.csv를 뷰 대용으로 사용한다 (
 
 from __future__ import annotations
 
-import os
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-
-# python-dotenv가 설치되어 있으면 .env 자동 로드
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-# psycopg2는 requirements.txt에 포함 (psycopg2-binary==2.9.10)
-try:
-    import psycopg2
-    _PSYCOPG2_AVAILABLE = True
-except ImportError:
-    _PSYCOPG2_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -66,23 +50,6 @@ _PRIORITY_CATEGORY_MEAN: int = 3  # category_mean fallback
 # 신뢰도 플래그 임계값 (ADR-003)
 _SE_HIGH_MAX: float = 0.2
 _SE_MEDIUM_MAX: float = 0.4
-
-# DB 조회 SQL — v_scaling_lookup 뷰에서 엔진 룩업 대상(한국어 5분류)만 조회
-_SQL_LOOKUP = """
-    SELECT
-        coefficient_id,
-        ingredient_category,
-        group_type,
-        cooking_method_id,
-        power_law_a,
-        power_law_b,
-        se_b,
-        estimation_method,
-        lookup_priority
-    FROM v_scaling_lookup
-    WHERE ingredient_category = ANY(%(categories)s)
-    ORDER BY ingredient_category, lookup_priority, group_type
-"""
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +90,11 @@ def _compute_lookup_priority(df: pd.DataFrame) -> pd.Series:
 
     CSV에 lookup_priority 컬럼이 이미 존재하더라도 재계산하여 덮어쓴다.
     데이터 변경(CSV 수동 편집 등) 시 일관성을 보장하기 위함.
+
+    스키마 v4.3 기준 CASE WHEN:
+      WHEN cooking_method_id IS NOT NULL AND estimation_method='nutritionist_feedback' → 1
+      WHEN group_type IS NOT NULL AND estimation_method IN ('mixedlm','curve_fit')    → 2
+      ELSE                                                                              → 3
 
     Args:
         df: scaling_coefficients DataFrame (cooking_method_id, estimation_method,
@@ -184,102 +156,11 @@ def _row_to_params(row: pd.Series) -> ScalingParams:
     )
 
 
-def _get_db_conn():
-    """
-    환경변수 기반 PostgreSQL 연결 생성.
-
-    환경변수 (python-dotenv 또는 OS 환경):
-        POSTGRES_HOST     (기본: localhost)
-        POSTGRES_PORT     (기본: 5432)
-        POSTGRES_DB       (기본: optimeal)
-        POSTGRES_USER     (기본: optimeal)
-        POSTGRES_PASSWORD (기본: "")
-
-    Returns:
-        psycopg2 connection 객체
-
-    Raises:
-        psycopg2.OperationalError: DB 연결 실패 시
-    """
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", 5432)),
-        dbname=os.getenv("POSTGRES_DB", "optimeal"),
-        user=os.getenv("POSTGRES_USER", "optimeal"),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
-    )
-
-
 # ---------------------------------------------------------------------------
 # 공개 API
 # ---------------------------------------------------------------------------
 
-def build_lookup_table_from_db() -> pd.DataFrame:
-    """
-    PostgreSQL v_scaling_lookup 뷰에서 룩업 테이블을 구성한다.
-
-    DB 연결에 필요한 환경변수는 _get_db_conn() 참고.
-
-    Returns:
-        lookup_priority 컬럼이 포함된 조회 준비 완료 DataFrame.
-
-    Raises:
-        RuntimeError: psycopg2 미설치 또는 DB 연결/조회 실패 시
-    """
-    if not _PSYCOPG2_AVAILABLE:
-        raise RuntimeError("psycopg2가 설치되지 않았습니다. requirements.txt를 확인하세요.")
-
-    conn = _get_db_conn()
-    try:
-        df = pd.read_sql(
-            _SQL_LOOKUP,
-            conn,
-            params={"categories": list(_VALID_CATEGORIES)},
-        )
-    finally:
-        conn.close()
-
-    return df.reset_index(drop=True)
-
-
 def build_lookup_table(csv_path: Optional[str | Path] = None) -> pd.DataFrame:
-    """
-    v_scaling_lookup 뷰 형태 DataFrame을 반환한다.
-
-    조회 순서:
-      1) PostgreSQL v_scaling_lookup 뷰 직접 조회 (build_lookup_table_from_db)
-      2) DB 연결 실패 시 scaling_coefficients.csv fallback (기존 동작 유지)
-
-    fallback 발동 조건:
-      - psycopg2 미설치
-      - DB 연결 실패 (POSTGRES_HOST 미설정 포함)
-      - 뷰 조회 오류
-
-    Args:
-        csv_path: CSV fallback 경로.
-                  None이면 이 파일과 같은 디렉터리의 기본 경로 사용.
-
-    Returns:
-        lookup_priority 컬럼이 포함된 조회 준비 완료 DataFrame.
-        인덱스는 reset_index(drop=True).
-    """
-    # ── 1차: DB 조회 시도 ───────────────────────────────────────────────────
-    try:
-        df = build_lookup_table_from_db()
-        print("[lookup] DB(v_scaling_lookup)에서 로드 완료")
-        return df
-    except Exception as exc:
-        warnings.warn(
-            f"[lookup] DB 연결 실패 → CSV fallback 사용: {exc}",
-            UserWarning,
-            stacklevel=2,
-        )
-
-    # ── 2차: CSV fallback ────────────────────────────────────────────────────
-    return _build_lookup_table_from_csv(csv_path)
-
-
-def _build_lookup_table_from_csv(csv_path: Optional[str | Path] = None) -> pd.DataFrame:
     """
     scaling_coefficients.csv를 로드하여 v_scaling_lookup 뷰 형태 DataFrame을 반환.
 
@@ -316,9 +197,9 @@ def _build_lookup_table_from_csv(csv_path: Optional[str | Path] = None) -> pd.Da
     df["lookup_priority"] = _compute_lookup_priority(df)
 
     # 엔진 룩업 대상: ingredient_category 한국어 5분류만 포함
+    # (scaling_coefficients_README.md: id 10~24가 DB INSERT 및 엔진 룩업 대상)
     df = df[df["ingredient_category"].isin(_VALID_CATEGORIES)].copy()
 
-    print(f"[lookup] CSV fallback 로드 완료: {len(df)}행 ({csv_path})")
     return df.reset_index(drop=True)
 
 

@@ -1,6 +1,6 @@
 # OptiMeal 아키텍처 결정 요약 (decisions_summary)
 
-> 원본: ADR-001~005 | 최종 업데이트: 2026-03-14 (ADR-002 v5 반영) | 작성: 권성민 (팀 전체 합의)  
+> 원본: ADR-001~005 (docx, 읽기 전용) + ADR-006 (이 문서 §ADR-006) | 최종 업데이트: 2026-05-19 (ADR-006 추가) | 작성: 권성민 (팀 전체 합의)
 > 모든 결정 상태: ✅ 승인
 
 ---
@@ -236,3 +236,79 @@ b_feedback = log(ratio_adj / a_old) / log(N) + 1
 - 함수/메서드 단위 생성 원칙 준수 (클래스 전체 생성 금지)
 - 로컬 LLM 생성 코드 → Claude API 검토 → 단위 테스트 2단계 프로세스 의무화
 - import 경로 및 학습-추론 파이프라인 일관성 필수 확인
+
+---
+
+## ADR-006 — Rule-based 엔진 폐기, 1D ResNet 스케일링 엔진 채택 (2026-05-19)
+
+### 결정
+**Rule-based 룩업 엔진(`fallback.py` D-3/D-4/D-5)을 폐기하고 1D ResNet으로 전체 스케일링을 대체한다.**
+**FR-06 (ML 분류기) / FR-07 (ML 예측기)도 함께 폐기. NN이 ML 모듈 책임을 통합한다.**
+
+- 학습 타겟: `Y = base × N^b_feedback` ← b_feedback은 영양사 50건 합의 보정값 (≈0.74)
+- 입력 텐서: (B, 3, 30) — log(base) + category_id + valid_mask
+- 아키텍처: stem(Conv3→32) → ResBlock(32→32) → ResBlock(32→64) → Flatten + log(N) → FC(128) → FC(30)
+- 데이터 확장: N ∈ {10, 20, 50, 100, 150, 200, 300} 7종 (205 레시피 → 1435 샘플)
+- 분할: GroupKFold(5, 그룹=small_recipe_id) — data leakage 방지
+
+### 전환 이유 (3가지)
+
+**1. MixedLM 통계 b가 MAPE 기준으로 실패**
+- baseline_result.csv (n=342) 기준: 선형 32.68% vs MixedLM(b=0.6163) 34.31% — **1.63%p 더 나쁨**
+- 원인: MixedLM은 `log(ratio)` 잔차 제곱합 최소화 모델 — MAPE 최소화와 동치 아님
+- 결과: 통계 b는 *비선형 관계의 존재*(LRT p=0.032, ΔAIC=-67.13)만 입증, 정확도 주장 불가
+
+**2. 영양사 피드백 b의 MAPE 비교가 구조적으로 불가**
+- 피드백 수집 구조: `Y_final = Y_engine + Δ_g` → target이 엔진 출력에 종속
+- `MAPE = |Δ_g| / Y_final`은 예측 정확도가 아닌 *영양사 수정량 크기*를 측정 (닻내림 + 반사실 문제)
+- 결과: Rule-based 룩업 엔진이 학술적 정확도 주장 수단을 모두 상실
+
+**3. Rule-based의 일반화 한계**
+- (group_type × ingredient_category) 셀별 단일 b 조회 — N의 연속 일반화 없음
+- 미등록 조합은 category_mean fallback 의존
+- NN은 N을 연속 입력으로 받아 임의 인원수에 일반화 가능
+
+### 학술적 위상 분리 (논문 방어용)
+
+| 단계 | 책임 | 산출물 |
+|------|------|--------|
+| 통계 (MixedLM) | 비선형 관계의 *존재* 증명 | b=0.6163, LRT p=0.032, ΔAIC=-67.13 |
+| 영양사 피드백 | 현장 합의 b 도출 | b≈0.74, 50건 98% 승인 |
+| 1D ResNet | b 표준의 *임의 레시피 일반화* | nn_model.pt, MAPE TBD (5/19 학습 예정) |
+
+### 합성 데이터가 아닌 이유
+- `Y = base × N^b_feedback`의 b_feedback은 실측 피드백에서 도출된 매개변수
+- N 확장은 도메인 합리적 범위 내 결정론적 확장 — 분포 가정 없음
+- 분포 가정 기반 생성(GAN 등)이 아닌 도메인 매개변수 적용 → **측정 기반 파생 데이터**
+
+### 유지/폐기 매트릭스
+
+| 항목 | 상태 | 사유 |
+|------|------|------|
+| `lookup.py` | ✅ 유지 | NN 학습 데이터 생성 시 b_feedback 조회 참조용 |
+| `fallback.py` | ⚠ 유지(비활성) | 비교 기준 보존, 학술적 비교군으로 활용 가능 |
+| `feedback_update.py` | ✅ 유지 | ADR-003 클리핑 수식 — 향후 피드백 회차 추가 시 사용 |
+| `scaling_coefficients.csv` | ✅ 확정 동결 | 331행, 이후 수정 금지 |
+| Rule-based D-3/D-4/D-5 | ❌ 폐기 | NN으로 대체 |
+| FR-06 (ML 분류기) | ❌ 폐기 | 라벨 충돌 17건, b차이 < SE(b) (5/9 결정) |
+| FR-07 (ML 예측기) | ❌ 폐기 | NN이 통합 (5/19 결정) |
+
+### 폐기된 PRD/요구사항 영향
+
+- PRD v1.5 / 요구사항정의서 v1.4의 FR-05/06/07/08은 본 ADR에 의해 NN 단일 모듈로 통합됨
+- FR-08 "하이브리드 파이프라인" 의미가 변경됨: (Rule-based + ML 폴백)이 아닌 (NN + lookup 폴백)
+- 논문 한계 절 명시 의무 추가:
+  > "최종 스케일링 엔진은 1D ResNet 단일 모델로 통합되었다. 학습 데이터의 b_feedback은 영양사 50건 합의에서 도출된 매개변수이며, N 확장은 결정론적이다."
+
+### 후속 작업
+- [x] 4파일 구현 (`nn_training_data.py`, `nn_scaling_engine.py`, `train_nn.py`, `test_nn_engine.py`) — 2026-05-19 완료
+- [ ] 정식 학습 실행 (60 epoch × 5-Fold) — 다음 세션
+- [ ] 학습 결과 분석 + 논문 결과 섹션 작성
+- [ ] `git tag v-module2-complete` 부여
+- [ ] PRD v1.6 / 요구사항정의서 v1.5 개정 (FR-05/06/07/08 통합 반영)
+
+### 관련 문서
+- 변화 흐름 narrative: `docs/for_reports/module2_transition_narrative.md`
+- NN 설계 상세: `wiki/design/nn_resnet_design.md`
+- MAPE FAIL 분석: `wiki/analysis/feedback_b_validation.md`
+- 학습 진입점: `tasks/todo.md` 최상단
