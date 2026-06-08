@@ -29,6 +29,9 @@ CLAUDE.md
 tasks/todo.md
 tasks/lessons.md
 
+# 옵시디언
+.obsidian/
+
 # 개인 설정 / 보안
 config/db_config.yaml
 *.env

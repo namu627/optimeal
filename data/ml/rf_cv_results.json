@@ -1,0 +1,78 @@
+{
+  "random_forest": {
+    "model": "RandomForest",
+    "cv_mae_per_fold": [
+      3.934426229578654e-05,
+      7.63114754105635e-05,
+      7.206611570319828e-05,
+      0.00016553719008327675,
+      0.00026223140495926705
+    ],
+    "cv_mae_mean": 0.00012309808969041843,
+    "cv_mae_std": 8.11998890490744e-05
+  },
+  "xgboost": {
+    "model": "XGBoost",
+    "cv_mae_per_fold": [
+      5.528358944127699e-05,
+      5.991807921988599e-05,
+      5.952295193002618e-05,
+      4.864676530696586e-05,
+      6.721276685226778e-05
+    ],
+    "cv_mae_mean": 5.811683055008456e-05,
+    "cv_mae_std": 6.093720082322899e-06
+  },
+  "baseline": {
+    "model": "category_mean_fallback",
+    "b_value": 0.6163,
+    "mae": 0.18939686985172988
+  },
+  "improvement": {
+    "random_forest_pct": 99.9350052142959,
+    "xgboost_pct": 99.96931478825621
+  },
+  "feature_importance_rf_top5": [
+    {
+      "feature": "cat_enc",
+      "importance": 0.9751775795264219
+    },
+    {
+      "feature": "log1p_base_amount",
+      "importance": 0.024740645376611727
+    },
+    {
+      "feature": "ratio",
+      "importance": 8.177509696461915e-05
+    },
+    {
+      "feature": "gt_enc",
+      "importance": 1.4534477051510217e-15
+    },
+    {
+      "feature": "log_target_serving",
+      "importance": 2.9081703315835136e-16
+    }
+  ],
+  "best_model": "XGBoost",
+  "fr07_valid": true,
+  "feature_cols": [
+    "cat_enc",
+    "gt_enc",
+    "log1p_base_amount",
+    "log_target_serving",
+    "ratio"
+  ],
+  "category_encoding": {
+    "부재료": 0,
+    "수분류": 1,
+    "양념류": 2,
+    "유지류": 3,
+    "주재료": 4
+  },
+  "group_type_encoding": {
+    "dry_heat": 0,
+    "moist_heat": 1,
+    "no_heat": 2
+  }
+}
