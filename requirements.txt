@@ -10,6 +10,7 @@ matplotlib==3.9.2
 seaborn==0.13.2
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
+requests==2.32.3
 python-dotenv==1.0.1
 pytest==8.3.3
 black==24.10.0
