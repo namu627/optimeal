@@ -231,6 +231,8 @@ CREATE TABLE recipe_ingredient_map (
     ingredient_role     TEXT          DEFAULT '부재료' CHECK (ingredient_role IN ('주재료', '부재료', '조미료', '양념')),
     cooking_step_order  INT           NULL,
     original_text       VARCHAR(200)  NULL,
+    ingredient_type     VARCHAR(20)   NULL
+        CHECK (ingredient_type IS NULL OR ingredient_type IN ('DIRECT','COMMERCIAL')),
     created_at          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (recipe_id)     REFERENCES recipe(recipe_id) ON DELETE CASCADE,
@@ -240,6 +242,7 @@ CREATE TABLE recipe_ingredient_map (
 CREATE INDEX idx_map_recipe     ON recipe_ingredient_map(recipe_id);
 CREATE INDEX idx_map_ingredient ON recipe_ingredient_map(ingredient_id);
 CREATE INDEX idx_map_role       ON recipe_ingredient_map(ingredient_role);
+CREATE INDEX idx_map_ingredient_type ON recipe_ingredient_map(ingredient_type);
 
 
 -- ----------------------------------------------------------------------------
