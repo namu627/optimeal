@@ -21,6 +21,7 @@ from xgboost import XGBRegressor
 BASE_DIR = Path(__file__).parent.parent.parent.parent  # project root
 INPUT_PATH = BASE_DIR / "data" / "ml" / "ml_train_dataset.csv"
 OUTPUT_JSON = BASE_DIR / "data" / "ml" / "rf_cv_results.json"
+OUTPUT_REPORT = BASE_DIR / "data" / "ml" / "rf_performance_report.txt"
 
 CATEGORY_MEAN_FALLBACK_B = 0.6163
 RANDOM_STATE = 42
@@ -114,6 +115,54 @@ def feature_importance_report(model, feature_cols: list[str]) -> list[dict]:
     return [{"feature": f, "importance": float(imp)} for f, imp in fi]
 
 
+def save_performance_report(
+    rf_result: dict,
+    xgb_result: dict,
+    baseline_mae: float,
+    rf_improvement: float,
+    xgb_improvement: float,
+    fi_report: list[dict],
+    best_name: str,
+    best_mae: float,
+    fr07_valid: bool,
+) -> None:
+    """평가 결과를 rf_performance_report.txt 로 저장."""
+    lines = [
+        "=" * 55,
+        "OptiMeal FR-07 ML 모델 성능 평가 보고서",
+        "=" * 55,
+        "",
+        "[1] 5-Fold GroupKFold Cross-Validation MAE",
+        f"  RF        : {rf_result['cv_mae_mean']:.4f} ± {rf_result['cv_mae_std']:.4f}",
+        f"  XGBoost   : {xgb_result['cv_mae_mean']:.4f} ± {xgb_result['cv_mae_std']:.4f}",
+        "",
+        "[2] category_mean baseline MAE (b=0.6163 기준)",
+        f"  Baseline  : {baseline_mae:.4f}",
+        "",
+        "[3] baseline 대비 MAE 개선율",
+        f"  RF        : {rf_improvement:+.2f}%",
+        f"  XGBoost   : {xgb_improvement:+.2f}%",
+        "",
+        "[4] RF Feature Importance 상위 5개",
+    ]
+    for rank, item in enumerate(fi_report, 1):
+        lines.append(f"  {rank}. {item['feature']}: {item['importance']:.4f}")
+    lines += [
+        "",
+        "[5] 최우수 모델 선정",
+        f"  최우수 모델 : {best_name}",
+        f"  최우수 MAE  : {best_mae:.4f}",
+        f"  FR-07 유효  : {'유효 (ML이 fallback 대비 개선)' if fr07_valid else '제외 (ML이 fallback 대비 개선 없음)'}",
+        "=" * 55,
+    ]
+    report_text = "\n".join(lines) + "\n"
+
+    OUTPUT_REPORT.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_REPORT, "w", encoding="utf-8") as f:
+        f.write(report_text)
+    print(f"\n[완료] 성능 보고서 저장: {OUTPUT_REPORT}")
+
+
 def main():
     if not INPUT_PATH.exists():
         print(f"[오류] 입력 파일 없음: {INPUT_PATH}")
@@ -165,7 +214,7 @@ def main():
 
     print(f"\n{'='*55}")
     print(f"최우수 모델: {best_name} (MAE {best_mae:.4f})")
-    print(f"FR-07 유효 판정: {'✅ 유효 (ML이 fallback 대비 개선)' if fr07_valid else '❌ 제외 (ML이 fallback 대비 개선 없음)'}")
+    print(f"FR-07 유효 판정: {'유효 (ML이 fallback 대비 개선)' if fr07_valid else '제외 (ML이 fallback 대비 개선 없음)'}")
     print(f"{'='*55}")
 
     # ── 결과 저장 ─────────────────────────────────────────────────
@@ -200,6 +249,12 @@ def main():
         json.dump(results, f, ensure_ascii=False, indent=2)
 
     print(f"\n[완료] 저장: {OUTPUT_JSON}")
+
+    save_performance_report(
+        rf_result, xgb_result,
+        baseline_mae, rf_improvement, xgb_improvement,
+        fi_report, best_name, best_mae, fr07_valid,
+    )
 
 
 if __name__ == "__main__":

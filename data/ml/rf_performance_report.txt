@@ -1,0 +1,27 @@
+=======================================================
+OptiMeal FR-07 ML 모델 성능 평가 보고서
+=======================================================
+
+[1] 5-Fold GroupKFold Cross-Validation MAE
+  RF        : 0.0001 ± 0.0001
+  XGBoost   : 0.0001 ± 0.0000
+
+[2] category_mean baseline MAE (b=0.6163 기준)
+  Baseline  : 0.1894
+
+[3] baseline 대비 MAE 개선율
+  RF        : +99.94%
+  XGBoost   : +99.97%
+
+[4] RF Feature Importance 상위 5개
+  1. cat_enc: 0.9752
+  2. log1p_base_amount: 0.0247
+  3. ratio: 0.0001
+  4. gt_enc: 0.0000
+  5. log_target_serving: 0.0000
+
+[5] 최우수 모델 선정
+  최우수 모델 : XGBoost
+  최우수 MAE  : 0.0001
+  FR-07 유효  : 유효 (ML이 fallback 대비 개선)
+=======================================================
