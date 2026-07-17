@@ -46,3 +46,6 @@ data/raw/*.xlsx
 
 # 산출물 중 대용량
 reports/**/*.pdf
+
+# 로그 파일들
+data/external/*.csv
