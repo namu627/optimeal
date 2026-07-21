@@ -223,7 +223,7 @@ CREATE TABLE recipe_ingredient_map (
     map_id              INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     recipe_id           INT           NOT NULL,
     ingredient_id       INT           NOT NULL,
-    amount              DECIMAL(10,2) NOT NULL,
+    amount              DECIMAL(10,2) NULL,   -- [ADR-004] MEASURED 일 때만 값; DISCRETIONARY·UNKNOWN 은 NULL
     unit                VARCHAR(20)   NOT NULL,
     amount_in_grams     DECIMAL(10,2) NULL,
     -- 1인분당 중량(g) — 대규모 레시피 환산용
@@ -231,6 +231,11 @@ CREATE TABLE recipe_ingredient_map (
     ingredient_role     TEXT          DEFAULT '부재료' CHECK (ingredient_role IN ('주재료', '부재료', '조미료', '양념')),
     cooking_step_order  INT           NULL,
     original_text       VARCHAR(200)  NULL,
+    -- [ADR-004] 수량 표기 상태: MEASURED(수치확정)/DISCRETIONARY(약간·적당량 등 재량)/UNKNOWN(원본 누락)
+    amount_type         VARCHAR(20)   NOT NULL DEFAULT 'MEASURED'
+        CHECK (amount_type IN ('MEASURED','DISCRETIONARY','UNKNOWN')),
+    -- [ADR-004] 원본 수량 표기 보존 ('약간','적당량','1봉지' 등, 검수 참조용)
+    amount_note         VARCHAR(100)  NULL,
     ingredient_type     VARCHAR(20)   NULL
         CHECK (ingredient_type IS NULL OR ingredient_type IN ('DIRECT','COMMERCIAL')),
     created_at          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
@@ -243,6 +248,7 @@ CREATE INDEX idx_map_recipe     ON recipe_ingredient_map(recipe_id);
 CREATE INDEX idx_map_ingredient ON recipe_ingredient_map(ingredient_id);
 CREATE INDEX idx_map_role       ON recipe_ingredient_map(ingredient_role);
 CREATE INDEX idx_map_ingredient_type ON recipe_ingredient_map(ingredient_type);
+CREATE INDEX idx_map_amount_type ON recipe_ingredient_map(amount_type);
 
 
 -- ----------------------------------------------------------------------------
