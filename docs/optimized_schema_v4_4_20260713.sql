@@ -28,8 +28,11 @@
 -- v4.3 업데이트 (ADR-002 v3 반영, 2026-03-07):
 --   - scaling_coefficient.estimation_method 허용값에 'nutritionist_feedback' 추가
 --   - v_scaling_lookup 뷰: lookup_priority 컬럼 도입 (세부 조리방법 조회 경로) [ADR-002 v3]
--- v4.4 업데이트 (ADR-004 반영, 2026-07-13):
+-- v4.4 업데이트 (ADR-004 반영 — 스키마 보완 2, 2026-07-13):
 --   - recipe_ingredient_map.ingredient_type 컬럼 추가 (조달 형태: DIRECT/COMMERCIAL, 발주 시스템용) [ADR-004]
+--   - recipe_ingredient_map.amount_type 컬럼 추가 (수량 표기 상태: MEASURED/DISCRETIONARY/UNKNOWN) [ADR-004]
+--   - recipe_ingredient_map.amount_note 컬럼 추가 (원본 수량 표기 보존) [ADR-004]
+--   - recipe_ingredient_map.amount NOT NULL 제약 완화 (DISCRETIONARY·UNKNOWN 은 NULL) [ADR-004]
 -- ============================================================================
 
 
@@ -203,13 +206,15 @@ CREATE TABLE recipe_ingredient_map (
     map_id INT PRIMARY KEY AUTO_INCREMENT COMMENT '매핑 ID',
     recipe_id INT NOT NULL COMMENT '레시피 ID',
     ingredient_id INT NOT NULL COMMENT '식재료 ID',
-    amount DECIMAL(10,2) NOT NULL COMMENT '재료량 (숫자)',
+    amount DECIMAL(10,2) NULL COMMENT '재료량 (숫자). MEASURED 일 때만 값; DISCRETIONARY·UNKNOWN 은 NULL [ADR-004]',
     unit VARCHAR(20) NOT NULL COMMENT '단위 (g, ml, 개, 컵 등)',
     amount_in_grams DECIMAL(10,2) NULL COMMENT '표준화된 중량 (g)',
     per_serving_grams DECIMAL(10,2) NULL COMMENT '1인분당 중량 (g) - 대규모 레시피 환산용',
     ingredient_role ENUM('주재료', '부재료', '조미료', '양념') DEFAULT '부재료' COMMENT '재료 역할',
     cooking_step_order INT NULL COMMENT '투입 순서',
     original_text VARCHAR(200) NULL COMMENT '원본 텍스트',
+    amount_type VARCHAR(20) NOT NULL DEFAULT 'MEASURED' COMMENT '수량 표기 상태: MEASURED(수치확정)/DISCRETIONARY(약간·적당량 등 재량)/UNKNOWN(원본 누락) [ADR-004]',
+    amount_note VARCHAR(100) NULL COMMENT '원본 수량 표기 보존 (약간/적당량/1봉지 등, 검수 참조용) [ADR-004]',
     ingredient_type VARCHAR(20) NULL COMMENT '조달 형태: DIRECT(직접 계량)/COMMERCIAL(시판 완제품). 발주용, 엔진 참조금지 [ADR-004]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '생성 일시',
     
@@ -221,6 +226,7 @@ CREATE INDEX idx_map_recipe ON recipe_ingredient_map(recipe_id);
 CREATE INDEX idx_map_ingredient ON recipe_ingredient_map(ingredient_id);
 CREATE INDEX idx_map_role ON recipe_ingredient_map(ingredient_role);
 CREATE INDEX idx_map_ingredient_type ON recipe_ingredient_map(ingredient_type);
+CREATE INDEX idx_map_amount_type ON recipe_ingredient_map(amount_type);
 
 
 -- ----------------------------------------------------------------------------
@@ -706,7 +712,7 @@ ORDER BY sc.ingredient_category, lookup_priority, sc.group_type;
  3. ingredient                  식재료 마스터 (v4.1: waste_rate, color_category 추가)
  4. ingredient_synonym          재료명 정규화 사전 ⭐ v4 신규
  6. recipe                      레시피 마스터 (통합)
- 7. recipe_ingredient_map       레시피-재료 매핑 (v4.4: ingredient_type 추가)
+ 7. recipe_ingredient_map       레시피-재료 매핑 (v4.4: ingredient_type·amount_type·amount_note 추가, ADR-004)
  8. unit_conversion             단위 환산 (v4.1: minimum_order_unit 추가)
  9. recipe_similarity           레시피 유사도 ⭐ v4 신규 (v4.1: is_manually_verified 추가)
 10. scaling_analysis            방법별 성능 비교
@@ -753,8 +759,13 @@ v4.3 변경사항 (ADR-002 v3 반영, 2026-03-07):
 - v_scaling_lookup: 세부 조리방법 조회 경로 추가 + lookup_priority 컬럼 도입
   룩업 우선순위: 세부 조리방법 피드백값(1) > 3대분류 통계값(2) > category_mean(3)
 
-v4.4 변경사항 (ADR-004 반영, 2026-07-13):
+v4.4 변경사항 (ADR-004 반영 — 스키마 보완 2, 2026-07-13):
 - recipe_ingredient_map: ingredient_type 컬럼 추가 (조달 형태 DIRECT/COMMERCIAL, 발주 시스템용, 스케일링 엔진 참조 금지)
+- recipe_ingredient_map: amount_type 컬럼 추가 (MEASURED/DISCRETIONARY/UNKNOWN — 수량 표기 상태)
+- recipe_ingredient_map: amount_note 컬럼 추가 (원본 수량 표기 보존, 검수 참조용)
+- recipe_ingredient_map: amount NOT NULL → NULL 완화 (DISCRETIONARY·UNKNOWN 은 amount NULL)
+  ※ 스케일링 엔진(FR-05)은 amount_type='MEASURED' AND ingredient_type='DIRECT' 만 지수 도출 대상
+  → 기존 DB 소급 적용: migrations/v3_ingredient_type.sql
 */
 
 SELECT '✅ DB 스키마 v4.4 생성 완료: 17개 테이블 (모듈 1+2+3 통합, ADR-001·002·003·004 반영)' AS status;
