@@ -1,0 +1,182 @@
+[
+  {
+    "ATPT_OFCDC_SC_CODE": "B10",
+    "SD_SCHUL_CODE": "7031110",
+    "SCHUL_NM": "경기초등학교",
+    "region_label": "서울"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "B10",
+    "SD_SCHUL_CODE": "7134077",
+    "SCHUL_NM": "경복초등학교",
+    "region_label": "서울"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "B10",
+    "SD_SCHUL_CODE": "7021079",
+    "SCHUL_NM": "경희초등학교",
+    "region_label": "서울"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "B10",
+    "SD_SCHUL_CODE": "7091368",
+    "SCHUL_NM": "계성초등학교",
+    "region_label": "서울"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "B10",
+    "SD_SCHUL_CODE": "7121335",
+    "SCHUL_NM": "광운초등학교",
+    "region_label": "서울"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "J10",
+    "SD_SCHUL_CODE": "7652009",
+    "SCHUL_NM": "가곡초등학교",
+    "region_label": "경기"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "J10",
+    "SD_SCHUL_CODE": "7661017",
+    "SCHUL_NM": "가남초등학교",
+    "region_label": "경기"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "J10",
+    "SD_SCHUL_CODE": "7602003",
+    "SCHUL_NM": "가납초등학교",
+    "region_label": "경기"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "J10",
+    "SD_SCHUL_CODE": "7631209",
+    "SCHUL_NM": "가내초등학교",
+    "region_label": "경기"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "J10",
+    "SD_SCHUL_CODE": "7561020",
+    "SCHUL_NM": "가능초등학교",
+    "region_label": "경기"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "C10",
+    "SD_SCHUL_CODE": "7181010",
+    "SCHUL_NM": "가남초등학교",
+    "region_label": "부산"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "C10",
+    "SD_SCHUL_CODE": "7211215",
+    "SCHUL_NM": "가동초등학교",
+    "region_label": "부산"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "C10",
+    "SD_SCHUL_CODE": "7201044",
+    "SCHUL_NM": "가락초등학교",
+    "region_label": "부산"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "C10",
+    "SD_SCHUL_CODE": "7181012",
+    "SCHUL_NM": "가야초등학교",
+    "region_label": "부산"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "C10",
+    "SD_SCHUL_CODE": "7181013",
+    "SCHUL_NM": "가평초등학교",
+    "region_label": "부산"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "G10",
+    "SD_SCHUL_CODE": "7451057",
+    "SCHUL_NM": "가수원초등학교",
+    "region_label": "대전"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "G10",
+    "SD_SCHUL_CODE": "7451058",
+    "SCHUL_NM": "구즉초등학교",
+    "region_label": "대전"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "G10",
+    "SD_SCHUL_CODE": "7451059",
+    "SCHUL_NM": "금성초등학교",
+    "region_label": "대전"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "G10",
+    "SD_SCHUL_CODE": "7451060",
+    "SCHUL_NM": "기성초등학교",
+    "region_label": "대전"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "G10",
+    "SD_SCHUL_CODE": "7451061",
+    "SCHUL_NM": "기성초등학교길헌분교장",
+    "region_label": "대전"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "P10",
+    "SD_SCHUL_CODE": "8392053",
+    "SCHUL_NM": "가천초등학교",
+    "region_label": "전북"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "P10",
+    "SD_SCHUL_CODE": "8452041",
+    "SCHUL_NM": "가평초등학교",
+    "region_label": "전북"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "P10",
+    "SD_SCHUL_CODE": "8392051",
+    "SCHUL_NM": "간중초등학교",
+    "region_label": "전북"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "P10",
+    "SD_SCHUL_CODE": "8432022",
+    "SCHUL_NM": "갈담초등학교",
+    "region_label": "전북"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "P10",
+    "SD_SCHUL_CODE": "8362058",
+    "SCHUL_NM": "감곡초등학교",
+    "region_label": "전북"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "E10",
+    "SD_SCHUL_CODE": "7351006",
+    "SCHUL_NM": "갑룡초등학교",
+    "region_label": "인천"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "E10",
+    "SD_SCHUL_CODE": "7351007",
+    "SCHUL_NM": "강화초등학교",
+    "region_label": "인천"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "E10",
+    "SD_SCHUL_CODE": "7004258",
+    "SCHUL_NM": "경인교육대학교부설초등학교",
+    "region_label": "인천"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "E10",
+    "SD_SCHUL_CODE": "7351008",
+    "SCHUL_NM": "교동초등학교",
+    "region_label": "인천"
+  },
+  {
+    "ATPT_OFCDC_SC_CODE": "E10",
+    "SD_SCHUL_CODE": "7351009",
+    "SCHUL_NM": "길상초등학교",
+    "region_label": "인천"
+  }
+]
