@@ -18,7 +18,12 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# src 경로 자동 탐색(파일이 module_3/ 또는 module_3/tests/ 어디에 있어도 동작)
+_here = os.path.dirname(os.path.abspath(__file__))
+for _cand in (os.path.join(_here, "src"), os.path.join(_here, "..", "src")):
+    if os.path.isdir(_cand):
+        sys.path.insert(0, _cand)
+        break
 
 from ortools.sat.python import cp_model
 

@@ -22,6 +22,7 @@ from ortools.sat.python import cp_model  # noqa: E402
 
 from soft_constraints_diversity import (  # noqa: E402
     add_diversity_soft_objective,
+    classify_commercial,
     classify_cooking_methods,
     evaluate_diversity_breakdown,
 )
@@ -197,6 +198,35 @@ def test_integration_with_external_soft_term():
     model.Maximize(soft.score + external)
     solver = cp_model.CpSolver()
     assert solver.Solve(model) in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+
+
+# =========================== 완제품 자제 ================================== #
+def test_classify_commercial_by_name():
+    menus = [M(1, "비엔나소시지볶음"), M(2, "어묵조림"), M(3, "시금치나물"), M(4, "고등어구이")]
+    got = classify_commercial(menus)
+    assert got == {0, 1}                # 소시지·어묵 → 완제품, 나물·구이 → 아님
+
+
+def test_classify_commercial_sidechannel_by_menu_id():
+    # 메뉴명에 키워드가 없어도 menu_id 주입(ADR-004 COMMERCIAL)으로 완제품 확정
+    menus = [M(10, "특제모둠"), M(11, "봄나물무침")]
+    got = classify_commercial(menus, commercial_menu_ids={10})
+    assert got == {0}
+
+
+def test_commercial_penalty_prefers_non_commercial():
+    # 같은 슬롯에서 완제품 아닌 메뉴를 선호
+    menus = [M(1, "어묵볶음"), M(2, "감자볶음")]     # 1번만 완제품
+    status, solver, x, soft = _build_and_solve(menus, days=1, n_meals=1)
+    assert soft.active_terms["commercial"] is True
+    chosen = [m for m in range(len(menus)) if solver.Value(x[m, 0, 0])]
+    assert chosen == [1]
+
+
+def test_commercial_inactive_when_none():
+    menus = [M(1, "감자볶음"), M(2, "시금치나물")]   # 완제품 키워드 없음
+    status, solver, x, soft = _build_and_solve(menus, days=1, n_meals=1)
+    assert soft.active_terms["commercial"] is False
 
 
 # =========================== side-channel 주입 (ksm 규약) ================= #

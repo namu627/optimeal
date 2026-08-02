@@ -37,6 +37,7 @@ score =  + w_season · Σ season_coef(m)·x
          − w_taste  · Σ_v taste_excess(v)
          − w_na     · Σ sodium_coef(m)·x
          − w_sugar  · Σ sugar_coef(m)·x
+         − w_commercial · Σ_{m∈완제품} x
 ```
 
 `x = x[m,d,s]` 는 pmy 골조의 결정변수(메뉴 m 을 d일 s끼니에 편성). 통합자는
@@ -66,9 +67,15 @@ score =  + w_season · Σ season_coef(m)·x
 - **현재 사실상 0**: `season_score` 는 로더가 메뉴→재료→`seasonal_ingredient` 조인으로 계산하는데 `recipe_ingredient_map` 0건이라 0으로 회수됨. `seasonal_ingredient` 자체는 2,988건 적재됨.
 - **대안(권장)**: 메뉴명↔제철재료명 직접 매칭으로 season_score 를 로더에서 채우면(제철분석 스크립트와 동일 전략) map 없이도 활성 가능.
 
-### 4.6 나트륨·당 저감 (w_na=1, w_sugar=1)
+### 4.6 완제품 자제 (w_commercial=5)
+- 완제품/가공식품으로 판별된 메뉴가 편성될 때마다 감점(`− w_commercial · Σ x`).
+- 판별(`classify_commercial`): (1) `commercial_menu_ids` 주입(ADR-004 `ingredient_type='COMMERCIAL'`, DB 헬퍼 `load_commercial_menu_ids`) 우선 > (2) 메뉴명 키워드(햄·소시지·어묵·만두·너겟 등, ksm 가공식품 목록 정렬).
+- **지금 작동**: 키워드 폴백으로 메뉴명 기반 판별이 되어 recipe_ingredient_map 없이도 활성. DB 신호가 채워지면 자동으로 정밀도 향상.
+- ※ ksm '제공빈도 — 가공식품 주2회↓'(빈도 상한)와 **구분되는 항목**: 이건 "완제품 일반 자제"(편성당 감점). 원 제약조건의 `제철·완제품자제·나트륨당저감` 클러스터 소속. 두 항 중복 계상은 통합 시 가중치로 조정(§6).
+
+### 4.7 나트륨·당 저감 (w_na=1, w_sugar=1)
 - `sodium_coef = round(sodium/100mg)`, `sugar_coef = round(sugar/2g)`. 총량 감점(낮을수록 가점).
-- **즉시 활성 가능**: `nutrition_recipe.sodium/sugar` 직속 컬럼. 단 pmy 로더 SELECT 에 두 컬럼 추가 + MenuItem 필드 추가 필요(§5).
+- **즉시 활성 가능**: `nutrition_recipe.sodium/sugar` 직속 컬럼(99% 적재). `load_nutrition_fields` 주입으로 pmy 파일 수정 없이 동작.
 
 ## 5. 데이터 의존성 및 활성 상태
 
@@ -91,6 +98,7 @@ side-channel 인자 + 자체 DB 헬퍼로 조달**한다. pmy 의 MenuItem/쿼�
 | cooking_method | ✖ | `load_cooking_methods(engine, menus)` → `cooking_methods=` 주입(부분). 미주입 메뉴는 메뉴명 키워드로 폴백 병합 |
 | sodium·sugar | ✖ | `load_nutrition_fields(engine, menus)` → `sodium_by_idx=`, `sugar_by_idx=` 주입 |
 | main_ingredient | ✖ (현재 **양 경로 모두 커버리지 0**) | 정식: `load_main_ingredients`(recipe_ingredient_map=0행). 우회: `load_main_ingredients_from_training`(ml_training_dataset 주재료 89건은 있으나 참조 recipe 가 전부 nutrition_recipe_id NULL → 메뉴 0건, 2026-07-30 검증). 둘 다 준비돼 있고 데이터 연결 확장 시 자동 활성 |
+| 완제품(commercial) | △ (키워드로 지금 작동) | `load_commercial_menu_ids`(ADR-004 ingredient_type='COMMERCIAL', recipe_ingredient_map 적재 후) → `commercial_menu_ids=` 주입. 미주입 시 메뉴명 키워드로 판별 |
 | taste | ✖ (스키마 부재) | 주입 없음 → 영구 중립 |
 
 조리법 분류 우선순위(메뉴별): `load_cooking_methods` 주입값 > `menu.cooking_method` 속성 > 메뉴명 키워드. recipe 연결 메뉴(≤844건)는 DB 정답 조리법, 나머지는 이름 키워드로 병합된다.
@@ -125,20 +133,21 @@ side-channel 인자 + 자체 DB 헬퍼로 조달**한다. pmy 의 MenuItem/쿼�
 ```python
 from soft_constraints_diversity import (
     add_diversity_soft_objective, load_nutrition_fields, load_cooking_methods,
-    load_main_ingredients, load_main_ingredients_from_training)
+    load_main_ingredients, load_main_ingredients_from_training, load_commercial_menu_ids)
 from soft_constraints import add_soft_objective          # ksm
 
-# (선택) DB 가동 시 side-channel 조달 — 미가동이면 아래 3줄 생략(폴백/중립 저하)
+# (선택) DB 가동 시 side-channel 조달 — 미가동이면 아래 줄 생략(폴백/중립 저하)
 na_by_idx, sg_by_idx = load_nutrition_fields(engine, menus)
 cook_by_idx = load_cooking_methods(engine, menus)        # recipe 연결분은 DB 정답, 나머지는 이름 폴백
 # 주재료: 정식 소스(recipe_ingredient_map) 우선, 비었으면 학습셋 우회 경로로 대체
 main_by_idx = load_main_ingredients(engine, menus) or load_main_ingredients_from_training(engine, menus)
+commercial_ids = load_commercial_menu_ids(engine, menus)  # 비면 메뉴명 키워드로 자동 폴백
 
 soft_ksm = add_soft_objective(model, x, menus, days=req.days, n_meals=len(req.meals), ...)
 soft_div = add_diversity_soft_objective(
     model, x, menus, days=req.days, n_meals=len(req.meals),
-    cooking_methods=cook_by_idx, sodium_by_idx=na_by_idx,
-    sugar_by_idx=sg_by_idx, main_by_idx=main_by_idx)
+    cooking_methods=cook_by_idx, sodium_by_idx=na_by_idx, sugar_by_idx=sg_by_idx,
+    main_by_idx=main_by_idx, commercial_menu_ids=commercial_ids)
 model.Maximize(soft_ksm.score + soft_div.score)          # 부호 규약 동일 → 그냥 합산
 ```
 

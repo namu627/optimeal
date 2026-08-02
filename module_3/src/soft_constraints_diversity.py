@@ -7,7 +7,8 @@ ksm(권성민) 팀장의 `soft_constraints.py` 와 **동일한 규약**으로 �
 담당 범위 (FR-11 Soft / ADR-002 Scoring Function 中):
   (1) 다양성 — 조리법 3종↑(일 단위) · 주재료/색/맛 중복 회피
   (2) 제철   — 제철 식재료 점수(season_score) 높은 식단 선호
-  (3) 나트륨당 저감 — Hard 상한 이하라도 총 나트륨·당류가 낮은 식단 선호
+  (3) 완제품 자제 — 완제품/가공식품 메뉴 편성 최소화 (ingredient_type='COMMERCIAL' 또는 메뉴명 키워드)
+  (4) 나트륨당 저감 — Hard 상한 이하라도 총 나트륨·당류가 낮은 식단 선호
 
 범위 밖(다른 Soft 담당): 제공빈도 · 기호도 · 식단가(ksm), 메뉴 중복 회피는 별개 항목.
   → 동일 규약("클수록 좋음")이라 `add_diversity_soft_objective(...).score` 를
@@ -63,6 +64,40 @@ COOKING_METHOD_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("부침", ("부침", "지짐", "빈대떡", "동그랑땡", "전유어", "적")),
     ("볶음", ("볶음", "볶이", "잡채")),
 )
+
+
+# 완제품/가공식품(시판 완제품) 판별 키워드 — "완제품 자제" Soft 항용.
+# 권위 신호는 recipe_ingredient_map.ingredient_type='COMMERCIAL' [ADR-004] 이며,
+# 미적재 상태에서도 동작하도록 메뉴명 키워드로 우회 판별한다(ksm classify_food_types 가공식품 목록 정렬).
+COMMERCIAL_KEYWORDS: tuple[str, ...] = (
+    "햄", "소시지", "비엔나", "맛살", "게맛살", "어묵", "오뎅", "베이컨",
+    "스팸", "런천", "만두", "핫도그", "떡갈비", "동그랑땡", "너겟", "너깃",
+    "크로켓", "고로케", "가스", "돈가스", "돈까스", "카츠",
+)
+
+
+def classify_commercial(
+    menus: list,
+    commercial_menu_ids: set | None = None,
+    keywords: tuple[str, ...] | None = None,
+) -> set:
+    """완제품/가공식품 메뉴의 인덱스 집합을 돌려준다("완제품 자제" 항용).
+
+    우선순위(메뉴별): (1) commercial_menu_ids 주입(예: load_commercial_menu_ids,
+    ADR-004 ingredient_type='COMMERCIAL') > (2) 메뉴명 키워드. 둘 다 아니면 제외.
+    데이터/키워드 모두 없으면 빈 집합 → 항 비활성(우아한 저하).
+    """
+    kw = keywords or COMMERCIAL_KEYWORDS
+    commercial_menu_ids = commercial_menu_ids or set()
+    flagged: set = set()
+    for m_idx, menu in enumerate(menus):
+        if getattr(menu, "menu_id", None) in commercial_menu_ids:
+            flagged.add(m_idx)
+            continue
+        name = getattr(menu, "name", "") or ""
+        if any(k in name for k in kw):
+            flagged.add(m_idx)
+    return flagged
 
 
 def classify_cooking_methods(
@@ -123,6 +158,8 @@ class DiversityWeights:
     w_taste: int = 4           # 맛 반복(cap 초과) 1회당 감점
     # 제철
     w_season: int = 3          # 제철점수 스케일 단위당 가점
+    # 완제품 자제
+    w_commercial: int = 5      # 완제품/가공식품 메뉴 1회 편성당 감점
     # 나트륨당 저감
     w_na: int = 1              # 나트륨 SODIUM_UNIT(mg)당 감점
     w_sugar: int = 1           # 당류 SUGAR_UNIT(g)당 감점
@@ -149,6 +186,7 @@ class DiversitySoftObjective:
     color_short_vars: dict = field(default_factory=dict)  # {day: 색감 부족량 IntVar}
     main_excess_vars: dict = field(default_factory=dict)  # {main_ingredient: 초과량 IntVar}
     taste_excess_vars: dict = field(default_factory=dict) # {taste: 초과량 IntVar}
+    commercial_idx: set = field(default_factory=set)       # 완제품 판별된 메뉴 인덱스(리포팅용)
     active_terms: dict = field(default_factory=dict)       # {term명: 활성여부} 리포팅용
     cooking_methods: dict = field(default_factory=dict)    # 분류 결과(리포팅용)
 
@@ -184,6 +222,7 @@ def add_diversity_soft_objective(
     sugar_by_idx: dict[int, float] | None = None,
     main_by_idx: dict[int, str] | None = None,
     taste_by_idx: dict[int, str] | None = None,
+    commercial_menu_ids: set | None = None,
 ) -> DiversitySoftObjective:
     """다양성·제철·나트륨당 Soft 목적을 모델에 더하고 점수식을 돌려준다.
 
@@ -203,6 +242,8 @@ def add_diversity_soft_objective(
             주입된 메뉴는 그 값, 나머지는 메뉴명 키워드로 병합 분류.
         sodium_by_idx/sugar_by_idx: {인덱스: 값} 주입(mg/g). None이면 getattr 폴백.
         main_by_idx/taste_by_idx: {인덱스: 주재료명/맛} 주입. None이면 getattr 폴백.
+        commercial_menu_ids: 완제품(ingredient_type='COMMERCIAL') 메뉴의 menu_id 집합 주입.
+            None이면 메뉴명 키워드로 완제품 판별(우회). "완제품 자제" 항용.
 
     Returns:
         DiversitySoftObjective. `.score` 를 ksm 항 등과 합산해 Maximize.
@@ -328,7 +369,15 @@ def add_diversity_soft_objective(
     active["sugar"] = bool(sugar_terms)
 
     # ------------------------------------------------------------------ #
-    # 총점 = +제철 − (조리법·색·주재료·맛 위반) − (나트륨·당)  (최대화)     #
+    # (4) 완제품 자제 — 완제품/가공식품 메뉴 편성 시 감점. 없으면 중립.      #
+    # ------------------------------------------------------------------ #
+    commercial_idx = classify_commercial(menus, commercial_menu_ids=commercial_menu_ids)
+    commercial_terms = [x[m, d, s] for m in commercial_idx for d in D for s in S]
+    commercial_penalty = sum(commercial_terms) if commercial_terms else 0
+    active["commercial"] = bool(commercial_idx)
+
+    # ------------------------------------------------------------------ #
+    # 총점 = +제철 − (조리법·색·주재료·맛 위반) − (나트륨·당) − 완제품  (최대화) #
     # ------------------------------------------------------------------ #
     score = (
         (w.w_season * season_reward)
@@ -338,6 +387,7 @@ def add_diversity_soft_objective(
         - (w.w_taste * taste_penalty)
         - (w.w_na * sodium_penalty)
         - (w.w_sugar * sugar_penalty)
+        - (w.w_commercial * commercial_penalty)
     )
 
     return DiversitySoftObjective(
@@ -346,6 +396,7 @@ def add_diversity_soft_objective(
         color_short_vars=color_short_vars,
         main_excess_vars=main_excess_vars,
         taste_excess_vars=taste_excess_vars,
+        commercial_idx=commercial_idx,
         active_terms=active,
         cooking_methods=methods,
     )
@@ -438,6 +489,9 @@ def evaluate_diversity_breakdown(
     total_sugar = sum(
         (getattr(menus[m], "sugar", 0.0) or 0.0) * int(solver.Value(x[m, d, s]))
         for m in M for d in D for s in S)
+    commercial_count = sum(
+        int(solver.Value(x[m, d, s]))
+        for m in soft.commercial_idx for d in D for s in S)
 
     return {
         "active_terms": soft.active_terms,
@@ -446,6 +500,7 @@ def evaluate_diversity_breakdown(
         "main_ingredient_counts": _repeat_report("main_ingredient"),
         "taste_counts": _repeat_report("taste"),
         "total_season_score": round(total_season, 3),
+        "commercial_count": commercial_count,
         "total_sodium_mg": round(total_sodium, 1),
         "total_sugar_g": round(total_sugar, 1),
     }
@@ -581,3 +636,29 @@ def load_main_ingredients_from_training(engine, menus: list) -> dict[int, str]:
             if idx is not None and r["main"] and idx not in main:
                 main[idx] = r["main"]
     return main
+
+
+def load_commercial_menu_ids(engine, menus: list) -> set:
+    """완제품(ingredient_type='COMMERCIAL' [ADR-004]) 재료를 포함한 메뉴의 menu_id 집합 반환.
+
+    "완제품 자제" 항의 권위 신호. recipe_ingredient_map 미적재 시 빈 집합 → 메뉴명 키워드
+    폴백(classify_commercial)이 대신 동작. add_diversity_soft_objective(commercial_menu_ids=)로 주입.
+    """
+    from sqlalchemy import text
+
+    ids = [getattr(m, "menu_id", None) for m in menus]
+    ids = [mid for mid in ids if mid is not None]
+    if not ids:
+        return set()
+    q = text(
+        """
+        SELECT DISTINCT nr.nutrition_id AS menu_id
+        FROM nutrition_recipe nr
+        JOIN recipe r                  ON r.nutrition_recipe_id = nr.nutrition_id
+        JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
+                                       AND rim.ingredient_type = 'COMMERCIAL'
+        WHERE nr.nutrition_id = ANY(:ids)
+        """
+    )
+    with engine.connect() as conn:
+        return {row["menu_id"] for row in conn.execute(q, {"ids": ids}).mappings()}
