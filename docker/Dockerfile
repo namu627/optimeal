@@ -1,7 +1,7 @@
 # docker/Dockerfile
-# Python 3.12 개발 환경 (mise.toml 기준 버전 고정)
+# Python 3.12.13 개발 환경 (mise.toml 기준 버전 고정)
 
-FROM python:3.12-slim
+FROM python:3.12.13-slim
 
 # 시스템 의존성 (psycopg2-binary, matplotlib 등)
 RUN apt-get update && apt-get install -y --no-install-recommends \
