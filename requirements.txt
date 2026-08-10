@@ -13,7 +13,12 @@
 # lightgbm==4.5.0
 # psycopg2-binary==2.9.10
 # sqlalchemy==2.0.36
+# fastapi==0.115.6            # 모듈 4 REST API
+# uvicorn==0.34.0             # 모듈 4 ASGI 서버
+# ortools==9.11.4210          # 모듈 3 CSP Solver (CP-SAT)
 # --- 이하 의존성 자동 포함 (pip freeze) ---
+absl-py==2.5.0
+annotated-types==0.8.0
 anyio==4.14.2
 argon2-cffi==25.1.0
 argon2-cffi-bindings==25.1.0
@@ -37,6 +42,7 @@ decorator==5.3.1
 defusedxml==0.7.1
 et_xmlfile==2.0.0
 executing==2.2.1
+fastapi==0.115.6
 fastjsonschema==2.21.2
 flake8==7.1.1
 fonttools==4.63.0
@@ -46,6 +52,7 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.18
+immutabledict==4.3.1
 iniconfig==2.3.0
 ipykernel==7.3.0
 ipython==9.15.0
@@ -90,6 +97,7 @@ notebook_shim==0.2.4
 numpy==1.26.4
 nvidia-nccl-cu12==2.30.7
 openpyxl==3.1.5
+ortools==9.11.4210
 packaging==26.2
 pandas==2.2.3
 pandocfilters==1.5.1
@@ -102,12 +110,15 @@ platformdirs==4.10.0
 pluggy==1.6.0
 prometheus_client==0.25.0
 prompt_toolkit==3.0.52
+protobuf==5.26.1
 psutil==7.2.2
 psycopg2-binary==2.9.10
 ptyprocess==0.7.0
 pure_eval==0.2.3
 pycodestyle==2.12.1
 pycparser==3.0
+pydantic==2.13.4
+pydantic_core==2.46.4
 pyflakes==3.2.0
 Pygments==2.20.0
 pyparsing==3.3.2
@@ -132,6 +143,7 @@ six==1.17.0
 soupsieve==2.8.4
 SQLAlchemy==2.0.36
 stack-data==0.6.3
+starlette==0.41.3
 statsmodels==0.14.4
 terminado==0.18.1
 threadpoolctl==3.6.0
@@ -139,9 +151,11 @@ tinycss2==1.5.1
 tornado==6.5.7
 traitlets==5.15.1
 typing_extensions==4.16.0
+typing-inspection==0.4.2
 tzdata==2026.3
 uri-template==1.3.0
 urllib3==2.7.0
+uvicorn==0.34.0
 wcwidth==0.8.2
 webcolors==25.10.0
 webencodings==0.5.1

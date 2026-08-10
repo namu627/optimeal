@@ -186,17 +186,19 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     status = solver.Solve(model)
     plan, daily_kcal, total_cost = {}, {}, 0
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        # ⚠ 접시별 int() 절단 금지: Hard 제약은 int(kcal*SCALE)(소수 2자리)로 걸리는데
+        #   리포트가 접시마다 int()로 버리면 하루 12접시에서 최대 ~12kcal 과소 집계되어
+        #   제약을 만족한 식단이 "칼로리 위반"으로 표시된다. 합산을 float로 하고 마지막에 반올림.
         for d in D:
             plan[d + 1] = {}
-            day_c = 0
+            day_c = 0.0
             for s, sname in enumerate(req.meals):
                 picked = [menus[m].name for m in M if solver.Value(x[m, d, s])]
                 plan[d + 1][sname] = picked
-                day_c += sum(int(menus[m].calories) for m in M for _ in [s]
-                             if solver.Value(x[m, d, s]))
-            daily_kcal[d + 1] = day_c
-        total_cost = sum(int(menus[m].cost_won) for m in M for d in D for s in S
-                         if solver.Value(x[m, d, s]))
+                day_c += sum(menus[m].calories for m in M if solver.Value(x[m, d, s]))
+            daily_kcal[d + 1] = round(day_c, 1)
+        total_cost = round(sum(menus[m].cost_won for m in M for d in D for s in S
+                               if solver.Value(x[m, d, s])))
     objective, hard_breakdown, soft_breakdown, diversity_breakdown = 0.0, None, None, None
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         objective = solver.ObjectiveValue()
