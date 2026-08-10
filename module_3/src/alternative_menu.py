@@ -224,17 +224,22 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
 
 
 def _recompute(plan, by_name):
-    daily_kcal, total_cost = {}, 0
+    """대체식 plan 의 일별 kcal·총원가를 재집계한다.
+
+    접시별 int() 절단을 하지 않는다 — 공통식(csp_solver)·Hard 리포트와 같은 기준으로
+    집계해야 두 트랙의 수치를 나란히 놓고 비교할 수 있다(2026-08-10 절단 버그 수정).
+    """
+    daily_kcal, total_cost = {}, 0.0
     for day, meals in plan.items():
-        day_c = 0
+        day_c = 0.0
         for _, picks in meals.items():
             for name in picks:
                 m = by_name.get(name)
                 if m:
-                    day_c += int(getattr(m, "calories", 0) or 0)
-                    total_cost += int(getattr(m, "cost_won", 0) or 0)
-        daily_kcal[day] = day_c
-    return daily_kcal, total_cost
+                    day_c += getattr(m, "calories", 0.0) or 0.0
+                    total_cost += getattr(m, "cost_won", 0.0) or 0.0
+        daily_kcal[day] = round(day_c, 1)
+    return daily_kcal, round(total_cost)
 
 
 # ===========================================================================

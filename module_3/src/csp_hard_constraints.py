@@ -317,8 +317,12 @@ def evaluate_hard_breakdown(
 
     per_day = []
     for d in D:
-        kcal = sum(int(menus[m].calories) for m in M for s in S if solver.Value(x[m, d, s]))
-        cost = sum(int(menus[m].cost_won) for m in M for s in S if solver.Value(x[m, d, s]))
+        # ⚠ 접시별 int() 절단 금지 — 제약은 int(값*SCALE)(소수 2자리)로 걸린다.
+        #   접시마다 버리면 하루 접시 수만큼(3끼×4접시=최대 ~12kcal) 과소 집계되어
+        #   제약을 만족한 해가 kcal_ok=False 로 오보된다(2026-08-10 재현·수정).
+        #   집계는 float 로 하고 표시 직전에만 반올림한다.
+        kcal = round(sum(menus[m].calories for m in M for s in S if solver.Value(x[m, d, s])), 1)
+        cost = round(sum(menus[m].cost_won for m in M for s in S if solver.Value(x[m, d, s])))
         per_day.append({
             "day": d + 1,
             "kcal": kcal,
