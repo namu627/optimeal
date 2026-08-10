@@ -38,13 +38,20 @@ def test_menu_wiring_reaches_solver_when_module3_complete(client):
     if path is None or not all((path / f).exists() for f in required):
         pytest.skip(f"모듈 3 불완비 — 통합 배선 검증 대상 아님 (path={path})")
 
-    r = client.post("/api/menu/generate", json={"days": 7})
-    assert r.status_code == 503, "DB 미구성 환경에서는 503 이 정상"
+    r = client.post("/api/menu/generate", json={"days": 3, "solver_time_limit": 40})
+    if r.status_code == 200:
+        # 메뉴 후보 DB까지 준비된 환경 — 식단이 실제로 나와야 한다.
+        body = r.json()
+        assert body["status"] in ("OPTIMAL", "FEASIBLE"), body["status"]
+        assert body["plan"], "해가 있는데 plan 이 비어 있다"
+        return
+    # DB 미구성 환경 — 후보 공급원만 없어야 하고, import 실패는 병합 역행 신호다.
+    assert r.status_code == 503
     reason = r.json()["detail"]["reason"]
     assert reason != "module_3_import_failed", (
         "모듈 3 파일은 다 있는데 import 실패 — 병합 누락/역행 의심"
     )
-    assert reason == "menu_source_unavailable"   # 남은 차단은 DB 뿐
+    assert reason == "menu_source_unavailable"
 
 
 def test_nutrition_search_reports_db_unavailable(client, monkeypatch):
