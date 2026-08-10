@@ -46,7 +46,10 @@ def solved():
     """
     menus = fractional_menus()
     cfg = hc.HardConstraintConfig(target_kcal_per_day=2375.0, kcal_tolerance=0.0145,
-                                  budget_limit_per_person=None)
+                                  budget_limit_per_person=None,
+                                  # 이 테스트의 관심사는 리포트 절단뿐 → 이후 추가된
+                                  # 끼니배분·중복창 제약은 비활성으로 격리한다.
+                                  enable_meal_ratio=False, menu_repeat_window_days=0)
     res = build_and_solve(menus, MealPlanRequest(days=2, hard=cfg, solver_time_limit=30.0))
     assert res.status in ("OPTIMAL", "FEASIBLE"), f"해가 있어야 한다: {res.status}"
     return menus, cfg, res
@@ -82,7 +85,8 @@ def test_cost_report_not_truncated_per_dish():
     """원가도 접시별 절단하지 않는다(예산 판정 오보 방지)."""
     menus = fractional_menus()
     cfg = hc.HardConstraintConfig(enable_energy=False, budget_limit_per_person=3200.0,
-                                  budget_period="day")
+                                  budget_period="day",
+                                  enable_meal_ratio=False, menu_repeat_window_days=0)
     res = build_and_solve(menus, MealPlanRequest(days=2, hard=cfg, solver_time_limit=30.0))
     assert res.plan, f"해가 있어야 한다: {res.status}"
     by = {m.name: m for m in menus}
