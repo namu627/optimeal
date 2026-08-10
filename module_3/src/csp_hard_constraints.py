@@ -54,6 +54,12 @@ class HardConstraintConfig:
     target_kcal_per_day: float = 2000.0   # H-2a 1일 권장 에너지(kcal)
     kcal_tolerance: float = 0.10          # H-2a 허용 편차 ±10%
     enable_energy: bool = True            # H-2a 활성(calories 항상 존재 → 기본 ON)
+    # H-2a' 끼니별 에너지 배분 (PRD §끼니별 영양 배분: 아침30·점심40·저녁30%)
+    #   len(meal_energy_ratios) == n_meals 이고 enable_energy 일 때만 적용된다.
+    #   끼니 수가 다르면(1끼·2끼 등) 자동 skip → 기존 호출부 동작 불변.
+    meal_energy_ratios: tuple = (0.30, 0.40, 0.30)
+    meal_ratio_tolerance: float = 0.15    # 끼니별 허용 편차 ±15%(일 단위 ±10%보다 느슨)
+    enable_meal_ratio: bool = True
     carb_ratio: tuple = (55.0, 65.0)      # H-2b 탄수화물 55~65%
     protein_ratio: tuple = (7.0, 20.0)    # H-2b 단백질 7~20%
     fat_ratio: tuple = (15.0, 30.0)       # H-2b 지방 15~30%
@@ -75,6 +81,12 @@ class HardConstraintConfig:
     #   ★ 현 확정: 골조의 '주식1·국1·반찬2'를 사용(H-4 비활성 유지). 반상(밥·주찬·부찬·김치)은
     #     반찬→주찬/부찬 세분·김치 태깅 등 데이터 보강 후 이 파라미터로 켠다.
     meal_composition: dict = field(default_factory=dict)
+
+    # ── 메뉴 중복 회피 (PRD §Soft "3일 이내 재등장 금지"를 강제 창으로 구현) ──
+    #   창(window) 내에서 동일 메뉴를 1회만 허용. 창이 하루 전체 끼니를 포함하므로
+    #   "같은 날 점심·저녁 중복"도 함께 막힌다. 0 이면 미적용.
+    #   추가 변수 없이 선형 제약만 쓰므로 비용이 싸다(|M|×(days-w+1) 제약).
+    menu_repeat_window_days: int = 3
 
     # ── 식단가(예산 커트라인) ──────────────────────────────────────
     budget_limit_per_person: float | None = 3500.0  # None이면 예산 제약 미적용
@@ -202,6 +214,24 @@ def add_hard_constraints(
     active["energy"] = cfg.enable_energy
 
     # =======================================================================
+    # H-2a' 영양기준 — 끼니별 에너지 배분 (아침30·점심40·저녁30%)
+    #   끼니 수와 비율 개수가 맞을 때만 적용(1끼·2끼 호출부 보호).
+    # =======================================================================
+    ratios = tuple(cfg.meal_energy_ratios or ())
+    meal_ratio_on = (cfg.enable_energy and cfg.enable_meal_ratio
+                     and len(ratios) == n_meals and n_meals > 1)
+    if meal_ratio_on:
+        for d in D:
+            for s, ratio in zip(S, ratios):
+                target = cfg.target_kcal_per_day * ratio
+                lo = int(target * (1 - cfg.meal_ratio_tolerance) * SCALE)
+                hi = int(target * (1 + cfg.meal_ratio_tolerance) * SCALE)
+                meal_kcal = sum(int(menus[m].calories * SCALE) * x[m, d, s] for m in M)
+                model.Add(meal_kcal >= lo)
+                model.Add(meal_kcal <= hi)
+    active["meal_energy_ratio"] = meal_ratio_on
+
+    # =======================================================================
     # H-2b 영양기준 — 탄단지 열량 비율 (탄/단 4kcal·g, 지 9kcal·g) · 주 평균
     #   lo% ≤ Σ_win macro_kcal / Σ_win total_kcal ≤ hi%  →  macro·P ≥ lo·total (반대도)
     #   정의서 "열량구성비(주 평균)" → 창(ratio_window_days, 기본 7일) 단위 평균 비율로 강제.
@@ -278,6 +308,21 @@ def add_hard_constraints(
     active["meal_composition"] = bool(cfg.meal_composition)
 
     # =======================================================================
+    # 메뉴 중복 회피 — 창(window) 내 동일 메뉴 1회 (PRD "3일 이내 재등장 금지")
+    #   창이 하루의 모든 끼니를 포함하므로 같은 날 점심·저녁 중복도 함께 막힌다.
+    #   days < window 이면 전 기간을 하나의 창으로 본다.
+    # =======================================================================
+    w = int(cfg.menu_repeat_window_days or 0)
+    if w > 0:
+        span = min(w, days)
+        for m in M:
+            for d0 in range(0, days - span + 1):
+                model.Add(
+                    sum(x[m, d, s] for d in range(d0, d0 + span) for s in S) <= 1
+                )
+    active["menu_repeat_window"] = w > 0
+
+    # =======================================================================
     # 식단가(예산) — 커트라인. 초과 식단은 무조건 후보에서 제외(Hard).
     # =======================================================================
     if cfg.budget_limit_per_person is not None:
@@ -344,4 +389,49 @@ def evaluate_hard_breakdown(
         "excluded_menu_count": len(hard.excluded_idx),
         "excluded_clean": allergen_clean,   # 배제 대상(배제식품·알레르기) 편성 안 됨
         "active_terms": hard.active_terms,
+        "meal_kcal": _meal_kcal_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "menu_repeat": _repeat_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+    }
+
+
+def _meal_kcal_report(solver, x, menus, hard, *, days, n_meals) -> list:
+    """끼니별 kcal 과 목표 밴드 준수 여부(H-2a')를 요약한다."""
+    cfg = hard.config
+    if not hard.active_terms.get("meal_energy_ratio"):
+        return []
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    out = []
+    for d in D:
+        for s, ratio in zip(S, cfg.meal_energy_ratios):
+            kcal = round(sum(menus[m].calories for m in M if solver.Value(x[m, d, s])), 1)
+            target = cfg.target_kcal_per_day * ratio
+            lo = target * (1 - cfg.meal_ratio_tolerance)
+            hi = target * (1 + cfg.meal_ratio_tolerance)
+            out.append({"day": d + 1, "meal_index": s, "kcal": kcal,
+                        "target": round(target, 1), "ok": lo <= kcal <= hi})
+    return out
+
+
+def _repeat_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """메뉴 중복 실측 — 창 제약이 실제로 지켜졌는지 확인한다."""
+    if not hard.active_terms.get("menu_repeat_window"):
+        return {"window_days": 0, "violations": [], "max_same_menu_count": None}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    placed: dict[int, list] = {}
+    for m in M:
+        for d in D:
+            for s in S:
+                if solver.Value(x[m, d, s]):
+                    placed.setdefault(m, []).append(d)
+    span = min(int(hard.config.menu_repeat_window_days), days)
+    violations = []
+    for m, ds in placed.items():
+        ds.sort()
+        for a, b in zip(ds, ds[1:]):
+            if b - a < span:
+                violations.append({"menu": menus[m].name, "days": [a + 1, b + 1]})
+    return {
+        "window_days": span,
+        "violations": violations,
+        "max_same_menu_count": max((len(v) for v in placed.values()), default=0),
     }
