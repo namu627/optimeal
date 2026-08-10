@@ -128,17 +128,28 @@ def render_plan_table(res, by_name, cfg) -> str:
     return "".join(out)
 
 
+SODIUM_TARGET_MG = 2000.0   # 한국인 영양소 섭취기준 만성질환위험감소섭취량 수준(성인)
+
+
 def render_nutrient_table(res, by_name, nutrients) -> str:
-    """일별 영양소 합계 표."""
-    rows = []
+    """일별 영양소 합계 표. 나트륨은 권고 초과 여부를 표시한다(제약은 미구현)."""
+    rows, over = [], 0
     for day, meals in res.plan.items():
         n = day_nutrients(meals, by_name, nutrients)
+        na = n.get("sodium", 0)
+        na_cls = "bad" if na > SODIUM_TARGET_MG else "ok"
+        over += 1 if na > SODIUM_TARGET_MG else 0
         rows.append(f"<tr><td>{day}일</td><td>{res.daily_kcal[day]:.0f}</td>"
                     f"<td>{n.get('protein',0)}</td><td>{n.get('fat',0)}</td>"
-                    f"<td>{n.get('carbs',0)}</td><td>{n.get('sodium',0)}</td></tr>")
+                    f"<td>{n.get('carbs',0)}</td>"
+                    f"<td class='{na_cls}'>{na:,.0f}</td></tr>")
+    note = (f"<p><small>나트륨: {over}/{len(rows)}일이 권고 기준"
+            f"({SODIUM_TARGET_MG:,.0f}mg) 초과. <b>나트륨 상한은 제약으로 구현되지 않아</b> "
+            "솔버가 이를 낮추지 않습니다(한계 3번). 저감이 필요하면 상한 제약을 추가하겠습니다."
+            "</small></p>")
     return ("<table><thead><tr><th>일자</th><th>열량(kcal)</th><th>단백질(g)</th>"
             "<th>지방(g)</th><th>탄수화물(g)</th><th>나트륨(mg)</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table>")
+            f"<tbody>{''.join(rows)}</tbody></table>{note}")
 
 
 def render_verification(res, cfg) -> str:
@@ -222,8 +233,10 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 <p><b>2. 알레르기 대체식 트랙이 없습니다.</b> 알레르겐 매핑 테이블(<code>constraints</code>)이
 비어 있습니다. 불완전한 매핑을 임시로 만들어 "알레르기 대응됨"처럼 보이게 하는 것은 안전상
 위험하므로 <b>이번 검수 범위에서 제외</b>했습니다. 대체식 로직 자체는 구현되어 있습니다.</p>
-<p><b>3. 기저질환 상한(당류·나트륨·칼륨·인)은 미구현입니다.</b> 나트륨은 참고용으로 합계만
-표시하며 상한 제약으로 걸리지 않습니다.</p>
+<p><b>3. 기저질환 상한(당류·나트륨·칼륨·인)은 미구현입니다.</b> 특히 <b>나트륨이 권고
+기준(2,000mg/일)을 상당히 초과</b>합니다 — 솔버가 나트륨을 낮추도록 제약이 걸려 있지 않기
+때문입니다. 아래 영양소 표에서 초과 일자를 붉게 표시했습니다. 저염이 필요한 대상
+(노인·고혈압)에는 <b>이 식단을 그대로 쓸 수 없습니다.</b></p>
 <p><b>4. 메뉴 분류는 원본 <code>grouping_type</code>을 기계적으로 매핑한 결과입니다.</b>
 (밥·일품요리→주식 / 국 / 주찬·부찬·반찬·김치→반찬) 국물 요리가 '반찬'으로 분류된 사례가
 있을 수 있습니다 — <b>분류가 어색한 접시를 지적해 주시면 매핑을 고치겠습니다.</b></p>
