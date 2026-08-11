@@ -11,9 +11,10 @@ Soft 모듈(`soft_constraints.py`·`soft_constraints_diversity.py`)과 **동일 
 Hard Constraint (위반 시 식단 무효 — 가능영역 정의). 기준: 제약조건 정의서 H-1~H-4 / FR-11 / ADR-008
   H-1 안전영역 : 배제식품 미사용(H-1a), CCP2 메뉴 끼니당 상한(H-1b)
   H-2 영양기준 : 에너지 ±10%(H-2a, 일 단위) / 탄단지 비율(H-2b, 주 평균) /
-                 당류·첨가당 상한(H-2c, 주 평균) / 필수영양소(H-2d, 일 단위)
+                 당류·첨가당 상한(H-2c, 주 평균) / 필수영양소(H-2d, 일 단위) /
+                 영양소 상한(H-2e, 일 단위 — 나트륨 등 과잉 위험 영양소)
                  · 열량구성비·당류 비율은 정의서 기준 "주 평균" → ratio_window_days(기본 7) 창 단위로 강제.
-                 · 에너지·필수영양소는 하루 총량 기준(일 단위).
+                 · 에너지·필수영양소·영양소 상한은 하루 총량 기준(일 단위).
   H-3 법적표시 : 알레르기 편성 배제 (원산지·표시 자체는 데이터 표기 영역)
   H-4 식단구조 : 반상 유형별 필수 구성(opt-in; menu.category taxonomy 일치 필요)
   ★ 식단가(예산): 총 식재료비가 커트라인 초과 시 무조건 아웃. 커트라인 이내 최적화는 Soft.
@@ -68,6 +69,14 @@ class HardConstraintConfig:
     added_sugar_max_ratio: float = 10.0   # H-2c 첨가당 ≤ 총열량 10%
     enable_sugar_limit: bool = False      # H-2c 활성(당류 데이터 필요)
     essential_nutrient_min: dict = field(default_factory=dict)  # H-2d {영양소명: 1일 최소량}(있으면 활성)
+    # H-2e 영양소 1일 상한 {영양소명: 1일 최대량}(있으면 활성). 나트륨 등 **과잉이 위험한** 영양소용.
+    #   예: {"sodium": 2000.0} → 하루 총 나트륨 ≤ 2,000mg (WHO 성인 권고).
+    #   ⚠ 기본값은 비어 있다(미적용). 켜려면 값이 실제로 주입되는 경로에서만 켤 것 —
+    #     nutrient_max_missing='exclude' 기본 정책상 데이터 없이 켜면 전 메뉴가 배제되어 INFEASIBLE.
+    nutrient_max_per_day: dict = field(default_factory=dict)
+    # H-2e 결측 처리 정책. 상한 제약에서 "값 없음"을 0으로 보면 나트륨 0인 메뉴로 둔갑해
+    #   제약이 조용히 무력화된다 → 기본은 배제(exclude). 'zero'는 데이터 완전성이 확인된 경우만.
+    nutrient_max_missing: str = "exclude"  # 'exclude' | 'zero'
     ratio_precision: int = 100            # 비율 분모(퍼센트=100). 1000이면 소수 첫째자리까지 반영.
     ratio_window_days: int = 7            # H-2b·H-2c 비율 적용 창(주 평균=7일). 창 단위 평균 비율을 강제.
 
@@ -104,6 +113,8 @@ class HardConstraint:
     kcal_hi: int = 0                                   # 정수화 칼로리 상한(×SCALE)
     active_terms: dict = field(default_factory=dict)   # {term명: bool}
     excluded_idx: set = field(default_factory=set)     # 편성 배제된 메뉴 인덱스(H-1a·H-3 합산, 리포팅용)
+    # H-2e 상한 적용에 실제로 쓴 값 {영양소명: {메뉴인덱스: 양}} — 리포트가 제약과 같은 수를 보게 한다.
+    nutrient_values: dict = field(default_factory=dict)
 
 
 # ===========================================================================
@@ -134,6 +145,7 @@ def add_hard_constraints(
       H-2b 탄단지   : cfg.enable_macro_ratio (데이터 필요 → 기본 False)
       H-2c 당류     : cfg.enable_sugar_limit (데이터 필요 → 기본 False)
       H-2d 필수영양소: cfg.essential_nutrient_min 이 비어있지 않으면 활성
+      H-2e 영양소상한: cfg.nutrient_max_per_day 가 비어있지 않으면 활성(값 주입 필수)
       H-3 알레르기  : cfg.excluded_allergens 가 비어있지 않으면 활성
       H-4 식단구조  : cfg.meal_composition 이 비어있지 않으면 활성(taxonomy 일치 필수)
       예산          : cfg.budget_limit_per_person 이 None 이 아니면 활성
@@ -141,6 +153,8 @@ def add_hard_constraints(
     값 없는(None) 메뉴 처리(enable 된 제약 한정, 보수적):
       · 합계형 상한(H-2c 당류): 미상 → 0 기여(데이터 완전성 전제).
       · 비율/최소형(H-2b·H-2d): 미상 → 0 기여(하한 위반 유도 가능 → 완전한 데이터에서만 켤 것).
+      · 상한형(H-2e): 미상 → **편성 배제**(cfg.nutrient_max_missing='exclude', 기본).
+        상한에서 미상을 0으로 보면 제약이 조용히 무력화되므로 반대 방향으로 보수적이다.
       · CCP2(H-1b): ccp2_menu_ids/getattr 로 True 인 메뉴만 카운트(미상=비CCP2로 간주).
     """
     cfg = config or HardConstraintConfig()
@@ -155,6 +169,12 @@ def add_hard_constraints(
         if side is not None and m in side:
             return side[m] or 0.0
         return getattr(menus[m], attr, None) or 0.0
+
+    def raw(side, m, attr):
+        """num() 과 달리 **결측(None)을 0으로 뭉개지 않고** 그대로 돌려준다(H-2e 상한용)."""
+        if side is not None and m in side:
+            return side[m]
+        return getattr(menus[m], attr, None)
 
     def macro(m, key):
         if macro_by_idx is not None and m in macro_by_idx:
@@ -279,6 +299,31 @@ def add_hard_constraints(
     active["essential_nutrient"] = bool(cfg.essential_nutrient_min)
 
     # =======================================================================
+    # H-2e 영양기준 — 영양소 1일 상한 (나트륨 등 과잉 위험 영양소)
+    #   Σ_day amount(m)·x ≤ max_amount.  값이 없는 메뉴는 정책에 따라 배제(기본)한다.
+    #   ※ 하한(H-2d)과 반대로, 상한에서 결측을 0으로 두면 "그 영양소가 없는 메뉴"가 되어
+    #     제약을 우회하는 통로가 된다. 그래서 결측은 0이 아니라 배제로 처리한다.
+    # =======================================================================
+    nutrient_values: dict = {}
+    if cfg.nutrient_max_per_day:
+        exclude_missing = (cfg.nutrient_max_missing or "exclude") == "exclude"
+        for nutrient, max_amount in cfg.nutrient_max_per_day.items():
+            side = nutrient_by_idx.get(nutrient) if nutrient_by_idx else None
+            usable = []
+            for m in M:
+                v = raw(side, m, nutrient)
+                if v is None and exclude_missing:
+                    excluded_idx.add(m)
+                    ban(m)
+                    continue
+                usable.append((m, float(v or 0.0)))
+            nutrient_values[nutrient] = dict(usable)
+            for d in D:
+                day_amount = sum(int(v * SCALE) * x[m, d, s] for m, v in usable for s in S)
+                model.Add(day_amount <= int(max_amount * SCALE))
+    active["nutrient_max"] = bool(cfg.nutrient_max_per_day)
+
+    # =======================================================================
     # H-3 법적표시 — 알레르기 편성 배제
     # =======================================================================
     if cfg.excluded_allergens:
@@ -339,7 +384,8 @@ def add_hard_constraints(
     active["budget"] = cfg.budget_limit_per_person is not None
 
     return HardConstraint(config=cfg, kcal_lo=kcal_lo, kcal_hi=kcal_hi,
-                          active_terms=active, excluded_idx=excluded_idx)
+                          active_terms=active, excluded_idx=excluded_idx,
+                          nutrient_values=nutrient_values)
 
 
 # ===========================================================================
@@ -391,7 +437,33 @@ def evaluate_hard_breakdown(
         "active_terms": hard.active_terms,
         "meal_kcal": _meal_kcal_report(solver, x, menus, hard, days=days, n_meals=n_meals),
         "menu_repeat": _repeat_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "nutrient_max": _nutrient_max_report(solver, x, menus, hard, days=days, n_meals=n_meals),
     }
+
+
+def _nutrient_max_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-2e 영양소 일 상한 실측 — {영양소: {limit, per_day:[{day, amount, ok}], max_day}}.
+
+    ⚠ 제약이 쓴 값(hard.nutrient_values)을 그대로 재사용한다. 리포트가 DB를 다시 조회해
+      다른 값을 쓰면 정상 식단이 위반으로 보일 수 있다(2026-08-10 칼로리 절단 사례와 동종).
+    """
+    if not hard.active_terms.get("nutrient_max"):
+        return {}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    out = {}
+    for nutrient, limit in hard.config.nutrient_max_per_day.items():
+        vals = hard.nutrient_values.get(nutrient, {})
+        per_day = []
+        for d in D:
+            amount = sum(vals.get(m, 0.0) for m in M for s in S if solver.Value(x[m, d, s]))
+            per_day.append({"day": d + 1, "amount": round(amount, 1), "ok": amount <= limit})
+        out[nutrient] = {
+            "limit": limit,
+            "per_day": per_day,
+            "max_day": max((i["amount"] for i in per_day), default=0.0),
+            "all_ok": all(i["ok"] for i in per_day),
+        }
+    return out
 
 
 def _meal_kcal_report(solver, x, menus, hard, *, days, n_meals) -> list:

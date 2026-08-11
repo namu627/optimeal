@@ -96,7 +96,25 @@ def _load_menu_candidates(cs, month):
         ) from exc
 
 
-def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict]) -> list[dict]:
+def _load_sodium(menus) -> dict | None:
+    """메뉴별 나트륨(mg)을 {메뉴인덱스: 값}으로 조회한다. 실패하면 None(제약 미적용).
+
+    조회에 실패했는데 상한만 켜면 H-2e 결측=배제 정책 때문에 전 메뉴가 배제되어
+    INFEASIBLE 이 된다. 그래서 "못 읽으면 제약을 켜지 않는다"로 처리하고,
+    적용 여부는 응답의 hard_breakdown.active_terms.nutrient_max 로 드러낸다.
+    """
+    try:
+        import csp_solver as cs
+        import soft_constraints_diversity as scd
+
+        sodium, _ = scd.load_nutrition_fields(cs.get_engine(), menus)
+        return sodium or None
+    except Exception:
+        return None
+
+
+def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
+                         sodium_by_idx: dict | None = None) -> list[dict]:
     """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11)."""
     groups = [
         am.AllergyGroup(
@@ -106,7 +124,11 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict]) -> li
         )
         for g in allergy_groups
     ]
-    alts = am.derive_alternative_menus(plan, menus, groups, hard_config=cfg)
+    # 대체식도 공통식과 같은 나트륨 상한을 지켜야 한다 → menu_id 키로 변환해 주입.
+    sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
+                     if i < len(menus)} if sodium_by_idx else None)
+    alts = am.derive_alternative_menus(plan, menus, groups, hard_config=cfg,
+                                       sodium_by_id=sodium_by_id)
     return [_to_jsonable(a) for a in alts]
 
 
@@ -125,14 +147,19 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     """
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
+    # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
+    sodium_by_idx = _load_sodium(menus) if payload.sodium_max_mg_per_day else None
     cfg = hc.HardConstraintConfig(
         target_kcal_per_day=payload.target_kcal_per_day,
         kcal_tolerance=payload.kcal_tolerance,
         budget_limit_per_person=payload.budget_limit_per_person,
         excluded_allergens=set(payload.excluded_allergens),
+        nutrient_max_per_day=({"sodium": payload.sodium_max_mg_per_day}
+                              if sodium_by_idx else {}),
     )
     req = cs.MealPlanRequest(
-        days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit
+        days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit,
+        hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
     )
     res = cs.build_and_solve(menus, req)
     body = {
@@ -148,6 +175,6 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
 
     if payload.with_alternatives and res.plan:
         body["alternatives"] = _derive_alternatives(
-            am, res.plan, menus, cfg, payload.allergy_groups
+            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx
         )
     return body

@@ -147,6 +147,11 @@ class MenuGenerateRequest(BaseModel):
     target_kcal_per_day: float = Field(2000.0, gt=0)
     kcal_tolerance: float = Field(0.10, ge=0, le=0.5)
     budget_limit_per_person: Optional[float] = Field(3500.0, gt=0)
+    sodium_max_mg_per_day: Optional[float] = Field(
+        2000.0, gt=0,
+        description="1일 나트륨 상한 mg (H-2e Hard 제약). null이면 미적용. "
+                    "기본 2000=WHO 성인 권고. 저염 대상은 더 낮게 지정.",
+    )
     excluded_allergens: list[str] = Field(default_factory=list)
     solver_time_limit: float = Field(30.0, gt=0, le=120)
     with_alternatives: bool = Field(

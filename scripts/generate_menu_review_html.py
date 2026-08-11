@@ -37,13 +37,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import csp_hard_constraints as hc  # noqa: E402
 import csp_solver as cs  # noqa: E402
+import soft_constraints_diversity as scd  # noqa: E402
 from load_nutrition_from_recipe_db import get_engine  # noqa: E402
 
 # 검수용 프로파일 (user_group 테이블 미적재 → 생성 파라미터로 선언)
+#   sodium: 1일 나트륨 상한(mg, H-2e Hard 제약). ⚠ 이 수치는 **검수로 확정할 설정값**이다.
+#     · 2,000mg = WHO 성인 1일 권고 상한. 일반식 프로파일에 적용.
+#     · 노인은 저염 대상이므로 1,500mg 로 강화. 실측상 달성 가능함을 확인하고 채택했으나,
+#       연령·기저질환별 정확한 기준치는 영양사 검수에서 확정한다.
 PROFILES = {
-    "성인": {"kcal": 2000.0, "note": "일반 성인 기준 (권장 2,000kcal)"},
-    "학령기": {"kcal": 1800.0, "note": "초·중학생 기준 (권장 1,800kcal)"},
-    "노인": {"kcal": 1700.0, "note": "노인복지 기준 (권장 1,700kcal)"},
+    "성인": {"kcal": 2000.0, "sodium": 2000.0, "note": "일반 성인 기준 (권장 2,000kcal)"},
+    "학령기": {"kcal": 1800.0, "sodium": 2000.0, "note": "초·중학생 기준 (권장 1,800kcal)"},
+    "노인": {"kcal": 1700.0, "sodium": 1500.0,
+             "note": "노인복지 기준 (권장 1,700kcal) · 저염 대상 → 나트륨 상한 강화"},
 }
 MEAL_NAMES = ("아침", "점심", "저녁")
 
@@ -61,8 +67,14 @@ def load_nutrients(menu_ids: list[int]) -> dict:
                                 ("protein", "fat", "carbs", "sodium")} for r in rows}
 
 
-def solve_profile(menus: list, kcal: float, days: int, time_limit: float):
+def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
+                  sodium_max: float | None = None, sodium_by_idx: dict | None = None):
     """프로파일 1건을 풀이한다.
+
+    Args:
+        sodium_max: 1일 나트륨 상한(mg). None이면 미적용.
+        sodium_by_idx: {메뉴인덱스: 나트륨mg}. 상한을 켤 때 필수 —
+            H-2e 는 값이 없는 메뉴를 배제하므로 주입 없이 켜면 전 메뉴가 배제된다.
 
     Returns:
         (MealPlanResult, HardConstraintConfig).
@@ -70,10 +82,12 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float):
     cfg = hc.HardConstraintConfig(
         target_kcal_per_day=kcal,
         budget_limit_per_person=None,   # 원가 0원 → 예산 제약 무의미하므로 비활성
+        nutrient_max_per_day=({"sodium": sodium_max} if sodium_max else {}),
     )
     res = cs.build_and_solve(
-        menus, cs.MealPlanRequest(days=days, meals=MEAL_NAMES, hard=cfg,
-                                  solver_time_limit=time_limit))
+        menus, cs.MealPlanRequest(
+            days=days, meals=MEAL_NAMES, hard=cfg, solver_time_limit=time_limit,
+            hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_max else None)))
     return res, cfg
 
 
@@ -128,25 +142,32 @@ def render_plan_table(res, by_name, cfg) -> str:
     return "".join(out)
 
 
-SODIUM_TARGET_MG = 2000.0   # 한국인 영양소 섭취기준 만성질환위험감소섭취량 수준(성인)
+def render_nutrient_table(res, by_name, nutrients, sodium_max) -> str:
+    """일별 영양소 합계 표. 나트륨은 Hard 상한(H-2e) 대비 준수 여부를 표시한다.
 
-
-def render_nutrient_table(res, by_name, nutrients) -> str:
-    """일별 영양소 합계 표. 나트륨은 권고 초과 여부를 표시한다(제약은 미구현)."""
+    ⚠ 나트륨은 **제약이 실제로 쓴 값**(hard_breakdown)을 그대로 표시한다.
+      여기서 메뉴명 키로 다시 합산하면 동명 메뉴(B-5) 때문에 제약과 1mg 단위로 어긋나
+      "상한 준수인데 표는 초과"처럼 보일 수 있다(2026-08-10 칼로리 절단 오보와 동종).
+      단백질·지방·탄수화물은 제약 대상이 아니라 기존 경로를 유지한다.
+    """
+    na_report = ((res.hard_breakdown or {}).get("nutrient_max") or {}).get("sodium")
+    na_by_day = {i["day"]: i["amount"] for i in na_report["per_day"]} if na_report else {}
     rows, over = [], 0
     for day, meals in res.plan.items():
         n = day_nutrients(meals, by_name, nutrients)
-        na = n.get("sodium", 0)
-        na_cls = "bad" if na > SODIUM_TARGET_MG else "ok"
-        over += 1 if na > SODIUM_TARGET_MG else 0
+        na = na_by_day.get(day, n.get("sodium", 0))
+        exceeded = sodium_max is not None and na > sodium_max
+        over += 1 if exceeded else 0
         rows.append(f"<tr><td>{day}일</td><td>{res.daily_kcal[day]:.0f}</td>"
                     f"<td>{n.get('protein',0)}</td><td>{n.get('fat',0)}</td>"
                     f"<td>{n.get('carbs',0)}</td>"
-                    f"<td class='{na_cls}'>{na:,.0f}</td></tr>")
-    note = (f"<p><small>나트륨: {over}/{len(rows)}일이 권고 기준"
-            f"({SODIUM_TARGET_MG:,.0f}mg) 초과. <b>나트륨 상한은 제약으로 구현되지 않아</b> "
-            "솔버가 이를 낮추지 않습니다(한계 3번). 저감이 필요하면 상한 제약을 추가하겠습니다."
-            "</small></p>")
+                    f"<td class='{'bad' if exceeded else 'ok'}'>{na:,.0f}</td></tr>")
+    if sodium_max is None:
+        note = "<p><small>나트륨 상한 미적용으로 생성했습니다.</small></p>"
+    else:
+        note = (f"<p><small>나트륨 상한 <b>{sodium_max:,.0f}mg/일</b>을 Hard 제약(H-2e)으로 걸어 "
+                f"생성했습니다 — 초과 {over}/{len(rows)}일. 상한을 넘는 식단은 애초에 해로 "
+                f"채택되지 않습니다.</small></p>")
     return ("<table><thead><tr><th>일자</th><th>열량(kcal)</th><th>단백질(g)</th>"
             "<th>지방(g)</th><th>탄수화물(g)</th><th>나트륨(mg)</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>{note}")
@@ -170,6 +191,10 @@ def render_verification(res, cfg) -> str:
          "전 끼니 충족" if all(len(p) == 4 for m in res.plan.values() for p in m.values())
          else "불충족", all(len(p) == 4 for m in res.plan.values() for p in m.values())),
     ]
+    na = (hb.get("nutrient_max") or {}).get("sodium")
+    if na:
+        items.append((f"나트륨 1일 상한 ({na['limit']:,.0f}mg)",
+                      f"최대 {na['max_day']:,.0f}mg", na["all_ok"]))
     rows = "".join(
         f"<tr><td>{esc(k)}</td><td>{esc(v)}</td>"
         f"<td class='{'ok' if good else 'bad'}'>{'✔' if good else '✘'}</td></tr>"
@@ -233,10 +258,12 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 <p><b>2. 알레르기 대체식 트랙이 없습니다.</b> 알레르겐 매핑 테이블(<code>constraints</code>)이
 비어 있습니다. 불완전한 매핑을 임시로 만들어 "알레르기 대응됨"처럼 보이게 하는 것은 안전상
 위험하므로 <b>이번 검수 범위에서 제외</b>했습니다. 대체식 로직 자체는 구현되어 있습니다.</p>
-<p><b>3. 기저질환 상한(당류·나트륨·칼륨·인)은 미구현입니다.</b> 특히 <b>나트륨이 권고
-기준(2,000mg/일)을 상당히 초과</b>합니다 — 솔버가 나트륨을 낮추도록 제약이 걸려 있지 않기
-때문입니다. 아래 영양소 표에서 초과 일자를 붉게 표시했습니다. 저염이 필요한 대상
-(노인·고혈압)에는 <b>이 식단을 그대로 쓸 수 없습니다.</b></p>
+<p><b>3. 나트륨 상한은 적용됐으나, 상한 수치 자체는 확정해 주셔야 합니다.</b>
+직전 판(2026-08-10)은 나트륨 제약이 없어 일 1,665~4,352mg까지 올라갔습니다. 이번 판은
+<b>나트륨 1일 상한을 Hard 제약으로 걸어</b> 생성했습니다 — 일반식 2,000mg(WHO 성인 권고),
+노인은 저염 대상이므로 1,500mg으로 강화했습니다. <b>다만 이 두 수치는 저희가 정한 설정값</b>
+이며, 연령·기저질환(고혈압·신장질환)별 적정 기준은 검수에서 확정해 주시면 그대로 반영합니다.
+당류·칼륨·인 상한은 해당 영양소 데이터가 없어 <b>여전히 미구현</b>입니다.</p>
 <p><b>4. 메뉴 분류는 원본 <code>grouping_type</code>을 기계적으로 매핑한 결과입니다.</b>
 (밥·일품요리→주식 / 국 / 주찬·부찬·반찬·김치→반찬) 국물 요리가 '반찬'으로 분류된 사례가
 있을 수 있습니다 — <b>분류가 어색한 접시를 지적해 주시면 매핑을 고치겠습니다.</b></p>
@@ -252,6 +279,9 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 겹치는 조합(예: 한 끼에 튀김 2종) 등</li>
 <li><b>메뉴 분류 오류</b> — 위 한계 4번</li>
 <li><b>열량 배분(30·40·30)이 현실적인가</b> — 실제 급식 운영과 어긋나면 비율을 조정하겠습니다</li>
+<li><b>나트륨 상한 수치가 적절한가</b> — 위 한계 3번. 일반식 2,000mg·노인 1,500mg으로
+두었습니다. 상한을 낮출수록 저염 메뉴 위주로 편성되므로, <b>맛·간이 급식으로 성립하는
+하한선</b>을 함께 봐 주시면 좋겠습니다</li>
 </ol>
 </div>
 
@@ -281,6 +311,8 @@ def main() -> int:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--profiles", default="성인,학령기,노인")
     ap.add_argument("--time-limit", type=float, default=90.0)
+    ap.add_argument("--no-sodium-limit", action="store_true",
+                    help="나트륨 상한(H-2e)을 끄고 생성 — 상한 적용 전후 비교용")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -289,7 +321,9 @@ def main() -> int:
     for m in menus:
         by_name.setdefault(m.name, m)
     nutrients = load_nutrients([m.menu_id for m in menus])
-    print(f"[후보] {len(menus)}종")
+    # H-2e 나트륨 상한이 읽을 값(메뉴 인덱스 기준). 적재율이 낮으면 그만큼 후보가 배제된다.
+    sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
+    print(f"[후보] {len(menus)}종 · 나트륨 적재 {len(sodium_by_idx)}종")
 
     sections = []
     for label in [p.strip() for p in args.profiles.split(",") if p.strip()]:
@@ -297,19 +331,23 @@ def main() -> int:
         if prof is None:
             print(f"  [skip] 미정의 프로파일: {label}")
             continue
-        res, cfg = solve_profile(menus, prof["kcal"], args.days, args.time_limit)
-        print(f"  [{label}] {res.status} {res.wall_time:.1f}초")
+        na_max = None if args.no_sodium_limit else prof.get("sodium")
+        res, cfg = solve_profile(menus, prof["kcal"], args.days, args.time_limit,
+                                 sodium_max=na_max, sodium_by_idx=sodium_by_idx)
+        print(f"  [{label}] {res.status} {res.wall_time:.1f}초"
+              f"{f' · Na≤{na_max:,.0f}mg' if na_max else ''}")
         if not res.plan:
             sections.append(f"<h2>{esc(label)}</h2><div class='box warn'>"
                             f"해를 찾지 못했습니다 (status={esc(res.status)}).</div>")
             continue
         sections.append(
-            f"<h2>{esc(label)} — {prof['kcal']:.0f}kcal/일</h2>"
+            f"<h2>{esc(label)} — {prof['kcal']:.0f}kcal/일"
+            f"{f' · 나트륨 ≤{na_max:,.0f}mg' if na_max else ''}</h2>"
             f"<p><small>{esc(prof['note'])}</small></p>"
             "<h3>자동 검증</h3>" + render_verification(res, cfg) +
             "<h3>식단표</h3><div class='tblwrap'>" + render_plan_table(res, by_name, cfg) +
             "</div><h3>일별 영양소 합계</h3><div class='tblwrap'>" +
-            render_nutrient_table(res, by_name, nutrients) + "</div>")
+            render_nutrient_table(res, by_name, nutrients, na_max) + "</div>")
 
     out_path = Path(args.out) if args.out else (
         REPO_ROOT / "reports" / f"menu_review_{date.today():%Y%m%d}.html")

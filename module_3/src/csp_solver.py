@@ -117,6 +117,11 @@ class MealPlanRequest:
     #   주입해 켠다. 기준값(2000kcal·3500원 등)은 운영데이터로 확정 예정(명세서 §6).
     #   대체식 분기 태스크에서 hard.excluded_allergens를 채우면 ②가 활성화된다.
     hard: object = None                # hc.HardConstraintConfig (None=미적용)
+    # Hard 영양소 제약(H-2d 최소·H-2e 상한)이 읽을 값 {영양소명: {메뉴인덱스: 양}}.
+    #   MenuItem 에 없는 영양소(나트륨 등)를 side-channel 로 넘기는 통로.
+    #   예: sodium_by_idx, _ = scd.load_nutrition_fields(engine, menus)
+    #       hard_nutrient_by_idx={"sodium": sodium_by_idx}
+    hard_nutrient_by_idx: dict = None
     # ── Soft 목적함수 파라미터 ───────────────────────────────────────────
     #   ksm(제공빈도·기호도·식단가) + nyc(다양성·제철·나트륨당) 를 합산 Maximize.
     soft_weights: object = None        # sc.SoftWeights (None=기본값)
@@ -163,6 +168,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             model, x, menus,
             days=req.days, n_meals=len(req.meals),
             config=req.hard,
+            nutrient_by_idx=req.hard_nutrient_by_idx,
         )
     # ---------------------- 목적함수 (Soft) — ksm + nyc 합산 Maximize ------
     # 두 Soft 모듈은 동일 규약("클수록 좋음")·동일 x 키를 쓰므로 점수식을 더한다.
@@ -250,6 +256,9 @@ def print_result(res: MealPlanResult, req: MealPlanRequest):
             bmark = "" if info["budget_ok"] is None else (" · 예산 OK" if info["budget_ok"] else " · 예산 위반")
             print(f"  · {info['day']}일: {info['kcal']}kcal({kmark}) · {info['cost']}원{bmark}")
         print(f"  · 배제 메뉴 {res.hard_breakdown['excluded_menu_count']}종 · 편성 청정: {res.hard_breakdown['excluded_clean']}")
+        for nut, info in (res.hard_breakdown.get("nutrient_max") or {}).items():
+            mark = "OK" if info["all_ok"] else "위반"
+            print(f"  · {nut} 일 상한 {info['limit']:,.0f} → 최대 {info['max_day']:,.0f} ({mark})")
     # Soft 항별 지표 — 제공빈도·기호도(ksm)
     if res.soft_breakdown:
         print("\n[Soft·제공빈도/기호도]")
@@ -270,10 +279,20 @@ def main():
     ap = argparse.ArgumentParser(description="OptiMeal CSP 모델 정의 코드 (기본 골조)")
     ap.add_argument("--days", type=int, default=7, help="급식 일수 (기본 7)")
     ap.add_argument("--month", type=int, default=None, help="제철 기준 월")
+    ap.add_argument("--sodium-max", type=float, default=2000.0,
+                    help="1일 나트륨 상한 mg (기본 2000=WHO 성인 권고, 0이면 미적용)")
     args = ap.parse_args()
     menus = load_menus(month=args.month)
     # CLI(운영 경로)는 Hard 제약을 켠다(③칼로리·④예산). ②알레르기는 대체식에서 주입.
-    req = MealPlanRequest(days=args.days, hard=hc.HardConstraintConfig())
+    # H-2e 나트륨 상한은 값이 실제로 주입되는 이 경로에서만 켠다(결측=배제 정책 때문).
+    nutrient_max, nutrient_by_idx = {}, None
+    if args.sodium_max and args.sodium_max > 0:
+        sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
+        nutrient_max = {"sodium": args.sodium_max}
+        nutrient_by_idx = {"sodium": sodium_by_idx}
+    req = MealPlanRequest(days=args.days,
+                          hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max),
+                          hard_nutrient_by_idx=nutrient_by_idx)
     print(f"[메뉴 후보 {len(menus)}종]")
     print_result(build_and_solve(menus, req), req)
 if __name__ == "__main__":
