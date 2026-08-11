@@ -152,6 +152,11 @@ class MenuGenerateRequest(BaseModel):
         description="1일 나트륨 상한 mg (H-2e Hard 제약). null이면 미적용. "
                     "기본 2000=WHO 성인 권고. 저염 대상은 더 낮게 지정.",
     )
+    enforce_menu_structure: bool = Field(
+        True,
+        description="H-4b 주식 슬롯을 밥·면·죽·빵으로 제한 + H-4c 찌개·전골·탕은 밥류와만 "
+                    "배식. 메뉴명 키워드 분류에 의존하므로 실제 음식명 DB에서만 켤 것.",
+    )
     excluded_allergens: list[str] = Field(default_factory=list)
     solver_time_limit: float = Field(30.0, gt=0, le=120)
     with_alternatives: bool = Field(

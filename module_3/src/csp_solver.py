@@ -259,6 +259,10 @@ def print_result(res: MealPlanResult, req: MealPlanRequest):
         for nut, info in (res.hard_breakdown.get("nutrient_max") or {}).items():
             mark = "OK" if info["all_ok"] else "위반"
             print(f"  · {nut} 일 상한 {info['limit']:,.0f} → 최대 {info['max_day']:,.0f} ({mark})")
+        pr = res.hard_breakdown.get("pairing") or {}
+        if pr:
+            print(f"  · 주식 없는 끼니 {len(pr['meals_without_staple'])}건 · "
+                  f"부적합 궁합 {len(pr['incompatible_pairs'])}건")
     # Soft 항별 지표 — 제공빈도·기호도(ksm)
     if res.soft_breakdown:
         print("\n[Soft·제공빈도/기호도]")
@@ -290,8 +294,11 @@ def main():
         sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
         nutrient_max = {"sodium": args.sodium_max}
         nutrient_by_idx = {"sodium": sodium_by_idx}
+    # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
     req = MealPlanRequest(days=args.days,
-                          hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max),
+                          hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max,
+                                                       enable_staple_main=True,
+                                                       enable_menu_pairing=True),
                           hard_nutrient_by_idx=nutrient_by_idx)
     print(f"[메뉴 후보 {len(menus)}종]")
     print_result(build_and_solve(menus, req), req)

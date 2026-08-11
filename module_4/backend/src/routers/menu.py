@@ -156,6 +156,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         excluded_allergens=set(payload.excluded_allergens),
         nutrient_max_per_day=({"sodium": payload.sodium_max_mg_per_day}
                               if sodium_by_idx else {}),
+        enable_staple_main=payload.enforce_menu_structure,
+        enable_menu_pairing=payload.enforce_menu_structure,
     )
     req = cs.MealPlanRequest(
         days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit,

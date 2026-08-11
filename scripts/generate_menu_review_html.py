@@ -83,6 +83,8 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
         target_kcal_per_day=kcal,
         budget_limit_per_person=None,   # 원가 0원 → 예산 제약 무의미하므로 비활성
         nutrient_max_per_day=({"sodium": sodium_max} if sodium_max else {}),
+        enable_staple_main=True,        # H-4b 주식 슬롯은 밥·면·죽·빵만
+        enable_menu_pairing=True,       # H-4c 찌개·전골·탕은 밥류와만
     )
     res = cs.build_and_solve(
         menus, cs.MealPlanRequest(
@@ -195,6 +197,14 @@ def render_verification(res, cfg) -> str:
     if na:
         items.append((f"나트륨 1일 상한 ({na['limit']:,.0f}mg)",
                       f"최대 {na['max_day']:,.0f}mg", na["all_ok"]))
+    pr = hb.get("pairing") or {}
+    if pr:
+        items.append(("주식 자격 (밥·면·죽·빵만)",
+                      f"주식 없는 끼니 {len(pr['meals_without_staple'])}건",
+                      not pr["meals_without_staple"]))
+        items.append(("메뉴 궁합 (찌개·전골·탕은 밥과만)",
+                      f"부적합 조합 {len(pr['incompatible_pairs'])}건",
+                      not pr["incompatible_pairs"]))
     rows = "".join(
         f"<tr><td>{esc(k)}</td><td>{esc(v)}</td>"
         f"<td class='{'ok' if good else 'bad'}'>{'✔' if good else '✘'}</td></tr>"
@@ -264,10 +274,18 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 노인은 저염 대상이므로 1,500mg으로 강화했습니다. <b>다만 이 두 수치는 저희가 정한 설정값</b>
 이며, 연령·기저질환(고혈압·신장질환)별 적정 기준은 검수에서 확정해 주시면 그대로 반영합니다.
 당류·칼륨·인 상한은 해당 영양소 데이터가 없어 <b>여전히 미구현</b>입니다.</p>
-<p><b>4. 메뉴 분류는 원본 <code>grouping_type</code>을 기계적으로 매핑한 결과입니다.</b>
-(밥·일품요리→주식 / 국 / 주찬·부찬·반찬·김치→반찬) 국물 요리가 '반찬'으로 분류된 사례가
-있을 수 있습니다 — <b>분류가 어색한 접시를 지적해 주시면 매핑을 고치겠습니다.</b></p>
-<p><b>5. 1인분 기준입니다.</b> 대량 조리 환산은 별도 모듈이며, 현재 초기 추정은 선형(인원수 비례)
+<p><b>4. 메뉴 분류를 개편했습니다 — 남은 오분류를 지적해 주십시오.</b>
+직전 판은 <code>grouping_type</code>만 보고 <code>일품요리</code> 171종을 통째로 주식에
+넣어, <b>스프가 단독 주식</b>으로 편성되거나 스테이크·탕수육이 주식 자리에 올랐습니다.
+이번 판은 메뉴명까지 보고 <b>밥·면·죽·빵만 주식</b>으로 인정합니다(206종). 주식에서 빠진
+81종은 버리지 않고 스프·탕·전골 22종은 <b>국</b>으로, 스테이크·만두·롤 등 59종은
+<b>반찬</b>으로 옮겼습니다. 판정은 메뉴명 키워드 기반이라 <b>새로운 표기는 놓칠 수
+있습니다</b> — 어색한 접시를 짚어 주시면 사전을 보강하겠습니다.</p>
+<p><b>5. 메뉴 궁합은 "찌개·전골·탕은 밥과만" 한 가지 규칙만 적용했습니다.</b>
+국수 + 부대찌개 같은 조합을 막습니다. 그 외의 궁합(반찬끼리의 조합, 같은 조리법 중복,
+맛 계열 충돌 등)은 <b>아직 규칙이 없습니다</b> — 현장에서 쓰는 금기 조합을 알려 주시면
+규칙으로 추가하겠습니다.</p>
+<p><b>6. 1인분 기준입니다.</b> 대량 조리 환산은 별도 모듈이며, 현재 초기 추정은 선형(인원수 비례)
 입니다(ADR-008). 이는 "예측"이 아니라 영양사 보정을 누적하기 위한 출발점입니다.</p>
 </div>
 
@@ -276,8 +294,10 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 <p>아래 세 가지를 중심으로 보아 주시면 가장 도움이 됩니다.</p>
 <ol>
 <li><b>끼니 조합이 현장에서 성립하는가</b> — 아침에 부적절한 메뉴, 국물 없는 끼니, 조리 동선이
-겹치는 조합(예: 한 끼에 튀김 2종) 등</li>
-<li><b>메뉴 분류 오류</b> — 위 한계 4번</li>
+겹치는 조합(예: 한 끼에 튀김 2종) 등. <b>어울리지 않는 메뉴 쌍</b>을 짚어 주시면 궁합 규칙으로
+추가하겠습니다(위 한계 5번)</li>
+<li><b>메뉴 분류 오류</b> — 위 한계 4번. 특히 주식으로 인정한 206종과, 주식에서 빼서
+국·반찬으로 옮긴 81종 중 <b>잘못 옮긴 것</b>이 있는지</li>
 <li><b>열량 배분(30·40·30)이 현실적인가</b> — 실제 급식 운영과 어긋나면 비율을 조정하겠습니다</li>
 <li><b>나트륨 상한 수치가 적절한가</b> — 위 한계 3번. 일반식 2,000mg·노인 1,500mg으로
 두었습니다. 상한을 낮출수록 저염 메뉴 위주로 편성되므로, <b>맛·간이 급식으로 성립하는

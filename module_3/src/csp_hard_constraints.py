@@ -17,6 +17,8 @@ Hard Constraint (위반 시 식단 무효 — 가능영역 정의). 기준: 제�
                  · 에너지·필수영양소·영양소 상한은 하루 총량 기준(일 단위).
   H-3 법적표시 : 알레르기 편성 배제 (원산지·표시 자체는 데이터 표기 영역)
   H-4 식단구조 : 반상 유형별 필수 구성(opt-in; menu.category taxonomy 일치 필요)
+                 H-4b 주식 자격 — 주식 슬롯은 탄수화물 주식(밥·면·죽·빵)만
+                 H-4c 메뉴 궁합 — 찌개·전골·탕은 밥류 주식과만 배식
   ★ 식단가(예산): 총 식재료비가 커트라인 초과 시 무조건 아웃. 커트라인 이내 최적화는 Soft.
 ────────────────────────────────────────────────────────────────────────────
 
@@ -37,6 +39,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
+
+# 메뉴 분류(주식 유형·국 유형). 스크립트/패키지 양쪽 실행 지원 — csp_solver 와 동일 규약.
+try:
+    from . import menu_taxonomy as _mt
+except ImportError:  # `python csp_hard_constraints.py` 직접 실행 시
+    import menu_taxonomy as _mt
 
 
 # ===========================================================================
@@ -91,6 +99,17 @@ class HardConstraintConfig:
     #     반찬→주찬/부찬 세분·김치 태깅 등 데이터 보강 후 이 파라미터로 켠다.
     meal_composition: dict = field(default_factory=dict)
 
+    # ── H-4b 주식 자격 / H-4c 메뉴 궁합 (2026-08-11 영양사 지적) ────
+    #   H-4b: 주식 슬롯에 스프·스테이크 같은 비주식이 들어가는 것을 막는다.
+    #   H-4c: 찌개·전골·탕은 밥류 주식과만 배식한다(국수 + 부대찌개 금지).
+    #   ⚠ 둘 다 **기본 OFF**. 메뉴명 키워드 분류에 의존하므로, 메뉴명이 실제 음식명인
+    #     운영 경로에서만 켠다. mock 픽스처('주식0' 등)에서 켜면 전 메뉴가 비주식으로
+    #     판정되어 INFEASIBLE 이 된다.
+    enable_staple_main: bool = False       # H-4b
+    enable_menu_pairing: bool = False      # H-4c
+    main_category: str = "주식"            # 주식 슬롯 카테고리명
+    soup_category: str = "국"              # 국 슬롯 카테고리명
+
     # ── 메뉴 중복 회피 (PRD §Soft "3일 이내 재등장 금지"를 강제 창으로 구현) ──
     #   창(window) 내에서 동일 메뉴를 1회만 허용. 창이 하루 전체 끼니를 포함하므로
     #   "같은 날 점심·저녁 중복"도 함께 막힌다. 0 이면 미적용.
@@ -135,6 +154,8 @@ def add_hard_constraints(
     sugar_by_idx: dict | None = None,          # {m: g}            H-2c
     added_sugar_by_idx: dict | None = None,    # {m: g}            H-2c
     nutrient_by_idx: dict | None = None,       # {영양소명: {m: 양}} H-2d
+    staple_kind_by_idx: dict | None = None,    # {m: 'rice'|'noodle'|…} H-4b·H-4c
+    soup_kind_by_idx: dict | None = None,      # {m: 'stew'|'soup'}     H-4c
 ) -> HardConstraint:
     """model / x / menus 에 Hard 제약(H-1~H-4 + 예산)을 추가한다.
 
@@ -148,6 +169,8 @@ def add_hard_constraints(
       H-2e 영양소상한: cfg.nutrient_max_per_day 가 비어있지 않으면 활성(값 주입 필수)
       H-3 알레르기  : cfg.excluded_allergens 가 비어있지 않으면 활성
       H-4 식단구조  : cfg.meal_composition 이 비어있지 않으면 활성(taxonomy 일치 필수)
+      H-4b 주식자격 : cfg.enable_staple_main (메뉴명이 실제 음식명일 때만 켤 것)
+      H-4c 메뉴궁합 : cfg.enable_menu_pairing (동상)
       예산          : cfg.budget_limit_per_person 이 None 이 아니면 활성
 
     값 없는(None) 메뉴 처리(enable 된 제약 한정, 보수적):
@@ -175,6 +198,18 @@ def add_hard_constraints(
         if side is not None and m in side:
             return side[m]
         return getattr(menus[m], attr, None)
+
+    def staple_kind(m):
+        """주식 유형. 주입값 우선, 없으면 메뉴명으로 분류(H-4b·H-4c)."""
+        if staple_kind_by_idx is not None and m in staple_kind_by_idx:
+            return staple_kind_by_idx[m]
+        return _mt.classify_staple_kind(getattr(menus[m], "name", "") or "")
+
+    def soup_kind(m):
+        """국 유형(stew=국물 주찬 / soup=일반 국). 주입값 우선(H-4c)."""
+        if soup_kind_by_idx is not None and m in soup_kind_by_idx:
+            return soup_kind_by_idx[m]
+        return _mt.classify_soup_kind(getattr(menus[m], "name", "") or "")
 
     def macro(m, key):
         if macro_by_idx is not None and m in macro_by_idx:
@@ -353,6 +388,41 @@ def add_hard_constraints(
     active["meal_composition"] = bool(cfg.meal_composition)
 
     # =======================================================================
+    # H-4b 식단구조 — 주식 슬롯 자격 (탄수화물 주식만)
+    #   '포니언 스프'가 주식 슬롯을 단독으로 채우던 문제(2026-08-11 지적 1)를 막는다.
+    #   DB 재분류(scripts/reclassify_menu_categories.py)와 **이중 방어** — 재분류가
+    #   안 된 DB에서도 솔버 단에서 불가능해야 한다.
+    # =======================================================================
+    if cfg.enable_staple_main:
+        for m in M:
+            if getattr(menus[m], "category", None) != cfg.main_category:
+                continue
+            if staple_kind(m) not in _mt.STAPLE_KINDS:
+                excluded_idx.add(m)
+                ban(m)
+    active["staple_main"] = cfg.enable_staple_main
+
+    # =======================================================================
+    # H-4c 식단구조 — 메뉴 궁합 (찌개·전골·탕은 밥류 주식과만)
+    #   끼니마다 "비밥류 주식"과 "국물 주찬"이 동시에 뽑히지 않게 한다.
+    #   두 합 모두 0/1 이므로 합 ≤ 1 한 줄이면 충분하다(추가 변수 없음).
+    # =======================================================================
+    if cfg.enable_menu_pairing:
+        non_rice = [m for m in M
+                    if getattr(menus[m], "category", None) == cfg.main_category
+                    and staple_kind(m) in _mt.STAPLE_KINDS
+                    and staple_kind(m) != "rice"]
+        stews = [m for m in M
+                 if getattr(menus[m], "category", None) == cfg.soup_category
+                 and soup_kind(m) == _mt.STEW_KIND]
+        if non_rice and stews:
+            for d in D:
+                for s in S:
+                    model.Add(sum(x[m, d, s] for m in non_rice)
+                              + sum(x[m, d, s] for m in stews) <= 1)
+    active["menu_pairing"] = cfg.enable_menu_pairing
+
+    # =======================================================================
     # 메뉴 중복 회피 — 창(window) 내 동일 메뉴 1회 (PRD "3일 이내 재등장 금지")
     #   창이 하루의 모든 끼니를 포함하므로 같은 날 점심·저녁 중복도 함께 막힌다.
     #   days < window 이면 전 기간을 하나의 창으로 본다.
@@ -438,6 +508,39 @@ def evaluate_hard_breakdown(
         "meal_kcal": _meal_kcal_report(solver, x, menus, hard, days=days, n_meals=n_meals),
         "menu_repeat": _repeat_report(solver, x, menus, hard, days=days, n_meals=n_meals),
         "nutrient_max": _nutrient_max_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "pairing": _pairing_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+    }
+
+
+def _pairing_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-4b·H-4c 실측 — 주식 자격 위반과 부적합 궁합 조합을 끼니 단위로 확인한다."""
+    cfg = hard.config
+    if not (hard.active_terms.get("staple_main") or hard.active_terms.get("menu_pairing")):
+        return {}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    no_staple, bad_pairs = [], []
+    for d in D:
+        for s in S:
+            picked = [m for m in M if solver.Value(x[m, d, s])]
+            staples = [m for m in picked
+                       if getattr(menus[m], "category", None) == cfg.main_category]
+            kinds = [_mt.classify_staple_kind(menus[m].name) for m in staples]
+            if staples and not any(k in _mt.STAPLE_KINDS for k in kinds):
+                no_staple.append({"day": d + 1, "meal_index": s,
+                                  "menus": [menus[m].name for m in staples]})
+            soups = [m for m in picked
+                     if getattr(menus[m], "category", None) == cfg.soup_category]
+            for sm in staples:
+                sk = _mt.classify_staple_kind(menus[sm].name)
+                for so in soups:
+                    ok = _mt.is_compatible(sk, _mt.classify_soup_kind(menus[so].name))
+                    if not ok:
+                        bad_pairs.append({"day": d + 1, "meal_index": s,
+                                          "staple": menus[sm].name, "soup": menus[so].name})
+    return {
+        "meals_without_staple": no_staple,
+        "incompatible_pairs": bad_pairs,
+        "all_ok": not no_staple and not bad_pairs,
     }
 
 
