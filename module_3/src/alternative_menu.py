@@ -105,14 +105,30 @@ def _score_candidate(c, meal_colors, w, *, sodium_by_id, sugar_by_id, commercial
     return score
 
 
+def _sodium_of(menu, sodium_by_id):
+    """메뉴의 나트륨(mg). 주입 dict 우선, 없으면 속성 폴백. **모르면 None**(0으로 뭉개지 않음)."""
+    if sodium_by_id is not None:
+        v = sodium_by_id.get(getattr(menu, "menu_id", None))
+        if v is not None:
+            return float(v)
+    v = getattr(menu, "sodium", None)
+    return float(v) if v is not None else None
+
+
 def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
                       day_kcal_wo_orig, band, budget_left, weights,
-                      sodium_by_id, sugar_by_id, commercial_menu_ids):
+                      sodium_by_id, sugar_by_id, commercial_menu_ids,
+                      sodium_left=None):
     """orig 를 대체할 최고점 안전 메뉴를 고른다. 하드 지키는 후보가 없으면 None.
 
     하드 필터: 같은 카테고리 · 알레르겐 없음 · 끼니 내 중복 아님
              · (밴드 있으면) 교체 후 그날 총 칼로리가 밴드 안 · (예산 있으면) 잔여 예산 이내
+             · (나트륨 상한 있으면) 교체 후 그날 총 나트륨이 상한 이내 [H-2e]
     소프트 점수: _score_candidate 최댓값 선정.
+
+    ※ sodium_left 가 주어졌는데 후보의 나트륨을 모르면 그 후보는 **탈락**시킨다.
+      상한 제약에서 미상을 통과시키면 공통식이 지킨 상한을 대체식이 조용히 깨뜨린다
+      (csp_hard_constraints H-2e 의 결측=배제 정책과 동일 방향).
     """
     ocat = getattr(orig, "category", None)
     cands = [m for m in menus
@@ -126,6 +142,10 @@ def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
             continue
         if budget_left is not None and (getattr(c, "cost_won", 0.0) or 0.0) > budget_left:
             continue
+        if sodium_left is not None:
+            na = _sodium_of(c, sodium_by_id)
+            if na is None or na > sodium_left:
+                continue
         valid.append(c)
     if not valid:
         return None, 0.0
@@ -149,7 +169,10 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
         plan: 공통식 plan {day: {meal: [menu_name, ...]}} (build_and_solve 결과의 .plan).
         menus: MenuItem 리스트(공통식과 동일 후보 풀).
         allergy_groups: list[AllergyGroup].
-        hard_config: 공통식에 쓴 HardConstraintConfig(칼로리 밴드·예산 필터에 사용). None이면 하드 필터 생략.
+        hard_config: 공통식에 쓴 HardConstraintConfig(칼로리 밴드·예산·나트륨 상한 필터에 사용).
+            None이면 하드 필터 생략. nutrient_max_per_day['sodium'] 이 있으면 교체 후에도
+            그날 총 나트륨이 상한 이내인 후보만 고른다 — 이때 sodium_by_id 주입이 사실상 필수다
+            (나트륨을 모르는 후보는 안전을 위해 탈락 → 전부 unresolved 가 될 수 있음).
         weights: AltScoreWeights. None이면 기본값.
         sodium_by_id/sugar_by_id: {menu_id: 값} 주입(소프트 감점). commercial_menu_ids: 완제품 menu_id 집합.
 
@@ -161,10 +184,12 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
     for m in menus:
         by_name.setdefault(getattr(m, "name", None), m)
 
-    # 하드 밴드/예산
+    # 하드 밴드/예산/나트륨 상한
     band = None
     day_budget = None
+    sodium_cap = None
     if hard_config is not None:
+        sodium_cap = (getattr(hard_config, "nutrient_max_per_day", None) or {}).get("sodium")
         if getattr(hard_config, "enable_energy", True):
             t = hard_config.target_kcal_per_day
             tol = hard_config.kcal_tolerance
@@ -183,6 +208,10 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                            for ms in meals.values() for n in ms)
             day_cost = sum((getattr(by_name.get(n), "cost_won", 0.0) or 0.0)
                            for ms in meals.values() for n in ms)
+            day_sodium = None
+            if sodium_cap is not None:
+                day_sodium = sum((_sodium_of(by_name.get(n), sodium_by_id) or 0.0)
+                                 for ms in meals.values() for n in ms)
             for meal, picks in meals.items():
                 new_picks = list(picks)
                 current = set(picks)
@@ -201,12 +230,15 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     ocal = getattr(mi, "calories", 0.0) or 0.0
                     ocost = getattr(mi, "cost_won", 0.0) or 0.0
                     budget_left = (day_budget - (day_cost - ocost)) if day_budget is not None else None
+                    ona = _sodium_of(mi, sodium_by_id) or 0.0
+                    sodium_left = (None if day_sodium is None
+                                   else sodium_cap - (day_sodium - ona))
                     alt, sc = _pick_alternative(
                         mi, menus, grp.allergens,
                         exclude_names=current, meal_colors=meal_colors,
                         day_kcal_wo_orig=day_kcal - ocal, band=band, budget_left=budget_left,
                         weights=w, sodium_by_id=sodium_by_id, sugar_by_id=sugar_by_id,
-                        commercial_menu_ids=commercial_menu_ids)
+                        commercial_menu_ids=commercial_menu_ids, sodium_left=sodium_left)
                     if alt is None:
                         unresolved.append(Substitution(day, meal, mi.category, name, None, hit))
                         continue
@@ -216,6 +248,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     current.discard(name); current.add(alt.name)
                     day_kcal += (getattr(alt, "calories", 0.0) or 0.0) - ocal
                     day_cost += (getattr(alt, "cost_won", 0.0) or 0.0) - ocost
+                    if day_sodium is not None:
+                        day_sodium += (_sodium_of(alt, sodium_by_id) or 0.0) - ona
                 alt_plan[day][meal] = new_picks
 
         daily_kcal, total_cost = _recompute(alt_plan, by_name)
