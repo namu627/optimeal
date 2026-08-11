@@ -42,23 +42,19 @@ from sqlalchemy import create_engine, text
 REPO_ROOT = Path(__file__).resolve().parent.parent
 XLSX_PATH = REPO_ROOT / "data" / "raw" / "소규모_레시피_DB_남유찬_v0_10.xlsx"
 
+sys.path.insert(0, str(REPO_ROOT / "module_3" / "src"))
+from menu_taxonomy import resolve_menu_category  # noqa: E402
+
 DATA_SOURCE = "식품안전나라"      # nutrition_recipe.data_source CHECK 허용값
 SCHEMA_VERSION = "v1"
 
-# grouping_type(xlsx) → nutrition_recipe.menu_category CHECK 7종
+# grouping_type(xlsx) + 메뉴명 → nutrition_recipe.menu_category CHECK 7종
 # CSP 가 실제로 쓰는 값은 주식/국/찌개/반찬 뿐이다.
-MENU_CATEGORY_MAP = {
-    "밥": "주식",
-    "일품요리": "주식",
-    "국": "국",
-    "찌개": "찌개",
-    "반찬": "반찬",
-    "주찬": "반찬",
-    "부찬": "반찬",
-    "김치": "반찬",
-    "후식": "후식",
-    "음료": "음료",
-}
+#
+# ⚠ grouping_type 1:1 매핑은 2026-08-11 폐기했다. '일품요리' 171종을 통째로 주식에
+#   넣으면 스프·스테이크·탕수육이 주식 슬롯에 들어간다(영양사 지적). 이제 메뉴명까지
+#   보는 `menu_taxonomy.resolve_menu_category` 를 쓴다 — 기존 적재분은
+#   `scripts/reclassify_menu_categories.py` 로 재분류할 것.
 MENU_CATEGORY_DEFAULT = "기타"
 
 # xlsx 컬럼 → nutrition_recipe 컬럼
@@ -125,7 +121,7 @@ def to_params(row) -> dict:
         "carbs": num("carbohydrate_g"),
         "sodium": num("sodium_mg"),
         "data_source": DATA_SOURCE,
-        "menu_category": MENU_CATEGORY_MAP.get(grouping, MENU_CATEGORY_DEFAULT),
+        "menu_category": resolve_menu_category(grouping, str(row["recipe_name"])),
         "original_data": json.dumps(
             {"orig_recipe_id": str(row["recipe_id"]), "grouping_type": grouping,
              "source_file": XLSX_PATH.name},
@@ -182,8 +178,8 @@ def main() -> int:
 
     df = load_source_rows()
     print(f"[원본] {XLSX_PATH.name} · {DATA_SOURCE} · 열량 보유 {len(df)}행")
-    cats = df["grouping_type"].map(lambda g: MENU_CATEGORY_MAP.get(str(g).strip(),
-                                                                  MENU_CATEGORY_DEFAULT))
+    cats = df.apply(lambda r: resolve_menu_category(str(r["grouping_type"]).strip(),
+                                                    str(r["recipe_name"])), axis=1)
     print("[분류] " + " · ".join(f"{k}:{v}" for k, v in cats.value_counts().items()))
     csp_usable = int(cats.isin(["주식", "국", "찌개", "반찬"]).sum())
     print(f"[CSP] 후보로 쓸 수 있는 카테고리 합계: {csp_usable}건")
