@@ -115,11 +115,11 @@ def cats_of(res, menus, day=1, meal="점심"):
 def test_default_composition_matches_spec():
     """기본 구성이 영양사 확정값과 같다(문서·코드 표류 방지)."""
     assert DEFAULT_COMPOSITION == {"주식": 1, "국": 1, "주찬": 1,
-                                   "부찬": (2, None), "김치": 1}
+                                   "부찬": (2, 3), "김치": 1}
 
 
 def test_meal_has_full_banssang_composition():
-    """끼니마다 주식1·국1·주찬1·부찬2이상·김치1 이 편성된다."""
+    """끼니마다 주식1·국1·주찬1·부찬2~3·김치1 이 편성된다."""
     menus = pool()
     res = solve(menus)
     assert res.status in ("OPTIMAL", "FEASIBLE")
@@ -127,8 +127,22 @@ def test_meal_has_full_banssang_composition():
     assert cats.count("주식") == 1
     assert cats.count("국") == 1
     assert cats.count("주찬") == 1
-    assert cats.count("부찬") >= 2
+    assert 2 <= cats.count("부찬") <= 3
     assert cats.count("김치") == 1
+
+
+def test_sub_side_upper_bound_is_enforced():
+    """부찬 상한 3이 실제로 걸린다 — 상한을 풀면 4개 이상이 나올 수 있다(음성 대조).
+
+    부찬 후보를 넉넉히 두고 열량 제약을 걸지 않았으므로, 상한이 없으면 목적함수가
+    부찬을 더 담는다. 상한을 건 쪽에서만 3개 이하가 보장되어야 한다.
+    """
+    menus = pool()
+    free = solve(menus, composition={"주식": 1, "국": 1, "주찬": 1,
+                                     "부찬": (2, None), "김치": 1})
+    capped = solve(menus)
+    assert cats_of(free, menus).count("부찬") >= 4, "음성 대조 실패 — 픽스처가 상한을 안 건드림"
+    assert cats_of(capped, menus).count("부찬") <= 3
 
 
 def test_dishes_are_ordered_by_category():
