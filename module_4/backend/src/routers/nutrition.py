@@ -60,7 +60,7 @@ def _connect():
 @router.get("/search", summary="영양성분 검색 (메뉴명)")
 def search(
     q: str = Query(..., min_length=1, description="메뉴명 검색어"),
-    menu_category: str = Query("", description="주식/국/찌개/반찬 등"),
+    menu_category: str = Query("", description="주식/국/찌개/주찬/부찬/김치 등"),
     limit: int = Query(20, ge=1, le=100),
 ) -> dict:
     """메뉴명 부분일치로 영양성분을 검색한다.

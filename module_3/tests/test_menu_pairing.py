@@ -22,7 +22,7 @@ def pool(with_rice=True):
     """실제 음식명을 쓴 소형 후보 풀.
 
     주식은 밥류·면류·스프(비주식)를 섞고, 국은 stew(부대찌개)와 soup(미역국)을 둔다.
-    반찬은 끼니당 2개가 필요하므로 넉넉히 준다.
+    반상 구성상 끼니당 주찬1·부찬2이상·김치1 이 필요하므로 각각 넉넉히 준다.
     """
     menus, mid = [], 1
     staples = ([("잡곡밥", 300.0), ("파인애플볶음밥", 320.0)] if with_rice else []) + [
@@ -34,8 +34,12 @@ def pool(with_rice=True):
     for name, kcal in [("삼계부대찌개", 100.0), ("맑은부대찌개", 105.0),
                        ("황태미역국", 95.0), ("배추된장국", 98.0)]:
         menus.append(MenuItem(mid, name, "국", kcal)); mid += 1
+    for i in range(4):
+        menus.append(MenuItem(mid, f"돼지고기구이{i}", "주찬", 120.0 + i * 10)); mid += 1
     for i in range(8):
-        menus.append(MenuItem(mid, f"나물무침{i}", "반찬", 50.0 + i * 10)); mid += 1
+        menus.append(MenuItem(mid, f"나물무침{i}", "부찬", 20.0 + i * 5)); mid += 1
+    for i in range(4):
+        menus.append(MenuItem(mid, f"배추김치{i}", "김치", 10.0 + i)); mid += 1
     return menus
 
 

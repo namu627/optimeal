@@ -8,6 +8,11 @@
   3. 메뉴 궁합이 고려되지 않는다. 국수 + 부대찌개는 성립하지 않는다
      (찌개·전골·탕은 밥과 배식된다).
 
+배경(2026-08-12 영양사 지적 추가):
+  4. 식단표는 **주식 → 국 → 주찬 → 부찬 → 김치** 순으로 표기되어야 한다(§F).
+  5. '반찬' 한 덩어리가 아니라 **주찬(단백질 주요리) / 부찬 / 김치**로 나뉘어야 하고,
+     끼니 구성은 주식1·국1·주찬1·부찬2이상·김치1 이다(§C 분류 + csp_solver 구성).
+
 본 모듈은 **메뉴명 키워드 기반 결정론적 분류기**다. LLM·확률 출력을 쓰지 않는다.
 
 분류 규칙 두 가지 핵심:
@@ -40,11 +45,18 @@ FALSE_FRIENDS: tuple[str, ...] = (
 )
 _MASK = "◇"
 
+# 반찬 계열(§E') 전용 오탐 목록.
+#   · '탕수'는 마스킹하지 **않는다** — 국물 판정에서는 오탐이지만 반찬 판정에서는
+#     탕수육·탕수의 정당한 조리형태다. 마스킹하면 황태탕수육이 부찬으로 샌다.
+#   · '묵은지'의 묵은 도토리묵이 아니다 — 마스킹하지 않으면 묵은지고등어가 묵(부찬)이 된다.
+SIDE_FALSE_FRIENDS: tuple[str, ...] = tuple(
+    t for t in FALSE_FRIENDS if t != "탕수") + ("묵은지",)
 
-def _normalize(name: str) -> str:
+
+def _normalize(name: str, false_friends: tuple[str, ...] = FALSE_FRIENDS) -> str:
     """공백 제거 + 오탐 토큰 마스킹. 분류 전 공통 전처리."""
     s = re.sub(r"\s+", "", name or "")
-    for token in FALSE_FRIENDS:
+    for token in false_friends:
         s = s.replace(token, _MASK * len(token))
     return s
 
@@ -171,18 +183,147 @@ def is_compatible(staple_kind: str, soup_kind: str) -> bool:
 
 
 # ===========================================================================
+# (E') 반찬 계열 세분 — 주찬 / 부찬 / 김치  (2026-08-12 영양사 지적 5)
+# ===========================================================================
+# 왜 원본 `grouping_type` 라벨을 그대로 안 쓰는가
+#   원본 xlsx 에는 주찬·부찬·김치 라벨이 있으나 **출처마다 기준이 다르다**:
+#     · 영양사도우미는 김치찌개·김치전·김치볶음밥까지 '김치'로 라벨한다(조리 메뉴).
+#     · 현재 적재된 식품안전나라 1,145행에는 '부찬'·'김치' 라벨이 아예 없다(주찬/반찬뿐).
+#   → 출처가 섞이면 같은 음식이 다르게 분류되므로, 8/11 주식·국 분류와 동일하게
+#     **메뉴명 기반 단일 규칙**으로 통일한다. 전수 이동 목록을 육안 확인한 뒤 적용한다.
+KIMCHI = "김치"
+MAIN_SIDE = "주찬"     # 단백질 주요리(끼니의 주 반찬)
+SUB_SIDE = "부찬"      # 나물·무침·샐러드·조림 등 곁반찬
+SIDE_KINDS: tuple[str, ...] = (MAIN_SIDE, SUB_SIDE, KIMCHI)
+
+# 김치류 표기. 뒤에 조리 접미사가 붙으면 김치가 아니라 '김치를 쓴 요리'다.
+KIMCHI_KEYWORDS: tuple[str, ...] = (
+    "김치", "겉절이", "깍두기", "동치미", "총각무", "알타리", "짠지", "섞박지")
+KIMCHI_DISH_SUFFIX: tuple[str, ...] = (
+    "전", "볶음", "찌개", "국", "지짐", "잡채", "찜", "말이", "구이", "탕", "빈대떡",
+    "국수", "죽", "밥", "샐러드", "무침", "쌈", "롤", "카나페", "피자", "파스타",
+    "수제비", "떡", "조림", "면", "만두", "튀김", "선")
+
+# 형태만으로 단백질 주요리가 확정되는 토큰(재료어가 없어도 주찬).
+MAIN_SIDE_FORM: tuple[str, ...] = (
+    "스테이크", "까스", "가스", "카츠", "커틀릿", "커틀렛", "강정", "불고기", "갈비",
+    "편육", "수육", "함박", "너비아니", "동그랑땡", "떡갈비", "산적", "제육",
+    "데리야끼", "탕수", "장조림", "슈니첼", "미트볼", "폭찹", "폭립", "두루치기",
+    "가라아게")
+# 단백질 주재료 토큰(아래 MAIN_FORM 과 함께 나타나야 주찬).
+PROTEIN_TOKENS: tuple[str, ...] = (
+    "돼지", "돈육", "돈", "삼겹", "목심", "안심", "등심", "차돌", "소고기", "쇠고기",
+    "우육", "한우", "닭", "계육", "치킨", "오리", "생선", "고등어", "갈치", "코다리",
+    "명태", "동태", "북어", "황태", "조기", "삼치", "꽁치", "임연수", "가자미", "장어",
+    "연어", "참치", "대구", "메로", "도미", "병어", "가오리", "홍어", "광어", "우럭",
+    "아귀", "오징어", "낙지", "주꾸미", "쭈꾸미", "새우", "게", "꽃게", "조개", "홍합",
+    "바지락", "굴", "전복", "가리비", "문어", "관자", "골뱅이", "멸치", "어묵", "맛살",
+    "햄", "소시지", "베이컨", "두부", "달걀", "계란", "메추리", "명란", "순대", "곱창",
+    "족발", "양고기", "해물", "해산물", "완자", "미트", "고기", "치즈", "육회")
+# 주요리 조리 형태(단백질 재료어와 결합할 때만 주찬).
+MAIN_FORM: tuple[str, ...] = (
+    "찜", "조림", "구이", "볶음", "튀김", "전", "적", "스튜", "카레", "말이", "꼬치",
+    "지짐", "롤", "만두", "선", "부침", "크로켓")
+# 곁반찬 형태. **접미사 우선** — 단백질이 들어가도 무침·나물이면 부찬이다.
+SUB_SIDE_FORM: tuple[str, ...] = (
+    "나물", "무침", "생채", "숙채", "샐러드", "초회", "절임", "피클", "장아찌", "쌈",
+    "자반", "부각", "젓", "묵", "냉채", "냉국", "장떡", "초무침", "드레싱", "소스")
+
+
+def _last_pos(text: str, keywords: tuple[str, ...]) -> int:
+    """키워드가 나타나는 **가장 뒤** 위치. 없으면 -1."""
+    return max((text.rfind(k) for k in keywords if k in text), default=-1)
+
+
+# '생선까스&타르타르소스'·'두부구이, 버섯소스'·'건강가지말이+참깨마요소스' 처럼
+# 곁들임(소스·쌈장)을 함께 적은 이름이 있다. 접미사 우선 규칙을 그대로 쓰면 뒤쪽
+# '소스'가 이겨서 주요리가 부찬으로 샌다 → **첫 구획만** 판정 대상으로 삼는다.
+_SEGMENT_SPLIT = re.compile(r"[&+,]")
+
+
+def _primary_dish(name: str) -> str:
+    """곁들임 표기를 떼고 주요리 부분만 남긴다. 구분자가 없으면 원문 그대로."""
+    head = _SEGMENT_SPLIT.split(name or "", 1)[0].strip()
+    return head or (name or "")
+
+
+def classify_side_kind(name: str) -> str:
+    """반찬 계열 메뉴를 '주찬' | '부찬' | '김치' 로 판정한다.
+
+    판정 순서:
+      0. 곁들임 표기('&타르타르소스' 등)를 떼고 첫 구획만 본다.
+      1. 김치류 키워드가 있고 그 **뒤에 조리 접미사가 없으면** 김치.
+         ('배깍두기'=김치 / '김치전'·'돈육김치볶음'=김치를 쓴 요리이므로 김치 아님)
+      2. 곁반찬 형태(무침·나물·샐러드…)가 주요리 형태보다 뒤에 오면 부찬.
+      3. 형태만으로 단백질 주요리인 것(스테이크·까스·강정…) 또는
+         단백질 재료어 + 주요리 형태(구이·조림·볶음…)면 주찬.
+      4. 그 외는 부찬(채소·해조·묵·과일 등).
+
+    Args:
+        name: 메뉴명(원문).
+
+    Returns:
+        `SIDE_KINDS` 중 하나.
+
+    Examples:
+        >>> classify_side_kind("배깍두기")
+        '김치'
+        >>> classify_side_kind("돈육김치볶음")
+        '주찬'
+        >>> classify_side_kind("오징어젓무침")
+        '부찬'
+        >>> classify_side_kind("통삼겹맥적구이")
+        '주찬'
+        >>> classify_side_kind("생선까스&타르타르소스")
+        '주찬'
+    """
+    s = _normalize(_primary_dish(name), SIDE_FALSE_FRIENDS)
+    tail = max((s.rfind(k) + len(k) for k in KIMCHI_KEYWORDS if k in s), default=-1)
+    if tail > 0 and not any(t in s[tail:] for t in KIMCHI_DISH_SUFFIX):
+        return KIMCHI
+    sub_pos = _last_pos(s, SUB_SIDE_FORM)
+    strong_pos = _last_pos(s, MAIN_SIDE_FORM)
+    form_pos = _last_pos(s, MAIN_FORM)
+    if sub_pos > max(strong_pos, form_pos):
+        return SUB_SIDE
+    if strong_pos >= 0:
+        return MAIN_SIDE
+    if form_pos >= 0 and any(p in s for p in PROTEIN_TOKENS):
+        return MAIN_SIDE
+    return SUB_SIDE
+
+
+# ===========================================================================
+# (F) 식단표 표기 순서 — 주식 → 국 → 주찬 → 부찬 → 김치 (2026-08-12 영양사 지적 4)
+# ===========================================================================
+CATEGORY_ORDER: tuple[str, ...] = (
+    "주식", "국", "찌개", MAIN_SIDE, SUB_SIDE, KIMCHI, "후식", "음료", "기타")
+
+
+def category_sort_key(category: str) -> int:
+    """식단표 표기 순서상 카테고리 순위. 목록에 없으면 맨 뒤."""
+    try:
+        return CATEGORY_ORDER.index(category)
+    except ValueError:
+        return len(CATEGORY_ORDER)
+
+
+# ===========================================================================
 # (E) 카테고리 재분류 — grouping_type + 메뉴명 → menu_category
 # ===========================================================================
 # 원본 grouping_type 의 1:1 매핑(구버전). 일품요리를 통째로 주식에 넣는 게 문제였다.
+#   반찬 계열(반찬·주찬·부찬·김치)은 이 표에서 하나로 모은 뒤 `classify_side_kind` 로
+#   다시 나눈다 — 출처별 라벨 기준이 달라 그대로 쓸 수 없다(§E' 주석).
+SIDE_GROUP = "반찬계열"
 BASE_CATEGORY_MAP: dict[str, str] = {
     "밥": "주식",
     "일품요리": "주식",
     "국": "국",
     "찌개": "찌개",
-    "반찬": "반찬",
-    "주찬": "반찬",
-    "부찬": "반찬",
-    "김치": "반찬",
+    "반찬": SIDE_GROUP,
+    "주찬": SIDE_GROUP,
+    "부찬": SIDE_GROUP,
+    "김치": SIDE_GROUP,
     "후식": "후식",
     "음료": "음료",
 }
@@ -196,24 +337,29 @@ def resolve_menu_category(grouping_type: str, name: str) -> str:
       · 주식으로 갈 뻔한 메뉴 중 **탄수화물 주식이 아닌 것**을 걸러낸다.
         - 스프류        → '국'   (샌드위치와 함께 낼 수 있는 국물로 쓴다)
         - 탕·전골류     → '국'   (예: 호박잎 삼계탕 — 일품요리로 라벨돼 있으나 탕이다)
-        - 그 외(스테이크·탕수육·만두·롤 등) → '반찬' (현장에서 주찬으로 배식)
-      · 밥·국·반찬 등 나머지 grouping_type 은 기존 매핑 그대로 둔다.
+        - 그 외(스테이크·탕수육·만두·롤 등) → 반찬 계열로 내려 §E' 로 세분
+      · 밥·국 등 나머지 grouping_type 은 기존 매핑 그대로 둔다.
+
+    2026-08-12 추가: 반찬 계열은 하나의 '반찬'이 아니라 **주찬/부찬/김치**로 나눈다.
 
     Args:
         grouping_type: 원본 xlsx 의 분류값.
         name: 메뉴명.
 
     Returns:
-        `nutrition_recipe.menu_category` 허용값.
+        `nutrition_recipe.menu_category` 허용값
+        (주식·국·찌개·주찬·부찬·김치·후식·음료·기타).
     """
     base = BASE_CATEGORY_MAP.get(str(grouping_type or "").strip(), DEFAULT_CATEGORY)
+    if base == SIDE_GROUP:
+        return classify_side_kind(name)
     if base != "주식":
         return base
     if is_staple(name):
         return "주식"
-    # 주식 자격 없음 → **국물요리 신호가 실제로 있을 때만** 국, 아니면 반찬.
+    # 주식 자격 없음 → **국물요리 신호가 실제로 있을 때만** 국, 아니면 반찬 계열.
     #   detect_soup_kind(기본값 없음)를 쓴다. classify_soup_kind 를 쓰면 키워드가
     #   전혀 없는 스테이크·탕수육까지 국으로 간다.
     if classify_staple_kind(name) == "soup_only" or detect_soup_kind(name) is not None:
         return "국"
-    return "반찬"
+    return classify_side_kind(name)

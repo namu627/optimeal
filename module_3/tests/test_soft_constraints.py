@@ -142,11 +142,7 @@ def test_weight_zero_disables_frequency():
 
 def test_31_day_horizon_runs():
     """31일 지평에서도 정상 풀이되고 스케일 목표가 적용된다."""
-    menus = [mk(1, "잡곡밥", "주식", cost=300.0),
-             mk(2, "흰쌀밥", "주식", cost=300.0),
-             mk(3, "미역국", "국", cost=200.0),
-             mk(4, "시금치나물", "반찬", cost=150.0),
-             mk(5, "두부조림", "반찬", cost=300.0)]
+    menus = _full_menu_pool()
     req = MealPlanRequest(days=31, solver_time_limit=8.0)
     res = build_and_solve(menus, req)
     assert res.status in ("OPTIMAL", "FEASIBLE")
@@ -166,22 +162,27 @@ def test_pref_none_neutral():
 # [검증 루프 3] 통합 — 전체 구성 + 조합 가능성
 # ---------------------------------------------------------------------------
 def _full_menu_pool():
+    """반상 구성(주식1·국1·주찬1·부찬2이상·김치1)을 채울 수 있는 후보 풀."""
     return [
         mk(1, "잡곡밥", "주식", cost=320.0),
         mk(2, "흰쌀밥", "주식", cost=280.0),
         mk(3, "미역국", "국", cost=210.0),
         mk(4, "된장국", "국", cost=190.0),
-        mk(5, "시금치나물", "반찬", cost=150.0),
-        mk(6, "콩나물무침", "반찬", cost=140.0),
-        mk(7, "오징어튀김", "반찬", cost=520.0),
-        mk(8, "감자햄볶음", "반찬", cost=430.0),
-        mk(9, "두부조림", "반찬", cost=300.0),
-        mk(10, "제육볶음", "반찬", cost=460.0),
+        mk(7, "오징어튀김", "주찬", cost=520.0),
+        mk(8, "감자햄볶음", "주찬", cost=430.0),
+        mk(9, "두부조림", "주찬", cost=300.0),
+        mk(10, "제육볶음", "주찬", cost=460.0),
+        mk(5, "시금치나물", "부찬", cost=150.0),
+        mk(6, "콩나물무침", "부찬", cost=140.0),
+        mk(11, "도라지생채", "부찬", cost=170.0),
+        mk(12, "브로콜리무침", "부찬", cost=160.0),
+        mk(13, "배추김치", "김치", cost=90.0),
+        mk(14, "깍두기", "김치", cost=95.0),
     ]
 
 
 def test_full_pipeline_composition_and_targets():
-    """전체 구성(주식1·국1·반찬2)과 제공빈도 목표를 함께 만족한다."""
+    """반상 구성(주식1·국1·주찬1·부찬2이상·김치1)과 제공빈도 목표를 함께 만족한다."""
     menus = _full_menu_pool()
     req = MealPlanRequest(days=7, solver_time_limit=10.0)
     res = build_and_solve(menus, req)
@@ -192,7 +193,9 @@ def test_full_pipeline_composition_and_targets():
             cats = [next(m.category for m in menus if m.name == p) for p in picks]
             assert cats.count("주식") == 1
             assert cats.count("국") == 1
-            assert cats.count("반찬") == 2
+            assert cats.count("주찬") == 1
+            assert cats.count("부찬") >= 2
+            assert cats.count("김치") == 1
     # 제공빈도: 4개 규칙 모두 충족되어야 한다(대체재 충분)
     for ftype, info in res.soft_breakdown["frequency"].items():
         assert info["satisfied"], f"{ftype} 미충족: {info}"
