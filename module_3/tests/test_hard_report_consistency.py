@@ -21,14 +21,20 @@ from csp_solver import MealPlanRequest, MenuItem, build_and_solve  # noqa: E402
 
 
 def fractional_menus():
-    """소수점 칼로리 후보 — 실 DB `nutrition_recipe.calories`는 DECIMAL 이다."""
+    """소수점 칼로리 후보 — 실 DB `nutrition_recipe.calories`는 DECIMAL 이다.
+
+    모든 후보의 소수부를 .9 로 맞춰 두었다. 접시별 `int()` 절단이 재발하면 하루
+    18접시(6접시 × 3끼니)에서 정확히 16.2kcal 이 사라지므로, 아래 밴드 설정과
+    맞물려 '정상인데 위반' 오보가 재현된다.
+    """
+    spec = (("밥", "주식", 320.9, 4, 300.4), ("국", "국", 90.9, 4, 200.4),
+            ("주찬", "주찬", 180.9, 6, 250.4), ("부찬", "부찬", 60.9, 12, 150.4),
+            ("김치", "김치", 10.9, 6, 50.4))
     out, mid = [], 1
-    for i in range(4):
-        out.append(MenuItem(mid, f"밥{i}", "주식", 320.9 + i, cost_won=300.4)); mid += 1
-    for i in range(4):
-        out.append(MenuItem(mid, f"국{i}", "국", 90.9 + i, cost_won=200.4)); mid += 1
-    for i in range(6):
-        out.append(MenuItem(mid, f"반찬{i}", "반찬", 180.9 + i, cost_won=250.4)); mid += 1
+    for label, cat, base, count, cost in spec:
+        for i in range(count):
+            out.append(MenuItem(mid, f"{label}{i}", cat, base + i, cost_won=cost))
+            mid += 1
     return out
 
 
@@ -43,9 +49,11 @@ def solved():
     """하한이 '리포트 절단값'과 '실제값' 사이에 오도록 밴드를 좁힌 해.
 
     수정 전에는 이 설정에서 status=OPTIMAL 인데 kcal_ok=False 가 나왔다.
+    밴드 2177.4~2192.6 은 최소 achievable(2179.2) 바로 위에 하한을 두고, 절단값
+    (실제−16.2)은 하한 아래로 떨어지도록 잡은 값이다.
     """
     menus = fractional_menus()
-    cfg = hc.HardConstraintConfig(target_kcal_per_day=2375.0, kcal_tolerance=0.0145,
+    cfg = hc.HardConstraintConfig(target_kcal_per_day=2185.0, kcal_tolerance=0.0035,
                                   budget_limit_per_person=None,
                                   # 이 테스트의 관심사는 리포트 절단뿐 → 이후 추가된
                                   # 끼니배분·중복창 제약은 비활성으로 격리한다.
@@ -84,7 +92,8 @@ def test_kcal_ok_flag_matches_reality(solved):
 def test_cost_report_not_truncated_per_dish():
     """원가도 접시별 절단하지 않는다(예산 판정 오보 방지)."""
     menus = fractional_menus()
-    cfg = hc.HardConstraintConfig(enable_energy=False, budget_limit_per_person=3200.0,
+    # 하루 최소 원가는 3,307.2원(끼니당 1,102.4 × 3끼니) — 커트라인은 그 위에 둔다.
+    cfg = hc.HardConstraintConfig(enable_energy=False, budget_limit_per_person=3400.0,
                                   budget_period="day",
                                   enable_meal_ratio=False, menu_repeat_window_days=0)
     res = build_and_solve(menus, MealPlanRequest(days=2, hard=cfg, solver_time_limit=30.0))

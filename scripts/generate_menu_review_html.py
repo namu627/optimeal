@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import csp_hard_constraints as hc  # noqa: E402
 import csp_solver as cs  # noqa: E402
+import menu_taxonomy as mt  # noqa: E402
 import soft_constraints_diversity as scd  # noqa: E402
 from load_nutrition_from_recipe_db import get_engine  # noqa: E402
 
@@ -175,7 +176,44 @@ def render_nutrient_table(res, by_name, nutrients, sodium_max) -> str:
             f"<tbody>{''.join(rows)}</tbody></table>{note}")
 
 
-def render_verification(res, cfg) -> str:
+def _meal_categories(res, by_name) -> list:
+    """[(day, meal, [카테고리, ...]), ...] — 편성 순서를 보존한다."""
+    out = []
+    for day, meals in res.plan.items():
+        for meal, picks in meals.items():
+            out.append((day, meal, [by_name[n].category for n in picks if n in by_name]))
+    return out
+
+
+def _composition_check(res, by_name) -> tuple:
+    """반상 구성(주식1·국1·주찬1·부찬2이상·김치1) 충족 여부.
+
+    ⚠ 접시 **개수**만 세면 부족하다 — 카테고리별로 세야 '부찬 3개·김치 0개'가 잡힌다.
+    """
+    want = cs.DEFAULT_COMPOSITION
+    bad = []
+    for day, meal, cats in _meal_categories(res, by_name):
+        for cat, spec in want.items():
+            lo, hi = cs._count_bounds(spec)
+            n = cats.count(cat)
+            if (lo is not None and n < lo) or (hi is not None and n > hi):
+                bad.append(f"{day}일 {meal} {cat} {n}개")
+    label = "끼니 구성 (주식1·국1·주찬1·부찬2이상·김치1)"
+    return (label, "전 끼니 충족" if not bad else f"불충족 {len(bad)}건: {', '.join(bad[:3])}",
+            not bad)
+
+
+def _order_check(res, by_name) -> tuple:
+    """식단표 표기 순서(주식→국→주찬→부찬→김치) 준수 여부."""
+    bad = [f"{day}일 {meal}" for day, meal, cats in _meal_categories(res, by_name)
+           if [mt.category_sort_key(c) for c in cats]
+           != sorted(mt.category_sort_key(c) for c in cats)]
+    return ("표기 순서 (주식→국→주찬→부찬→김치)",
+            "전 끼니 준수" if not bad else f"어긋남 {len(bad)}건: {', '.join(bad[:3])}",
+            not bad)
+
+
+def render_verification(res, cfg, by_name) -> str:
     """Hard 제약 준수·중복 검증 요약."""
     hb = res.hard_breakdown
     rp = hb["menu_repeat"]
@@ -189,9 +227,8 @@ def render_verification(res, cfg) -> str:
         (f"메뉴 중복 회피 ({rp['window_days']}일 내 재등장 금지)",
          f"위반 {len(rp['violations'])}건 · 동일 메뉴 최대 {rp['max_same_menu_count']}회 등장",
          not rp["violations"]),
-        ("끼니 구성 (주식1·국1·반찬2)",
-         "전 끼니 충족" if all(len(p) == 4 for m in res.plan.values() for p in m.values())
-         else "불충족", all(len(p) == 4 for m in res.plan.values() for p in m.values())),
+        _composition_check(res, by_name),
+        _order_check(res, by_name),
     ]
     na = (hb.get("nutrient_max") or {}).get("sodium")
     if na:
@@ -279,13 +316,20 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 넣어, <b>스프가 단독 주식</b>으로 편성되거나 스테이크·탕수육이 주식 자리에 올랐습니다.
 이번 판은 메뉴명까지 보고 <b>밥·면·죽·빵만 주식</b>으로 인정합니다(206종). 주식에서 빠진
 81종은 버리지 않고 스프·탕·전골 22종은 <b>국</b>으로, 스테이크·만두·롤 등 59종은
-<b>반찬</b>으로 옮겼습니다. 판정은 메뉴명 키워드 기반이라 <b>새로운 표기는 놓칠 수
-있습니다</b> — 어색한 접시를 짚어 주시면 사전을 보강하겠습니다.</p>
+반찬 계열로 옮겼습니다. 이어서 <b>반찬 629종을 주찬 258 · 부찬 326 · 김치 45</b>로
+나눴습니다(단백질 주요리=주찬, 나물·무침·피클류=부찬, 김치·겉절이·깍두기류=김치).
+원본 자료에도 주찬·부찬·김치 라벨이 있으나 <b>출처마다 기준이 달라</b>(김치찌개·김치전까지
+'김치'로 라벨된 출처가 있습니다) 쓰지 않고 메뉴명으로 통일해 판정했습니다. 판정은 메뉴명
+키워드 기반이라 <b>새로운 표기는 놓칠 수 있습니다</b> — 특히 <b>주찬/부찬 경계</b>는
+현장 관행에 따라 다를 수 있으니 어색한 배치를 짚어 주시면 사전을 보강하겠습니다.</p>
 <p><b>5. 메뉴 궁합은 "찌개·전골·탕은 밥과만" 한 가지 규칙만 적용했습니다.</b>
 국수 + 부대찌개 같은 조합을 막습니다. 그 외의 궁합(반찬끼리의 조합, 같은 조리법 중복,
 맛 계열 충돌 등)은 <b>아직 규칙이 없습니다</b> — 현장에서 쓰는 금기 조합을 알려 주시면
 규칙으로 추가하겠습니다.</p>
-<p><b>6. 1인분 기준입니다.</b> 대량 조리 환산은 별도 모듈이며, 현재 초기 추정은 선형(인원수 비례)
+<p><b>6. 부찬 개수에 상한이 없습니다.</b> 끼니 구성을 <b>주식1·국1·주찬1·부찬 2개 이상·김치1</b>로
+정했으므로, 열량 밴드가 허용하는 한 부찬이 3~4개까지 늘어난 끼니가 있습니다. 현장 배식 기준
+<b>부찬 상한(예: 최대 3개)</b>이 있으면 알려 주시면 제약으로 걸겠습니다.</p>
+<p><b>7. 1인분 기준입니다.</b> 대량 조리 환산은 별도 모듈이며, 현재 초기 추정은 선형(인원수 비례)
 입니다(ADR-008). 이는 "예측"이 아니라 영양사 보정을 누적하기 위한 출발점입니다.</p>
 </div>
 
@@ -296,8 +340,11 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 <li><b>끼니 조합이 현장에서 성립하는가</b> — 아침에 부적절한 메뉴, 국물 없는 끼니, 조리 동선이
 겹치는 조합(예: 한 끼에 튀김 2종) 등. <b>어울리지 않는 메뉴 쌍</b>을 짚어 주시면 궁합 규칙으로
 추가하겠습니다(위 한계 5번)</li>
-<li><b>메뉴 분류 오류</b> — 위 한계 4번. 특히 주식으로 인정한 206종과, 주식에서 빼서
-국·반찬으로 옮긴 81종 중 <b>잘못 옮긴 것</b>이 있는지</li>
+<li><b>메뉴 분류 오류</b> — 위 한계 4번. 특히 (a) 주식으로 인정한 206종과 주식에서 빼서
+국·반찬 계열로 옮긴 81종, (b) <b>주찬(258)과 부찬(326)의 경계</b>가 현장 감각과 맞는지.
+"이건 주찬이 아니라 부찬" 같은 지적이 가장 도움이 됩니다</li>
+<li><b>끼니 구성이 맞는가</b> — 주식1·국1·주찬1·부찬2이상·김치1로 편성했습니다. 부찬 상한
+필요 여부(위 한계 6번), 그리고 빵·면 주식 끼니에도 김치를 붙이는 게 맞는지</li>
 <li><b>열량 배분(30·40·30)이 현실적인가</b> — 실제 급식 운영과 어긋나면 비율을 조정하겠습니다</li>
 <li><b>나트륨 상한 수치가 적절한가</b> — 위 한계 3번. 일반식 2,000mg·노인 1,500mg으로
 두었습니다. 상한을 낮출수록 저염 메뉴 위주로 편성되므로, <b>맛·간이 급식으로 성립하는
@@ -364,7 +411,7 @@ def main() -> int:
             f"<h2>{esc(label)} — {prof['kcal']:.0f}kcal/일"
             f"{f' · 나트륨 ≤{na_max:,.0f}mg' if na_max else ''}</h2>"
             f"<p><small>{esc(prof['note'])}</small></p>"
-            "<h3>자동 검증</h3>" + render_verification(res, cfg) +
+            "<h3>자동 검증</h3>" + render_verification(res, cfg, by_name) +
             "<h3>식단표</h3><div class='tblwrap'>" + render_plan_table(res, by_name, cfg) +
             "</div><h3>일별 영양소 합계</h3><div class='tblwrap'>" +
             render_nutrient_table(res, by_name, nutrients, na_max) + "</div>")

@@ -72,9 +72,13 @@ def test_soup_is_not_staple(name):
 @pytest.mark.parametrize("name", ["통삼겹스테이크", "가지 탕수육", "크림소스치킨롤",
                                   "닭가슴살 브로콜리 만두", "들깨 곤약 냉채"])
 def test_onedish_main_dishes_are_not_staple(name):
-    """스테이크·탕수육·만두는 주찬이지 주식이 아니다."""
+    """스테이크·탕수육·만두는 주찬이지 주식이 아니다.
+
+    2026-08-12부터 반찬 계열은 주찬/부찬/김치로 세분되므로 '반찬'이 아니라
+    세분 카테고리 중 하나로 떨어진다.
+    """
     assert mt.is_staple(name) is False
-    assert mt.resolve_menu_category("일품요리", name) == "반찬"
+    assert mt.resolve_menu_category("일품요리", name) in mt.SIDE_KINDS
 
 
 @pytest.mark.parametrize("name", ["된장크림소스 잡곡 오므라이스", "새우 카레 빠에야",
@@ -96,12 +100,22 @@ def test_onedish_soup_goes_to_soup_not_side():
     assert mt.resolve_menu_category("일품요리", "포니언 스프") == "국"
 
 
-def test_non_staple_grouping_is_untouched():
-    """밥·국·반찬 등 다른 grouping_type 은 메뉴명과 무관하게 기존 매핑을 유지한다."""
+def test_non_side_grouping_is_untouched():
+    """국·후식 등 반찬 계열이 아닌 grouping_type 은 기존 매핑을 유지한다."""
     assert mt.resolve_menu_category("국", "부대찌개") == "국"
-    assert mt.resolve_menu_category("주찬", "통삼겹스테이크") == "반찬"
-    assert mt.resolve_menu_category("김치", "함초김치") == "반찬"
     assert mt.resolve_menu_category("후식", "멜론스프") == "후식"
+
+
+def test_side_grouping_is_resubdivided_by_name():
+    """반찬 계열 라벨(반찬·주찬·부찬·김치)은 라벨이 아니라 **메뉴명**으로 다시 나뉜다.
+
+    출처마다 라벨 기준이 달라(영양사도우미는 김치찌개도 '김치'로 라벨) 그대로 쓸 수 없다.
+    """
+    assert mt.resolve_menu_category("주찬", "통삼겹스테이크") == "주찬"
+    assert mt.resolve_menu_category("김치", "함초김치") == "김치"
+    assert mt.resolve_menu_category("반찬", "취나물들깨무침") == "부찬"
+    # 라벨이 '김치'여도 조리 메뉴면 김치가 아니다 — 라벨 맹신 금지
+    assert mt.resolve_menu_category("김치", "돈육김치볶음") == "주찬"
 
 
 # ---------------------------------------------------------------------------

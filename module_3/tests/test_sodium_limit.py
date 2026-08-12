@@ -24,13 +24,15 @@ MEALS = ("아침", "점심", "저녁")
 def pool(n_per_cat=12, high_na=900.0, low_na=50.0):
     """카테고리별 후보. 인덱스 짝수는 고나트륨, 홀수는 저나트륨으로 둔다.
 
-    열량 폭·반찬 2배 규칙은 test_menu_repeat_and_meal_ratio.pool 과 동일 이유
+    열량 폭·부찬 2배 규칙은 test_menu_repeat_and_meal_ratio.pool 과 동일 이유
     (좁으면 제약이 아니라 픽스처 때문에 INFEASIBLE 이 된다).
 
     Returns:
         (menus, sodium_by_idx) — sodium 은 side-channel 로 주입한다(MenuItem 필드 아님).
     """
-    spec = (("주식", 150.0, 400.0, 1), ("국", 20.0, 120.0, 1), ("반찬", 20.0, 250.0, 2))
+    spec = (("주식", 150.0, 400.0, 1), ("국", 20.0, 120.0, 1),
+            ("주찬", 60.0, 250.0, 1), ("부찬", 20.0, 150.0, 2),
+            ("김치", 5.0, 30.0, 1))
     out, sodium, mid = [], {}, 1
     for cat, lo, hi, mult in spec:
         count = n_per_cat * mult
@@ -124,7 +126,7 @@ def test_missing_value_menu_is_excluded_not_treated_as_zero():
     제약이 아니라 픽스처 때문에 INFEASIBLE 이 된다(카테고리별 필요 개수 × 최소 나트륨으로 검산).
     """
     menus, sodium = pool()
-    missing = {0, 12, 24}                              # 주식0·국0·반찬0 = 각 900mg
+    missing = {0, 12, 24}                              # 주식0·국0·주찬0 = 각 900mg
     partial = {i: v for i, v in sodium.items() if i not in missing}
     res = solve(cap=2000.0, sodium=partial, menus=menus)
     assert res.status in ("OPTIMAL", "FEASIBLE")

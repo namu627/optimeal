@@ -160,7 +160,11 @@ CREATE TABLE nutrition_recipe (
     saturated_fat   DECIMAL(6,2)  NULL,
     trans_fat       DECIMAL(6,2)  NULL,
     data_source     TEXT          NOT NULL CHECK (data_source IN ('식약처', '식품안전나라')),
-    menu_category   TEXT          NULL CHECK (menu_category IN ('주식', '국', '찌개', '반찬', '후식', '음료', '기타')),
+    -- 반상 세분(주찬·부찬·김치)은 2026-08-12 추가 — migrations/v4_menu_category_side_kinds.sql
+    -- '반찬'은 재분류 전 기존 행 호환을 위해 유지한다.
+    menu_category   TEXT          NULL CHECK (menu_category IN ('주식', '국', '찌개',
+                                                                '주찬', '부찬', '김치',
+                                                                '반찬', '후식', '음료', '기타')),
     original_data   JSONB         NULL,
     created_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP

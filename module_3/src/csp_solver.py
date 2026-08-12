@@ -23,10 +23,12 @@ from ortools.sat.python import cp_model
 #   scd = nyc(남유찬): Soft — 다양성·제철·완제품자제·나트륨당저감 (목적함수)
 try:
     from . import csp_hard_constraints as hc
+    from . import menu_taxonomy as mt
     from . import soft_constraints as sc
     from . import soft_constraints_diversity as scd
 except ImportError:  # `python csp_solver.py` 직접 실행 시
     import csp_hard_constraints as hc
+    import menu_taxonomy as mt
     import soft_constraints as sc
     import soft_constraints_diversity as scd
 # ===========================================================================
@@ -56,7 +58,12 @@ def get_engine():
     password = os.getenv("POSTGRES_PASSWORD", "optimeal_dev_pw")
     return create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}")
 # 식단에 실제 배치되는 카테고리만 조회(식약처 30만 '기타' 제외 → 결정변수 폭발 방지).
-DEFAULT_MENU_CATEGORIES = ["주식", "국", "찌개", "반찬"]
+#   2026-08-12: '반찬' 한 덩어리 → 주찬/부찬/김치로 세분(영양사 지적). 아직 재분류하지
+#   않은 DB 를 위해 '반찬'도 조회 목록에 남겨 두고, 세분 후보가 없으면 경고한다.
+DEFAULT_MENU_CATEGORIES = ["주식", "국", "찌개", "주찬", "부찬", "김치", "반찬"]
+# 반상 끼니 구성 — 영양사 확정(2026-08-12): 주식1·국1·주찬1·부찬 2이상·김치1.
+#   값이 int 면 정확히 그 개수, (lo, hi) 튜플이면 범위(hi=None 이면 상한 없음).
+DEFAULT_COMPOSITION = {"주식": 1, "국": 1, "주찬": 1, "부찬": (2, None), "김치": 1}
 _MENU_QUERY = """
 WITH latest_price AS (
     SELECT DISTINCT ON (ingredient_id) ingredient_id, price_per_g
@@ -102,7 +109,20 @@ def load_menus(month: int | None = None,
             ))
     if not menus:
         raise RuntimeError("DB에서 메뉴 후보를 찾지 못했습니다 — 데이터 적재 상태를 확인하세요.")
+    _warn_if_sides_unclassified(menus)
     return menus
+
+
+def _warn_if_sides_unclassified(menus: list[MenuItem]) -> None:
+    """'반찬'만 있고 주찬/부찬/김치가 없으면 재분류 미실행이므로 알려 준다.
+
+    이 상태로 기본 구성을 풀면 원인 없이 INFEASIBLE 이 나므로, 조용히 실패하지 않게
+    한다(2026-08-12 반상 세분 도입).
+    """
+    cats = {m.category for m in menus}
+    if "반찬" in cats and not (cats & set(mt.SIDE_KINDS)):
+        print("[경고] menu_category 에 주찬/부찬/김치가 없습니다 — "
+              "`python scripts/reclassify_menu_categories.py --apply` 로 재분류하세요.")
 # ===========================================================================
 # (2) 입력 / 결과 자료구조 (FR-11)
 # ===========================================================================
@@ -110,7 +130,8 @@ def load_menus(month: int | None = None,
 class MealPlanRequest:
     days: int = 7                                   # 급식 일수 (7/31)
     meals: tuple = ("아침", "점심", "저녁")          # 끼니
-    composition: dict = field(default_factory=lambda: {"주식": 1, "국": 1, "반찬": 2})  # 끼니 슬롯 구성
+    # 끼니 슬롯 구성. int=정확히 그 개수 / (lo, hi)=범위(hi=None 이면 상한 없음).
+    composition: dict = field(default_factory=lambda: dict(DEFAULT_COMPOSITION))
     solver_time_limit: float = 10.0
     # ── Hard 제약(②알레르기·③칼로리·④예산) ─────────────────────────────
     #   opt-in: None이면 미적용(Soft 로직만). 운영/CLI는 HardConstraintConfig를
@@ -142,6 +163,21 @@ class MealPlanResult:
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
+def _count_bounds(spec) -> tuple:
+    """구성 값(int 또는 (lo, hi))을 (하한, 상한)으로 정규화한다.
+
+    Args:
+        spec: 정확 개수(int) 또는 (최소, 최대) 튜플. 최대가 None 이면 상한 없음.
+
+    Returns:
+        (lo, hi). 각각 None 이면 해당 방향 제약 없음.
+    """
+    if isinstance(spec, (tuple, list)):
+        lo, hi = (list(spec) + [None, None])[:2]
+        return lo, hi
+    return spec, spec
+
+
 def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResult:
     model = cp_model.CpModel()
     D = range(req.days)
@@ -150,11 +186,16 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     # 결정변수 x(i,d,s): 메뉴 i를 d일 s끼니에 편성하면 1
     x = {(m, d, s): model.NewBoolVar(f"x_{m}_{d}_{s}") for m in M for d in D for s in S}
     # ---------------------- 모델 구조: 끼니 슬롯 구성 ----------------------
-    # 각 끼니 = 주식 1·국 1·반찬 2. 구성 외 카테고리(후식·음료 등)는 배제.
+    # 각 끼니 = 주식1·국1·주찬1·부찬 2이상·김치1(기본). 구성 외 카테고리(후식·음료 등)는 배제.
     for d in D:
         for s in S:
-            for cat, cnt in req.composition.items():
-                model.Add(sum(x[m, d, s] for m in M if menus[m].category == cat) == cnt)
+            for cat, spec in req.composition.items():
+                lo, hi = _count_bounds(spec)
+                picked = sum(x[m, d, s] for m in M if menus[m].category == cat)
+                if lo is not None:
+                    model.Add(picked >= lo)
+                if hi is not None:
+                    model.Add(picked <= hi)
             for m in M:
                 if menus[m].category not in req.composition:
                     model.Add(x[m, d, s] == 0)
@@ -199,9 +240,13 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             plan[d + 1] = {}
             day_c = 0.0
             for s, sname in enumerate(req.meals):
-                picked = [menus[m].name for m in M if solver.Value(x[m, d, s])]
-                plan[d + 1][sname] = picked
-                day_c += sum(menus[m].calories for m in M if solver.Value(x[m, d, s]))
+                # 표기 순서 고정: 주식 → 국 → 주찬 → 부찬 → 김치 (영양사 확정 2026-08-12).
+                # 같은 카테고리 안에서는 메뉴명 순 — 같은 해에 대해 출력이 항상 같도록.
+                chosen = sorted(
+                    (m for m in M if solver.Value(x[m, d, s])),
+                    key=lambda m: (mt.category_sort_key(menus[m].category), menus[m].name))
+                plan[d + 1][sname] = [menus[m].name for m in chosen]
+                day_c += sum(menus[m].calories for m in chosen)
             daily_kcal[d + 1] = round(day_c, 1)
         total_cost = round(sum(menus[m].cost_won for m in M for d in D for s in S
                                if solver.Value(x[m, d, s])))
