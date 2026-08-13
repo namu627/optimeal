@@ -12,6 +12,7 @@
 from __future__ import annotations
 import argparse
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import date
 from ortools.sat.python import cp_model
@@ -21,13 +22,16 @@ from ortools.sat.python import cp_model
 #   hc  = pmy(박미연): Hard — 알레르기·칼로리·예산 (제약)
 #   sc  = ksm(권성민): Soft — 제공빈도·기호도·식단가 (목적함수)
 #   scd = nyc(남유찬): Soft — 다양성·제철·완제품자제·나트륨당저감 (목적함수)
+#   ws  = 롤링 웜스타트 (탐색 보조 — 해의 의미를 바꾸지 않음)
 try:
     from . import csp_hard_constraints as hc
+    from . import csp_warm_start as ws
     from . import menu_taxonomy as mt
     from . import soft_constraints as sc
     from . import soft_constraints_diversity as scd
 except ImportError:  # `python csp_solver.py` 직접 실행 시
     import csp_hard_constraints as hc
+    import csp_warm_start as ws
     import menu_taxonomy as mt
     import soft_constraints as sc
     import soft_constraints_diversity as scd
@@ -135,6 +139,12 @@ class MealPlanRequest:
     # 끼니 슬롯 구성. int=정확히 그 개수 / (lo, hi)=범위(hi=None 이면 상한 없음).
     composition: dict = field(default_factory=lambda: dict(DEFAULT_COMPOSITION))
     solver_time_limit: float = 10.0
+    # 롤링 웜스타트(초기해 hint) 사용 여부. 기본 ON.
+    #   31일 풀이의 병목은 "첫 가능해 찾기"이며(나트륨 일 상한이 558슬롯을 전역 결합),
+    #   순차 구성한 초기해를 넣으면 24.8~65.5초(한도 초과 발생) → 10.1~10.8초로 고정된다.
+    #   힌트는 탐색 출발점일 뿐이라 **가능영역·최적성의 의미를 바꾸지 않는다**(틀린 힌트는 폐기됨).
+    #   끄고 싶을 때(예: 힌트 효과 비교 측정) False. 상세: `csp_warm_start` 모듈 docstring.
+    warm_start: bool = True
     # ── Hard 제약(②알레르기·③칼로리·④예산) ─────────────────────────────
     #   opt-in: None이면 미적용(Soft 로직만). 운영/CLI는 HardConstraintConfig를
     #   주입해 켠다. 기준값(2000kcal·3500원 등)은 운영데이터로 확정 예정(명세서 §6).
@@ -155,10 +165,11 @@ class MealPlanRequest:
 class MealPlanResult:
     status: str
     objective: float
-    wall_time: float
+    wall_time: float     # 총 소요(웜스타트 구성 + 솔버 풀이) — SLA 는 이 값으로 잰다
     plan: dict           # {day: {meal: [menu_name, ...]}}
     daily_kcal: dict     # {day: 총kcal} (참고용)
     total_cost: int      # 1인 총 식재료비 (참고용)
+    warm_start_seconds: float = 0.0    # 그중 초기해 구성에 쓴 시간(0=웜스타트 미사용)
     hard_breakdown: dict = None        # pmy Hard 지표(칼로리·예산·알레르기 준수) — 미적용/미풀이 시 None
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
@@ -229,9 +240,26 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         weights=req.diversity_weights,
     )
     model.Maximize(soft.score + div.score)
+    # ---------------------- 롤링 웜스타트 (탐색 보조) ----------------------
+    # 하루씩 순차로 구성한 배치를 초기해로 넣는다. 모델 자체는 그대로 풀리므로
+    # 해의 의미(가능영역·최적성)는 불변 — 힌트가 틀리면 솔버가 버릴 뿐이다.
+    # 힌트 구성에 쓴 시간만큼 풀이 예산에서 뺀다(총 소요가 SLA 를 넘지 않게).
+    # req.hard 가 None 이면 Hard 제약 자체가 없어 첫 해를 바로 찾으므로 힌트가 무의미하다.
+    #   그때 기본 config 로 힌트를 만들면 모델에 없는 제약(2000kcal·예산)을 혼자 지키려다
+    #   시간만 버린다 → 같은 config 가 있을 때만 켠다.
+    hint_seconds = 0.0
+    if req.warm_start and req.hard is not None:
+        t_hint = time.monotonic()
+        hint = ws.build_rolling_hint(
+            menus, days=req.days, n_meals=len(req.meals),
+            composition={c: _count_bounds(v) for c, v in req.composition.items()},
+            config=req.hard, nutrient_by_idx=req.hard_nutrient_by_idx,
+            time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
+        ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
+        hint_seconds = time.monotonic() - t_hint
     # ---------------------- 풀이 및 결과 추출 -----------------------------
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = req.solver_time_limit
+    solver.parameters.max_time_in_seconds = max(1.0, req.solver_time_limit - hint_seconds)
     status = solver.Solve(model)
     plan, daily_kcal, total_cost = {}, {}, 0
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -273,7 +301,9 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     return MealPlanResult(
         status=solver.StatusName(status),
         objective=objective,
-        wall_time=solver.WallTime(),
+        # ⚠ solver.WallTime() 만 쓰면 웜스타트 구성 시간이 빠져 SLA 를 과소 보고한다.
+        wall_time=solver.WallTime() + hint_seconds,
+        warm_start_seconds=round(hint_seconds, 2),
         plan=plan, daily_kcal=daily_kcal, total_cost=total_cost,
         hard_breakdown=hard_breakdown,
         soft_breakdown=soft_breakdown,
@@ -288,7 +318,8 @@ def print_result(res: MealPlanResult, req: MealPlanRequest):
     if not res.plan:
         print("해 없음 (제약 충돌 여부 확인 필요)")
         return
-    print(f"연산 {res.wall_time:.2f}초  ·  Soft 목적점수 {res.objective:,.0f}")
+    ws_note = f" (그중 초기해 {res.warm_start_seconds:.2f}초)" if res.warm_start_seconds else ""
+    print(f"연산 {res.wall_time:.2f}초{ws_note}  ·  Soft 목적점수 {res.objective:,.0f}")
     print("=" * 60)
     for day, meals in res.plan.items():
         print(f"\n[{day}일차] (총 {res.daily_kcal[day]}kcal · 참고)")
@@ -332,6 +363,10 @@ def main():
     ap.add_argument("--month", type=int, default=None, help="제철 기준 월")
     ap.add_argument("--sodium-max", type=float, default=2000.0,
                     help="1일 나트륨 상한 mg (기본 2000=WHO 성인 권고, 0이면 미적용)")
+    ap.add_argument("--time-limit", type=float, default=60.0,
+                    help="총 소요 한도 초 (기본 60=NFR-02 31일 SLA). 초기해 구성 시간 포함")
+    ap.add_argument("--no-warm-start", action="store_true",
+                    help="롤링 웜스타트(초기해) 비활성 — 효과 비교 측정용")
     args = ap.parse_args()
     menus = load_menus(month=args.month)
     # CLI(운영 경로)는 Hard 제약을 켠다(③칼로리·④예산). ②알레르기는 대체식에서 주입.
@@ -346,7 +381,9 @@ def main():
                           hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max,
                                                        enable_staple_main=True,
                                                        enable_menu_pairing=True),
-                          hard_nutrient_by_idx=nutrient_by_idx)
+                          hard_nutrient_by_idx=nutrient_by_idx,
+                          solver_time_limit=args.time_limit,
+                          warm_start=not args.no_warm_start)
     print(f"[메뉴 후보 {len(menus)}종]")
     print_result(build_and_solve(menus, req), req)
 if __name__ == "__main__":
