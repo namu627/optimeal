@@ -87,8 +87,14 @@ def _sample_pool(by_cat: dict, total: int, *, seed: int, size: int, exclude: set
 
 
 def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
-                   n_meals, time_limit, seed, food_types, commercial):
-    """하루(n_meals 끼)치 부분 문제를 푼다. 실패하면 None."""
+                   n_meals, time_limit, seed, food_types, commercial,
+                   main_by_idx=None, main_budget=None):
+    """하루(n_meals 끼)치 부분 문제를 푼다. 실패하면 None.
+
+    main_budget: {주재료: 남은 허용 횟수}. 주면 하루 안에서 그 예산을 넘지 않게 막는다.
+        하루에 부찬만 최대 9접시라 **배제만으로는 부족하다** — 첫날 하루가 지평 cap 을
+        통째로 써 버릴 수 있다(cap 3 인데 9회 사용을 실측).
+    """
     model = cp_model.CpModel()
     meals = range(n_meals)
     y = {(m, s): model.NewBoolVar(f"y_{m}_{s}") for m in pool for s in meals}
@@ -102,6 +108,14 @@ def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
                 model.Add(picked >= lo)
             if hi is not None:
                 model.Add(picked <= hi)
+    if main_budget is not None and main_by_idx:
+        by_label: dict = defaultdict(list)
+        for m in pool:
+            label = main_by_idx.get(m)
+            if label:
+                by_label[label] += [y[m, s] for s in meals]
+        for label, vars_ in by_label.items():
+            model.Add(sum(vars_) <= max(0, main_budget.get(label, 0)))
     hc.add_hard_constraints(
         model, x1, sub, days=1, n_meals=n_meals, config=config,
         nutrient_by_idx=_remap_nutrients(nutrient_by_idx, remap))
@@ -131,6 +145,7 @@ def _remap_nutrients(nutrient_by_idx: dict | None, remap: dict) -> dict | None:
 
 def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dict,
                        config, nutrient_by_idx: dict | None = None,
+                       main_by_idx: dict | None = None, main_cap: int | None = None,
                        pool_size: int = DEFAULT_POOL_SIZE,
                        per_day_time: float = DEFAULT_PER_DAY_TIME,
                        time_budget: float | None = None) -> dict:
@@ -142,6 +157,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
         composition: {카테고리: (lo, hi)} — 골조가 정규화한 끼니 구성.
         config: hc.HardConstraintConfig (전체 모델과 **같은 것**을 넘길 것).
         nutrient_by_idx: {영양소명: {메뉴인덱스: 양}} (H-2d·H-2e 용).
+        main_by_idx: {메뉴인덱스: 대표 주재료명} — 주재료 원장용(B6 Phase 1).
+        main_cap: 지평 전체에서 같은 주재료를 허용하는 횟수. 둘 다 주면 원장을 켠다.
         pool_size: 하루 부분 문제 후보 표본 크기.
         per_day_time: 하루 부분 문제 1건의 시간 상한(초).
         time_budget: 힌트 구성 전체 시간 상한(초). 넘으면 만든 데까지 부분 힌트 반환.
@@ -149,6 +166,11 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
     Returns:
         {(메뉴인덱스, 일, 끼니): 1}. 한 건도 못 만들면 빈 dict(→ 호출부는 힌트 생략).
         **부분 힌트도 유효하다** — CP-SAT 힌트는 해를 강제하지 않는다.
+
+    주재료 원장(2026-08-14): 주재료 cap 은 **지평 전체** 규칙이라 하루 목적(_STEER)으로는
+    표현할 수 없다. 대신 이미 cap 에 닿은 주재료의 메뉴를 다음 날 후보에서 빼는 방식으로
+    순차 근사한다 — 중복 창(recent) 배제와 같은 구조다. 이걸 안 하면 힌트가 감점 0에
+    못 닿아 솔버가 힌트 지점에서 다시 개선 탐색을 해야 한다(31일 15.4s → 24.7s 로 확인).
     """
     if not menus or days <= 0 or n_meals <= 0:
         return {}
@@ -156,6 +178,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
     food_types = sc.classify_food_types(menus)
     commercial = scd.classify_commercial(menus)
     window = max(1, int(getattr(config, "menu_repeat_window_days", 0) or 1))
+    ledger_on = bool(main_by_idx) and main_cap is not None and main_cap > 0
+    used_main: dict = defaultdict(int)
     started = time.monotonic()
     history: list[set] = []
     chosen: dict = {}
@@ -163,10 +187,17 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
         if time_budget is not None and time.monotonic() - started > time_budget:
             break
         recent: set = set().union(*history[-(window - 1):]) if window > 1 and history else set()
+        budget = None
+        if ledger_on:
+            # 남은 예산을 하루 부분 문제에 그대로 넘긴다. cap 에 닿은 주재료는 예산 0이
+            # 되어 자연히 배제된다(별도 exclude 불필요).
+            budget = {label: main_cap - used_main.get(label, 0)
+                      for label in set(main_by_idx.values())}
         kwargs = dict(config=config, nutrient_by_idx=nutrient_by_idx,
                       composition=composition, n_meals=n_meals,
                       time_limit=per_day_time, seed=day,
-                      food_types=food_types, commercial=commercial)
+                      food_types=food_types, commercial=commercial,
+                      main_by_idx=main_by_idx, main_budget=budget)
         picks = _solve_one_day(
             menus, _sample_pool(by_cat, len(menus), seed=day, size=pool_size,
                                 exclude=recent), **kwargs)
@@ -174,10 +205,19 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
             picks = _solve_one_day(
                 menus, _sample_pool(by_cat, len(menus), seed=day, size=len(menus),
                                     exclude=recent), **kwargs)
+        if picks is None and budget is not None:
+            # 예산이 하루를 못 풀게 막는 경우 — 힌트는 어디까지나 출발점이므로
+            # 원장을 포기하고라도 그날을 만든다(감점 있는 힌트 > 힌트 없음).
+            kwargs["main_budget"] = None
+            picks = _solve_one_day(
+                menus, _sample_pool(by_cat, len(menus), seed=day, size=len(menus),
+                                    exclude=recent), **kwargs)
         if picks is None:  # 이 하루가 안 풀리면 이후도 못 잇는다 → 여기까지만
             break
         for m, s in picks:
             chosen[m, day, s] = 1
+            if ledger_on and main_by_idx.get(m):
+                used_main[main_by_idx[m]] += 1
         history.append({m for m, _ in picks})
     return chosen
 

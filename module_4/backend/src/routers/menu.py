@@ -96,6 +96,22 @@ def _load_menu_candidates(cs, month):
         ) from exc
 
 
+def _load_main_ingredients(menus) -> dict | None:
+    """메뉴별 대표 주재료를 {메뉴인덱스: 재료명}으로 조회한다. 실패하면 None(항 비활성).
+
+    나트륨과 달리 **없어도 안전하다** — 주재료 항은 Soft 라 미상 메뉴가 중립일 뿐이다.
+    현재 커버리지는 CSP 후보 960종 중 577종(60.1%). 적용 여부는 응답의
+    diversity_breakdown.active_terms.main 으로 드러난다(B6 Phase 1).
+    """
+    try:
+        import csp_solver as cs
+        import soft_constraints_diversity as scd
+
+        return scd.load_main_ingredients(cs.get_engine(), menus) or None
+    except Exception:
+        return None
+
+
 def _load_sodium(menus) -> dict | None:
     """메뉴별 나트륨(mg)을 {메뉴인덱스: 값}으로 조회한다. 실패하면 None(제약 미적용).
 
@@ -162,6 +178,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     req = cs.MealPlanRequest(
         days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit,
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
+        main_by_idx=_load_main_ingredients(menus),
     )
     res = cs.build_and_solve(menus, req)
     body = {
