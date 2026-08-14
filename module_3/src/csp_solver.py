@@ -161,6 +161,11 @@ class MealPlanRequest:
     pref_scores: dict = None           # {메뉴 인덱스: 기호도 점수} (None=중립)
     group_id: int = None               # 기호도 DB 조회용 타겟 그룹(선택)
     diversity_weights: object = None   # scd.DiversityWeights (None=기본값)
+    # 주재료 축 {메뉴 인덱스: 대표 주재료명} — scd 의 주재료 중복 회피 항이 읽는다.
+    #   MenuItem 에 없는 값이라 side-channel 로 넘긴다(B6 Phase 1, 2026-08-14).
+    #   예: main_by_idx=scd.load_main_ingredients(get_engine(), menus)
+    #   None/빈 dict 면 항이 자동 비활성(우아한 저하) → 8/13 이전과 동일 동작.
+    main_by_idx: dict = None
 @dataclass
 class MealPlanResult:
     status: str
@@ -238,6 +243,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         model, x, menus,
         days=req.days, n_meals=len(req.meals),
         weights=req.diversity_weights,
+        main_by_idx=req.main_by_idx,
     )
     model.Maximize(soft.score + div.score)
     # ---------------------- 롤링 웜스타트 (탐색 보조) ----------------------
@@ -250,10 +256,14 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     hint_seconds = 0.0
     if req.warm_start and req.hard is not None:
         t_hint = time.monotonic()
+        # 주재료 cap 은 지평 규칙이라 힌트도 같은 cap 을 알아야 감점 0에 닿는다.
+        dw = req.diversity_weights or scd.DiversityWeights()
         hint = ws.build_rolling_hint(
             menus, days=req.days, n_meals=len(req.meals),
             composition={c: _count_bounds(v) for c, v in req.composition.items()},
             config=req.hard, nutrient_by_idx=req.hard_nutrient_by_idx,
+            main_by_idx=req.main_by_idx,
+            main_cap=scd.scale_targets(dw.main_cap_per_week, req.days),
             time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
@@ -367,6 +377,8 @@ def main():
                     help="총 소요 한도 초 (기본 60=NFR-02 31일 SLA). 초기해 구성 시간 포함")
     ap.add_argument("--no-warm-start", action="store_true",
                     help="롤링 웜스타트(초기해) 비활성 — 효과 비교 측정용")
+    ap.add_argument("--no-main-axis", action="store_true",
+                    help="주재료 중복 회피 항 비활성 — 효과·SLA 비교 측정용(B6 Phase 1)")
     args = ap.parse_args()
     menus = load_menus(month=args.month)
     # CLI(운영 경로)는 Hard 제약을 켠다(③칼로리·④예산). ②알레르기는 대체식에서 주입.
@@ -376,6 +388,8 @@ def main():
         sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
         nutrient_max = {"sodium": args.sodium_max}
         nutrient_by_idx = {"sodium": sodium_by_idx}
+    # 주재료 축(B6 Phase 1) — DB 에 있는 메뉴만 채워지고 나머지는 중립.
+    main_by_idx = None if args.no_main_axis else scd.load_main_ingredients(get_engine(), menus)
     # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
     req = MealPlanRequest(days=args.days,
                           hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max,
@@ -383,8 +397,10 @@ def main():
                                                        enable_menu_pairing=True),
                           hard_nutrient_by_idx=nutrient_by_idx,
                           solver_time_limit=args.time_limit,
-                          warm_start=not args.no_warm_start)
-    print(f"[메뉴 후보 {len(menus)}종]")
+                          warm_start=not args.no_warm_start,
+                          main_by_idx=main_by_idx)
+    print(f"[메뉴 후보 {len(menus)}종"
+          f" / 주재료 확보 {len(main_by_idx or {})}종]")
     print_result(build_and_solve(menus, req), req)
 if __name__ == "__main__":
     main()

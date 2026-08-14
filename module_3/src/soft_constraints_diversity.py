@@ -189,6 +189,11 @@ class DiversitySoftObjective:
     commercial_idx: set = field(default_factory=set)       # 완제품 판별된 메뉴 인덱스(리포팅용)
     active_terms: dict = field(default_factory=dict)       # {term명: 활성여부} 리포팅용
     cooking_methods: dict = field(default_factory=dict)    # 분류 결과(리포팅용)
+    # 제약이 실제로 쓴 라벨 {메뉴 인덱스: 주재료/맛}. 리포트가 이 값을 그대로 읽어야
+    # 한다 — 리포트가 MenuItem 속성을 다시 읽으면 side-channel 주입분이 빠져 "제약은
+    # 걸렸는데 리포트는 빈 표"가 된다(2026-08-11 나트륨 표 불일치와 같은 계열).
+    main_values: dict = field(default_factory=dict)
+    taste_values: dict = field(default_factory=dict)
 
 
 # ===========================================================================
@@ -399,6 +404,8 @@ def add_diversity_soft_objective(
         commercial_idx=commercial_idx,
         active_terms=active,
         cooking_methods=methods,
+        main_values={m: v for m, v in main_values.items() if v},
+        taste_values={m: v for m, v in taste_values.items() if v},
     )
 
 
@@ -468,11 +475,15 @@ def evaluate_diversity_breakdown(
             color_by_day[d + 1] = {"distinct": len(seen), "target": w.color_target_per_day,
                                    "satisfied": len(seen) >= w.color_target_per_day}
 
-    # 주재료/맛 반복
-    def _repeat_report(attr):
+    # 주재료/맛 반복 — **제약이 쓴 라벨(soft.*_values)** 을 그대로 읽는다.
+    #   MenuItem 속성을 다시 읽으면 side-channel 주입분(DB 주재료 등)이 리포트에서만
+    #   사라져 "제약은 걸렸는데 표는 비어 있음"이 된다.
+    def _repeat_report(values_by_idx, attr):
         counts: dict = {}
         for m in M:
-            val = getattr(menus[m], attr, None)
+            val = values_by_idx.get(m) if values_by_idx else None
+            if not val:
+                val = getattr(menus[m], attr, None)   # 구 호출부 호환(주입 없던 경우)
             if not val:
                 continue
             c = sum(int(solver.Value(x[m, d, s])) for d in D for s in S)
@@ -497,8 +508,9 @@ def evaluate_diversity_breakdown(
         "active_terms": soft.active_terms,
         "cooking_diversity": cook_by_day,
         "color_diversity": color_by_day,
-        "main_ingredient_counts": _repeat_report("main_ingredient"),
-        "taste_counts": _repeat_report("taste"),
+        "main_ingredient_counts": _repeat_report(soft.main_values, "main_ingredient"),
+        "main_ingredient_coverage": len(soft.main_values),
+        "taste_counts": _repeat_report(soft.taste_values, "taste"),
         "total_season_score": round(total_season, 3),
         "commercial_count": commercial_count,
         "total_sodium_mg": round(total_sodium, 1),
@@ -569,9 +581,21 @@ def load_cooking_methods(engine, menus: list) -> dict[int, str]:
 def load_main_ingredients(engine, menus: list) -> dict[int, str]:
     """recipe_ingredient_map(ingredient_role='주재료') → menu_id 별 대표 주재료명 반환.
 
-    ★ 정식(canonical) 경로. recipe_ingredient_map 이 적재되면 이걸 우선 사용.
-    현재는 recipe_ingredient_map 이 0행이라 빈 dict 반환 → 주재료 항 중립(우아한 저하).
-    지금 당장 쓰려면 `load_main_ingredients_from_training` 우회 경로 참고.
+    ★ 정식(canonical) 경로. 2026-08-10 적재로 활성화됨(12,503행) — B6 Phase 1.
+    커버리지는 CSP 후보 960종 중 **577종(60.1%)**. 나머지는 dict 에 없음 → 그 메뉴는
+    주재료 항에서 중립(우아한 저하). 커버리지 비대칭의 파급은 [[design/menu_affinity]] §Phase 1.
+
+    **대표 주재료 선정(결정론)**: 한 메뉴에 주재료가 여럿일 수 있다(151종/577종, 최대 4개).
+    `per_serving_grams DESC, ingredient_name ASC` 로 정렬해 **양이 가장 많은 재료**를 대표로
+    삼는다. ORDER BY 없이 "첫 행"을 쓰면 대표값이 실행계획에 좌우돼 재현성이 깨진다
+    (NFR-05). 예: 비트양파김치 = 비트 2g vs 양파 150g → 양파.
+
+    Args:
+        engine: SQLAlchemy Engine.
+        menus: MenuItem 리스트(`menu_id` 보유).
+
+    Returns:
+        {메뉴 인덱스: 대표 주재료명}. 주재료 미상 메뉴는 키 자체가 없다.
     """
     from sqlalchemy import text
 
@@ -582,20 +606,22 @@ def load_main_ingredients(engine, menus: list) -> dict[int, str]:
         return main
     q = text(
         """
-        SELECT nr.nutrition_id AS menu_id, i.ingredient_name AS main
+        SELECT DISTINCT ON (nr.nutrition_id)
+               nr.nutrition_id AS menu_id, i.ingredient_name AS main
         FROM nutrition_recipe nr
         JOIN recipe r                  ON r.nutrition_recipe_id = nr.nutrition_id
         JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
                                        AND rim.ingredient_role = '주재료'
         JOIN ingredient i              ON i.ingredient_id = rim.ingredient_id
         WHERE nr.nutrition_id = ANY(:ids)
+        ORDER BY nr.nutrition_id, rim.per_serving_grams DESC NULLS LAST, i.ingredient_name
         """
     )
     with engine.connect() as conn:
         for r in conn.execute(q, {"ids": ids}).mappings():
             idx = id_to_idx.get(r["menu_id"])
-            if idx is not None and r["main"] and idx not in main:
-                main[idx] = r["main"]   # 첫 주재료를 대표로
+            if idx is not None and r["main"]:
+                main[idx] = r["main"]   # 양이 가장 많은 주재료를 대표로
     return main
 
 

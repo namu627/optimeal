@@ -69,13 +69,16 @@ def load_nutrients(menu_ids: list[int]) -> dict:
 
 
 def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
-                  sodium_max: float | None = None, sodium_by_idx: dict | None = None):
+                  sodium_max: float | None = None, sodium_by_idx: dict | None = None,
+                  main_by_idx: dict | None = None):
     """프로파일 1건을 풀이한다.
 
     Args:
         sodium_max: 1일 나트륨 상한(mg). None이면 미적용.
         sodium_by_idx: {메뉴인덱스: 나트륨mg}. 상한을 켤 때 필수 —
             H-2e 는 값이 없는 메뉴를 배제하므로 주입 없이 켜면 전 메뉴가 배제된다.
+        main_by_idx: {메뉴인덱스: 대표 주재료명}. 주재료 중복 회피 항(B6 Phase 1)이
+            읽는다. None이면 항 비활성.
 
     Returns:
         (MealPlanResult, HardConstraintConfig).
@@ -90,7 +93,8 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
     res = cs.build_and_solve(
         menus, cs.MealPlanRequest(
             days=days, meals=MEAL_NAMES, hard=cfg, solver_time_limit=time_limit,
-            hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_max else None)))
+            hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_max else None),
+            main_by_idx=main_by_idx))
     return res, cfg
 
 
@@ -392,7 +396,10 @@ def main() -> int:
     nutrients = load_nutrients([m.menu_id for m in menus])
     # H-2e 나트륨 상한이 읽을 값(메뉴 인덱스 기준). 적재율이 낮으면 그만큼 후보가 배제된다.
     sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
-    print(f"[후보] {len(menus)}종 · 나트륨 적재 {len(sodium_by_idx)}종")
+    # 주재료 축(B6 Phase 1) — 얻은 메뉴만 중복 회피 대상, 나머지는 중립.
+    main_by_idx = scd.load_main_ingredients(get_engine(), menus)
+    print(f"[후보] {len(menus)}종 · 나트륨 적재 {len(sodium_by_idx)}종"
+          f" · 주재료 확보 {len(main_by_idx)}종")
 
     sections = []
     for label in [p.strip() for p in args.profiles.split(",") if p.strip()]:
@@ -402,7 +409,8 @@ def main() -> int:
             continue
         na_max = None if args.no_sodium_limit else prof.get("sodium")
         res, cfg = solve_profile(menus, prof["kcal"], args.days, args.time_limit,
-                                 sodium_max=na_max, sodium_by_idx=sodium_by_idx)
+                                 sodium_max=na_max, sodium_by_idx=sodium_by_idx,
+                                 main_by_idx=main_by_idx)
         print(f"  [{label}] {res.status} {res.wall_time:.1f}초"
               f"{f' · Na≤{na_max:,.0f}mg' if na_max else ''}")
         if not res.plan:
