@@ -112,6 +112,20 @@ def _load_main_ingredients(menus) -> dict | None:
         return None
 
 
+def _load_affinity_table() -> list | None:
+    """메뉴 어울림 근거표를 읽는다(B6 Phase 2). 실패하면 None(항 비활성).
+
+    주재료와 같은 이유로 **없어도 안전하다** — Soft 라 감점이 없을 뿐이다.
+    적용 여부는 응답의 affinity_breakdown.active_terms 로 드러난다.
+    """
+    try:
+        import menu_affinity as ma
+
+        return ma.load_affinity_table() or None
+    except Exception:
+        return None
+
+
 def _load_sodium(menus) -> dict | None:
     """메뉴별 나트륨(mg)을 {메뉴인덱스: 값}으로 조회한다. 실패하면 None(제약 미적용).
 
@@ -179,6 +193,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit,
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
+        affinity_table=_load_affinity_table(),
     )
     res = cs.build_and_solve(menus, req)
     body = {
@@ -190,6 +205,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "hard_breakdown": _to_jsonable(res.hard_breakdown),
         "soft_breakdown": _to_jsonable(res.soft_breakdown),
         "diversity_breakdown": _to_jsonable(res.diversity_breakdown),
+        "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
     }
 
     if payload.with_alternatives and res.plan:
