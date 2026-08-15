@@ -26,12 +26,14 @@ from ortools.sat.python import cp_model
 try:
     from . import csp_hard_constraints as hc
     from . import csp_warm_start as ws
+    from . import menu_affinity as ma
     from . import menu_taxonomy as mt
     from . import soft_constraints as sc
     from . import soft_constraints_diversity as scd
 except ImportError:  # `python csp_solver.py` 직접 실행 시
     import csp_hard_constraints as hc
     import csp_warm_start as ws
+    import menu_affinity as ma
     import menu_taxonomy as mt
     import soft_constraints as sc
     import soft_constraints_diversity as scd
@@ -166,6 +168,12 @@ class MealPlanRequest:
     #   예: main_by_idx=scd.load_main_ingredients(get_engine(), menus)
     #   None/빈 dict 면 항이 자동 비활성(우아한 저하) → 8/13 이전과 동일 동작.
     main_by_idx: dict = None
+    # 메뉴 어울림 근거표 [ma.AffinityRow] — 어울림 Soft 항이 읽는다(B6 Phase 2, 2026-08-15).
+    #   점수를 코드가 아닌 데이터로 두는 구조라 주입 경로도 side-channel 이다.
+    #   예: affinity_table=ma.load_affinity_table()
+    #   None/빈 목록이면 항이 자동 비활성 → 8/14 이전과 동일 동작.
+    affinity_table: list = None
+    affinity_weights: object = None    # ma.AffinityWeights (None=기본값)
 @dataclass
 class MealPlanResult:
     status: str
@@ -178,6 +186,7 @@ class MealPlanResult:
     hard_breakdown: dict = None        # pmy Hard 지표(칼로리·예산·알레르기 준수) — 미적용/미풀이 시 None
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
+    affinity_breakdown: dict = None    # 어울림 지표(조리법 중복·주식×국) — 미주입 시 None
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
@@ -245,7 +254,15 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         weights=req.diversity_weights,
         main_by_idx=req.main_by_idx,
     )
-    model.Maximize(soft.score + div.score)
+    # 어울림(B6 Phase 2) — 근거표를 주입했을 때만 활성. 전 항이 **끼니 국소**라
+    # 웜스타트 하루 부분 문제에도 같은 함수를 그대로 걸 수 있다(아래 참조).
+    aff = ma.add_affinity_soft_objective(
+        model, x, menus,
+        days=req.days, n_meals=len(req.meals),
+        table=req.affinity_table,
+        weights=req.affinity_weights,
+    )
+    model.Maximize(soft.score + div.score + aff.score)
     # ---------------------- 롤링 웜스타트 (탐색 보조) ----------------------
     # 하루씩 순차로 구성한 배치를 초기해로 넣는다. 모델 자체는 그대로 풀리므로
     # 해의 의미(가능영역·최적성)는 불변 — 힌트가 틀리면 솔버가 버릴 뿐이다.
@@ -264,6 +281,8 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             config=req.hard, nutrient_by_idx=req.hard_nutrient_by_idx,
             main_by_idx=req.main_by_idx,
             main_cap=scd.scale_targets(dw.main_cap_per_week, req.days),
+            affinity_table=req.affinity_table,
+            affinity_weights=req.affinity_weights,
             time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
@@ -290,7 +309,8 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             daily_kcal[d + 1] = round(day_c, 1)
         total_cost = round(sum(menus[m].cost_won for m in M for d in D for s in S
                                if solver.Value(x[m, d, s])))
-    objective, hard_breakdown, soft_breakdown, diversity_breakdown = 0.0, None, None, None
+    objective, hard_breakdown, soft_breakdown = 0.0, None, None
+    diversity_breakdown, affinity_breakdown = None, None
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         objective = solver.ObjectiveValue()
         if hard is not None:
@@ -308,6 +328,11 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             days=req.days, n_meals=len(req.meals),
             weights=req.diversity_weights,
         )
+        if any(aff.active_terms.values()):
+            affinity_breakdown = ma.evaluate_affinity_breakdown(
+                solver, x, menus, aff,
+                days=req.days, n_meals=len(req.meals),
+            )
     return MealPlanResult(
         status=solver.StatusName(status),
         objective=objective,
@@ -318,6 +343,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         hard_breakdown=hard_breakdown,
         soft_breakdown=soft_breakdown,
         diversity_breakdown=diversity_breakdown,
+        affinity_breakdown=affinity_breakdown,
     )
 # ===========================================================================
 # (4) 출력
@@ -364,6 +390,16 @@ def print_result(res: MealPlanResult, req: MealPlanRequest):
         print("\n[Soft·다양성/제철/나트륨당]")
         for k, v in res.diversity_breakdown.items():
             print(f"  · {k}: {v}")
+    # Soft 항별 지표 — 메뉴 어울림(B6 Phase 2)
+    if res.affinity_breakdown:
+        ab = res.affinity_breakdown
+        print("\n[Soft·메뉴 어울림]")
+        print(f"  · 활성 축: {ab['active_terms']} · 조리법 커버리지 {ab['method_coverage']}종")
+        print(f"  · 같은 조리법 중복 끼니 {ab['method_duplicate_count']}건 "
+              f"· 어울림 점수 {ab['affinity_score']}")
+        for e in ab["method_duplicate_meals"][:5]:
+            print(f"    - {e['day']}일 {e['meal_index']}끼: {e['method']} "
+                  f"{', '.join(e['menus'])} ({e['score']})")
 # ===========================================================================
 # (5) CLI
 # ===========================================================================
@@ -379,6 +415,8 @@ def main():
                     help="롤링 웜스타트(초기해) 비활성 — 효과 비교 측정용")
     ap.add_argument("--no-main-axis", action="store_true",
                     help="주재료 중복 회피 항 비활성 — 효과·SLA 비교 측정용(B6 Phase 1)")
+    ap.add_argument("--no-affinity", action="store_true",
+                    help="메뉴 어울림 항 비활성 — 음성 대조·SLA 비교 측정용(B6 Phase 2)")
     args = ap.parse_args()
     menus = load_menus(month=args.month)
     # CLI(운영 경로)는 Hard 제약을 켠다(③칼로리·④예산). ②알레르기는 대체식에서 주입.
@@ -390,6 +428,8 @@ def main():
         nutrient_by_idx = {"sodium": sodium_by_idx}
     # 주재료 축(B6 Phase 1) — DB 에 있는 메뉴만 채워지고 나머지는 중립.
     main_by_idx = None if args.no_main_axis else scd.load_main_ingredients(get_engine(), menus)
+    # 어울림 근거표(B6 Phase 2) — 파일이 없으면 빈 목록이라 항이 자동 비활성.
+    affinity_table = None if args.no_affinity else ma.load_affinity_table()
     # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
     req = MealPlanRequest(days=args.days,
                           hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max,
@@ -398,9 +438,11 @@ def main():
                           hard_nutrient_by_idx=nutrient_by_idx,
                           solver_time_limit=args.time_limit,
                           warm_start=not args.no_warm_start,
-                          main_by_idx=main_by_idx)
+                          main_by_idx=main_by_idx,
+                          affinity_table=affinity_table)
     print(f"[메뉴 후보 {len(menus)}종"
-          f" / 주재료 확보 {len(main_by_idx or {})}종]")
+          f" / 주재료 확보 {len(main_by_idx or {})}종"
+          f" / 어울림 근거 {len(affinity_table or [])}행]")
     print_result(build_and_solve(menus, req), req)
 if __name__ == "__main__":
     main()

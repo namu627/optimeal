@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import csp_hard_constraints as hc  # noqa: E402
 import csp_solver as cs  # noqa: E402
+import menu_affinity as ma  # noqa: E402
 import menu_taxonomy as mt  # noqa: E402
 import soft_constraints_diversity as scd  # noqa: E402
 from load_nutrition_from_recipe_db import get_engine  # noqa: E402
@@ -70,7 +71,8 @@ def load_nutrients(menu_ids: list[int]) -> dict:
 
 def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
                   sodium_max: float | None = None, sodium_by_idx: dict | None = None,
-                  main_by_idx: dict | None = None):
+                  main_by_idx: dict | None = None,
+                  affinity_table: list | None = None):
     """프로파일 1건을 풀이한다.
 
     Args:
@@ -79,6 +81,7 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
             H-2e 는 값이 없는 메뉴를 배제하므로 주입 없이 켜면 전 메뉴가 배제된다.
         main_by_idx: {메뉴인덱스: 대표 주재료명}. 주재료 중복 회피 항(B6 Phase 1)이
             읽는다. None이면 항 비활성.
+        affinity_table: 어울림 근거표(B6 Phase 2). None이면 항 비활성.
 
     Returns:
         (MealPlanResult, HardConstraintConfig).
@@ -94,7 +97,7 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
         menus, cs.MealPlanRequest(
             days=days, meals=MEAL_NAMES, hard=cfg, solver_time_limit=time_limit,
             hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_max else None),
-            main_by_idx=main_by_idx))
+            main_by_idx=main_by_idx, affinity_table=affinity_table))
     return res, cfg
 
 
@@ -217,6 +220,45 @@ def _order_check(res, by_name) -> tuple:
             not bad)
 
 
+def _affinity_check(res, by_name):
+    """어울림(같은 조리법 중복) 독립 검증 — 편성 결과를 다시 세어 본다.
+
+    ⚠ 감점 대상은 **근거가 충분한 조리법**뿐이다(관측 30건 미만 축은 계수 없음).
+    그래서 "감점 축 위반"과 "그 외 축 중복"을 나눠 보고한다. 하나로 합치면
+    근거 없는 축의 중복까지 시스템이 막은 것처럼 읽힌다.
+    """
+    ab = res.affinity_breakdown or {}
+    penalized = set(ab.get("penalized_methods") or ())
+    items = list(by_name.values())
+    methods = scd.classify_cooking_methods(items)
+    method_of = {m.name: methods.get(i) for i, m in enumerate(items)
+                 if m.category in ma.SIDE_CATEGORIES}
+    scored, other = 0, 0
+    for _day, _meal, names in _meal_dishes(res, by_name):
+        seen = defaultdict(int)
+        for name in names:
+            g = method_of.get(name)
+            if g:
+                seen[g] += 1
+        for g, c in seen.items():
+            if c >= 2:
+                if g in penalized:
+                    scored += 1
+                else:
+                    other += 1
+    note = f"감점 축({len(penalized)}종) 위반 {scored}건"
+    if other:
+        note += f" · 근거 부족 축 중복 {other}건(감점 대상 아님)"
+    return ("메뉴 어울림 (한 끼 같은 조리법 중복)", note, scored == 0)
+
+
+def _meal_dishes(res, by_name):
+    """(일, 끼니, 메뉴명 목록) 을 돌려준다."""
+    for day, meals in res.plan.items():
+        for meal, picks in meals.items():
+            yield day, meal, picks
+
+
 def render_verification(res, cfg, by_name) -> str:
     """Hard 제약 준수·중복 검증 요약."""
     hb = res.hard_breakdown
@@ -234,6 +276,8 @@ def render_verification(res, cfg, by_name) -> str:
         _composition_check(res, by_name),
         _order_check(res, by_name),
     ]
+    if res.affinity_breakdown:
+        items.append(_affinity_check(res, by_name))
     na = (hb.get("nutrient_max") or {}).get("sodium")
     if na:
         items.append((f"나트륨 1일 상한 ({na['limit']:,.0f}mg)",
@@ -326,15 +370,22 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 '김치'로 라벨된 출처가 있습니다) 쓰지 않고 메뉴명으로 통일해 판정했습니다. 판정은 메뉴명
 키워드 기반이라 <b>새로운 표기는 놓칠 수 있습니다</b> — 특히 <b>주찬/부찬 경계</b>는
 현장 관행에 따라 다를 수 있으니 어색한 배치를 짚어 주시면 사전을 보강하겠습니다.</p>
-<p><b>5. 메뉴 궁합은 "찌개·전골·탕은 밥과만" 한 가지 규칙만 적용했습니다.</b>
-국수 + 부대찌개 같은 조합을 막습니다. 그 외의 궁합(반찬끼리의 조합, 같은 조리법 중복,
-맛 계열 충돌 등)은 <b>아직 규칙이 없습니다</b> — 현장에서 쓰는 금기 조합을 알려 주시면
-규칙으로 추가하겠습니다.</p>
-<p><b>6. 김치는 주식 종류와 무관하게 1개씩 붙습니다.</b> 끼니 구성은
-<b>주식1·국1·주찬1·부찬 2~3개·김치1</b>입니다. 현재 궁합 규칙이 "찌개·전골·탕은 밥과만"
-한 가지뿐이라(위 한계 5번), <b>빵·면 주식 끼니에도 김치가 편성됩니다</b>(예: 클럽 샌드위치 +
-배물김치). 이는 다음 단계에서 <b>메뉴 품목별 어울림 정도</b>를 도입할 때 함께 다룰 예정이며,
-어울리지 않는 조합을 짚어 주시면 그 자료로 쓰겠습니다.</p>
+<p><b>5. 메뉴 궁합은 규칙 1건 + 조리법 중복 회피까지입니다.</b>
+"찌개·전골·탕은 밥과만"은 그대로 금지(국수 + 부대찌개 차단)이고, 이번 판에 <b>한 끼니 안
+같은 조리법이 겹치는 것</b>을 피하는 항을 더했습니다(예: 한 끼에 나물·무침 3접시).
+점수는 저희가 정한 것이 아니라 <b>실제 학교 급식 15,250끼니</b>(전국 36개교 3년치, NEIS
+공개자료)에서 무엇이 실제로 함께 나오는지를 센 값입니다 — 조림·무침·찜·구이·튀김·볶음
+6가지에 근거가 충분했고, <b>끓이기·부침은 관측이 적어 제외</b>했습니다(그래서 이 두 가지의
+중복은 아직 막지 않습니다). 켜기 전에는 7일 식단에서 <b>같은 조리법 중복이 14~18끼니</b>
+발생했고, 켠 뒤에는 0건입니다. 다만 <b>맛 계열 충돌</b>(단 것끼리·매운 것끼리)은 자료에서
+가려낼 수 없어 <b>여전히 규칙이 없습니다</b> — 현장에서 쓰는 금기 조합을 알려 주시면
+그대로 규칙에 넣겠습니다.</p>
+<p><b>6. 김치는 주식 종류와 무관하게 1개씩 붙습니다(변경하지 않았습니다).</b> 끼니 구성은
+<b>주식1·국1·주찬1·부찬 2~3개·김치1</b>이라, <b>빵·면 주식 끼니에도 김치가 편성됩니다</b>
+(예: 클럽 샌드위치 + 배물김치). 실제 급식 자료에서는 김치 편성이 <b>밥 91.8% · 죽 99.0% ·
+면 71.5% · 빵 47.5%</b>로 주식 종류에 따라 달랐습니다. 즉 자료대로라면 빵·면 끼니의 김치는
+<b>선택</b>에 가깝습니다. 그럼에도 <b>영양사님이 확정하신 "김치 1개" 사양을 자료만 보고
+바꾸지 않았습니다</b> — 이 판단은 검수에서 확정해 주십시오.</p>
 <p><b>7. 1인분 기준입니다.</b> 대량 조리 환산은 별도 모듈이며, 현재 초기 추정은 선형(인원수 비례)
 입니다(ADR-008). 이는 "예측"이 아니라 영양사 보정을 누적하기 위한 출발점입니다.</p>
 </div>
@@ -344,13 +395,15 @@ def build_html(sections: list, days: int, n_menus: int) -> str:
 <p>아래 세 가지를 중심으로 보아 주시면 가장 도움이 됩니다.</p>
 <ol>
 <li><b>끼니 조합이 현장에서 성립하는가</b> — 아침에 부적절한 메뉴, 국물 없는 끼니, 조리 동선이
-겹치는 조합(예: 한 끼에 튀김 2종) 등. <b>어울리지 않는 메뉴 쌍</b>을 짚어 주시면 궁합 규칙으로
-추가하겠습니다(위 한계 5번)</li>
+겹치는 조합 등. 같은 조리법 중복은 이번 판에서 막았으므로(위 한계 5번), 이제 <b>맛 계열이
+겹치는 조합</b>과 <b>어울리지 않는 메뉴 쌍</b>을 짚어 주시면 그대로 규칙에 넣겠습니다</li>
 <li><b>메뉴 분류 오류</b> — 위 한계 4번. 특히 (a) 주식으로 인정한 206종과 주식에서 빼서
 국·반찬 계열로 옮긴 81종, (b) <b>주찬(258)과 부찬(326)의 경계</b>가 현장 감각과 맞는지.
 "이건 주찬이 아니라 부찬" 같은 지적이 가장 도움이 됩니다</li>
-<li><b>끼니 구성이 맞는가</b> — 주식1·국1·주찬1·부찬2~3·김치1로 편성했습니다.
-특히 빵·면 주식 끼니에 김치를 붙이는 것이 맞는지(위 한계 6번)</li>
+<li><b>빵·면 끼니의 김치를 어떻게 할지</b> — 위 한계 6번. 실제 급식에서는 빵 끼니의
+47.5%·면 끼니의 71.5%에만 김치가 나옵니다. (a) 지금처럼 <b>모든 끼니 김치 1개</b>를 유지할지,
+(b) <b>밥·죽만 필수, 빵·면은 선택</b>으로 바꿀지 결정해 주십시오. 자료는 (b)를 가리키지만
+확정 사양이라 임의로 바꾸지 않았습니다</li>
 <li><b>열량 배분(30·40·30)이 현실적인가</b> — 실제 급식 운영과 어긋나면 비율을 조정하겠습니다</li>
 <li><b>나트륨 상한 수치가 적절한가</b> — 위 한계 3번. 일반식 2,000mg·노인 1,500mg으로
 두었습니다. 상한을 낮출수록 저염 메뉴 위주로 편성되므로, <b>맛·간이 급식으로 성립하는
@@ -398,8 +451,10 @@ def main() -> int:
     sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
     # 주재료 축(B6 Phase 1) — 얻은 메뉴만 중복 회피 대상, 나머지는 중립.
     main_by_idx = scd.load_main_ingredients(get_engine(), menus)
+    # 어울림 근거표(B6 Phase 2) — 없으면 빈 목록이라 항이 자동 비활성.
+    affinity_table = ma.load_affinity_table()
     print(f"[후보] {len(menus)}종 · 나트륨 적재 {len(sodium_by_idx)}종"
-          f" · 주재료 확보 {len(main_by_idx)}종")
+          f" · 주재료 확보 {len(main_by_idx)}종 · 어울림 근거 {len(affinity_table)}행")
 
     sections = []
     for label in [p.strip() for p in args.profiles.split(",") if p.strip()]:
@@ -410,7 +465,8 @@ def main() -> int:
         na_max = None if args.no_sodium_limit else prof.get("sodium")
         res, cfg = solve_profile(menus, prof["kcal"], args.days, args.time_limit,
                                  sodium_max=na_max, sodium_by_idx=sodium_by_idx,
-                                 main_by_idx=main_by_idx)
+                                 main_by_idx=main_by_idx,
+                                 affinity_table=affinity_table)
         print(f"  [{label}] {res.status} {res.wall_time:.1f}초"
               f"{f' · Na≤{na_max:,.0f}mg' if na_max else ''}")
         if not res.plan:

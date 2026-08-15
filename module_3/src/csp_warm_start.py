@@ -41,10 +41,12 @@ from ortools.sat.python import cp_model
 
 try:
     from . import csp_hard_constraints as hc
+    from . import menu_affinity as ma
     from . import soft_constraints as sc
     from . import soft_constraints_diversity as scd
 except ImportError:  # 스크립트 직접 실행 지원 — csp_solver 와 동일 규약
     import csp_hard_constraints as hc
+    import menu_affinity as ma
     import soft_constraints as sc
     import soft_constraints_diversity as scd
 
@@ -88,12 +90,16 @@ def _sample_pool(by_cat: dict, total: int, *, seed: int, size: int, exclude: set
 
 def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
                    n_meals, time_limit, seed, food_types, commercial,
-                   main_by_idx=None, main_budget=None):
+                   main_by_idx=None, main_budget=None,
+                   affinity_table=None, affinity_weights=None):
     """하루(n_meals 끼)치 부분 문제를 푼다. 실패하면 None.
 
     main_budget: {주재료: 남은 허용 횟수}. 주면 하루 안에서 그 예산을 넘지 않게 막는다.
         하루에 부찬만 최대 9접시라 **배제만으로는 부족하다** — 첫날 하루가 지평 cap 을
         통째로 써 버릴 수 있다(cap 3 인데 9회 사용을 실측).
+    affinity_table: 어울림 근거표(B6 Phase 2). 어울림 항은 **끼니 국소**라 하루 목적에
+        그대로 넣을 수 있다 — 근사가 아니라 전체 목적의 해당 부분과 동일하다.
+        주재료 cap(지평 규칙)과 달리 원장이 필요 없는 이유가 여기에 있다.
     """
     model = cp_model.CpModel()
     meals = range(n_meals)
@@ -124,8 +130,15 @@ def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
         obj += [sign * y[m, s] for m in pool
                 if food_type in food_types.get(m, ()) for s in meals]
     obj += [-_COMMERCIAL_PENALTY * y[m, s] for m in pool if m in commercial for s in meals]
-    if obj:
-        model.Maximize(sum(obj))
+    aff_score = None
+    if affinity_table:
+        aff = ma.add_affinity_soft_objective(
+            model, x1, sub, days=1, n_meals=n_meals,
+            table=affinity_table, weights=affinity_weights)
+        if any(aff.active_terms.values()):
+            aff_score = aff.score
+    if obj or aff_score is not None:
+        model.Maximize(sum(obj) + (aff_score if aff_score is not None else 0))
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
     solver.parameters.random_seed = seed
@@ -146,6 +159,8 @@ def _remap_nutrients(nutrient_by_idx: dict | None, remap: dict) -> dict | None:
 def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dict,
                        config, nutrient_by_idx: dict | None = None,
                        main_by_idx: dict | None = None, main_cap: int | None = None,
+                       affinity_table: list | None = None,
+                       affinity_weights=None,
                        pool_size: int = DEFAULT_POOL_SIZE,
                        per_day_time: float = DEFAULT_PER_DAY_TIME,
                        time_budget: float | None = None) -> dict:
@@ -159,6 +174,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
         nutrient_by_idx: {영양소명: {메뉴인덱스: 양}} (H-2d·H-2e 용).
         main_by_idx: {메뉴인덱스: 대표 주재료명} — 주재료 원장용(B6 Phase 1).
         main_cap: 지평 전체에서 같은 주재료를 허용하는 횟수. 둘 다 주면 원장을 켠다.
+        affinity_table/affinity_weights: 어울림 근거표·가중치(B6 Phase 2). 전체 모델과
+            **같은 것**을 넘길 것 — 힌트가 모르는 항이 있으면 감점 0에 못 닿는다.
         pool_size: 하루 부분 문제 후보 표본 크기.
         per_day_time: 하루 부분 문제 1건의 시간 상한(초).
         time_budget: 힌트 구성 전체 시간 상한(초). 넘으면 만든 데까지 부분 힌트 반환.
@@ -197,7 +214,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
                       composition=composition, n_meals=n_meals,
                       time_limit=per_day_time, seed=day,
                       food_types=food_types, commercial=commercial,
-                      main_by_idx=main_by_idx, main_budget=budget)
+                      main_by_idx=main_by_idx, main_budget=budget,
+                      affinity_table=affinity_table, affinity_weights=affinity_weights)
         picks = _solve_one_day(
             menus, _sample_pool(by_cat, len(menus), seed=day, size=pool_size,
                                 exclude=recent), **kwargs)
