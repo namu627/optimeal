@@ -64,6 +64,9 @@ class AffinityRow:
     score: int
     n_both: int
     confidence: str          # 'ok' | 'low' (관측 30건 미만)
+    # 관측/기대 비. 점수는 log(lift)×100 이라 사람에게 보일 때는 lift 가 읽기 쉽다
+    # (검수 폼이 "실제로 같이 나오는 정도"로 쓴다). 1보다 작으면 피하는 경향.
+    lift: float = 0.0
 
 
 def load_affinity_table(path: str | Path | None = None) -> list[AffinityRow]:
@@ -87,6 +90,7 @@ def load_affinity_table(path: str | Path | None = None) -> list[AffinityRow]:
                     axis=r["axis"], value_a=r["value_a"], value_b=r["value_b"],
                     score=int(float(r["score"])), n_both=int(float(r["n_both"])),
                     confidence=r.get("confidence", "ok"),
+                    lift=float(r.get("lift") or 0.0),
                 ))
     except (OSError, KeyError, ValueError):
         return []
