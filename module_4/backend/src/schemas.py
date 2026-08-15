@@ -140,10 +140,45 @@ class ScalingResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 식단 생성 (모듈 3 위임)
 # ---------------------------------------------------------------------------
+class UserProfileOut(BaseModel):
+    """급식 대상 프로파일 1종 (GET /api/menu/profiles).
+
+    수치는 전부 공인 기준에서 온다 — 2025 한국인 영양소 섭취기준(보건복지부·한국영양학회)
+    + 학교급식법 시행규칙 [별표3]. `source`가 '파생'이면 남녀 1:1 평균이므로 실제 성비로
+    조정해야 한다. 프론트는 이 목록을 드롭다운으로 쓰고 `source`·`note`를 함께 보여줄 것.
+    """
+    profile_key: str
+    group_name: str
+    group_type: str
+    sex: str
+    age_band: str
+    daily_kcal: float
+    protein_g: Optional[float] = None
+    sodium_cdrr_mg: Optional[float] = None
+    sodium_ai_mg: Optional[float] = None
+    legal_meal_kcal: Optional[float] = Field(
+        None, description="학교급식법 [별표3] 1식 에너지(학생만). 1식 편성 시 이 값이 우선")
+    default_meals: int
+    source: str
+    note: str = ""
+
+
 class MenuGenerateRequest(BaseModel):
     """식단 생성 요청(모듈 3 CSP로 위임)."""
     days: int = Field(7, ge=1, le=31)
     month: Optional[int] = Field(None, ge=1, le=12, description="제철 기준 월")
+    profile_key: Optional[str] = Field(
+        None,
+        description="급식 대상 프로파일 key(GET /api/menu/profiles). 주면 열량·나트륨 "
+                    "목표를 이 프로파일과 끼니 수에서 산출해 target_kcal_per_day·"
+                    "sodium_max_mg_per_day를 **덮어쓴다**. 미지정 시 아래 값을 그대로 사용.",
+    )
+    meals: Optional[list[str]] = Field(
+        None, max_length=3,
+        description='끼니 이름 목록. 예: ["점심"](1식) / ["점심","저녁"](2식) / '
+                    '["아침","점심","저녁"](3식). 미지정 시 프로파일 기본값, 없으면 3식. '
+                    "⚠ 끼니를 줄이면 목표 열량도 함께 줄여야 한다(프로파일을 쓰면 자동).",
+    )
     target_kcal_per_day: float = Field(2000.0, gt=0)
     kcal_tolerance: float = Field(0.10, ge=0, le=0.5)
     budget_limit_per_person: Optional[float] = Field(3500.0, gt=0)
@@ -158,6 +193,18 @@ class MenuGenerateRequest(BaseModel):
                     "배식. 메뉴명 키워드 분류에 의존하므로 실제 음식명 DB에서만 켤 것.",
     )
     excluded_allergens: list[str] = Field(default_factory=list)
+    # ── 영양사 수동 지정(H-5) — 프론트 식단 편집 화면이 쓸 계약 ──────────────
+    #   메뉴명이 아니라 **menu_id** 로 받는다(동명 메뉴 오식별 B-5 회피).
+    exclude_menu_ids: list[int] = Field(
+        default_factory=list,
+        description="이 메뉴들을 지평 전체에서 배제한다(영양사가 뺀 메뉴).",
+    )
+    include_menu_ids: list[int] = Field(
+        default_factory=list,
+        description="이 메뉴들을 지평 안에 최소 1회 편성한다(영양사가 넣은 메뉴). "
+                    "날짜·끼니 지정은 아직 지원하지 않는다 — 열량 밴드·중복 창과 충돌해 "
+                    "INFEASIBLE 이 되기 쉬워서다. 같은 id 를 배제와 함께 주면 배제가 이긴다.",
+    )
     solver_time_limit: float = Field(30.0, gt=0, le=120)
     with_alternatives: bool = Field(
         False, description="알레르기 그룹별 대체식(공통식+대체식 트랙) 동반 산출"

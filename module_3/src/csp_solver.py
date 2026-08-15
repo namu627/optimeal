@@ -30,6 +30,7 @@ try:
     from . import menu_taxonomy as mt
     from . import soft_constraints as sc
     from . import soft_constraints_diversity as scd
+    from . import user_profiles as up
 except ImportError:  # `python csp_solver.py` 직접 실행 시
     import csp_hard_constraints as hc
     import csp_warm_start as ws
@@ -37,6 +38,7 @@ except ImportError:  # `python csp_solver.py` 직접 실행 시
     import menu_taxonomy as mt
     import soft_constraints as sc
     import soft_constraints_diversity as scd
+    import user_profiles as up
 # ===========================================================================
 # (1) 데이터 계층 — 메뉴 후보 공급 (실 DB)
 # ===========================================================================
@@ -417,24 +419,53 @@ def main():
                     help="주재료 중복 회피 항 비활성 — 효과·SLA 비교 측정용(B6 Phase 1)")
     ap.add_argument("--no-affinity", action="store_true",
                     help="메뉴 어울림 항 비활성 — 음성 대조·SLA 비교 측정용(B6 Phase 2)")
+    ap.add_argument("--profile", default=None,
+                    help="급식 대상 프로파일 key (예: middle_mix·senior_mix). "
+                         "--list-profiles 로 목록 확인. 주면 열량·나트륨 기준이 여기서 나온다")
+    ap.add_argument("--list-profiles", action="store_true",
+                    help="급식 대상 프로파일 목록을 출력하고 종료")
+    ap.add_argument("--meals", default=None,
+                    help="끼니 이름을 쉼표로 (예: '점심' / '점심,저녁' / '아침,점심,저녁'). "
+                         "미지정 시 프로파일 기본값, 프로파일도 없으면 3식")
     args = ap.parse_args()
+    profiles = up.load_profiles()
+    if args.list_profiles:
+        _print_profiles(profiles)
+        return
     menus = load_menus(month=args.month)
+    # 급식 대상 프로파일 + 끼니 수 → 열량·나트륨 목표.
+    #   프로파일을 주면 그 기준이 CLI 기본값(2000kcal·2000mg)을 **덮는다**.
+    #   끼니 수를 줄이면 목표도 그만큼 줄어야 한다 — 안 그러면 한 끼에 하루치가 몰린다.
+    profile = profiles.get(args.profile) if args.profile else None
+    if args.profile and profile is None:
+        raise SystemExit(f"[오류] 알 수 없는 프로파일 '{args.profile}'. "
+                         f"--list-profiles 로 확인하세요.")
+    meals = _resolve_meals(args.meals, profile)
+    tg = up.targets_for(profile, meals) if profile else {}
+    kcal = tg.get("target_kcal_per_day", 2000.0)
+    sodium_max = tg.get("sodium_max_mg_per_day") if profile else args.sodium_max
+    if not profile and args.sodium_max:
+        sodium_max = args.sodium_max
     # CLI(운영 경로)는 Hard 제약을 켠다(③칼로리·④예산). ②알레르기는 대체식에서 주입.
     # H-2e 나트륨 상한은 값이 실제로 주입되는 이 경로에서만 켠다(결측=배제 정책 때문).
     nutrient_max, nutrient_by_idx = {}, None
-    if args.sodium_max and args.sodium_max > 0:
+    if sodium_max and sodium_max > 0:
         sodium_by_idx, _ = scd.load_nutrition_fields(get_engine(), menus)
-        nutrient_max = {"sodium": args.sodium_max}
+        nutrient_max = {"sodium": sodium_max}
         nutrient_by_idx = {"sodium": sodium_by_idx}
     # 주재료 축(B6 Phase 1) — DB 에 있는 메뉴만 채워지고 나머지는 중립.
     main_by_idx = None if args.no_main_axis else scd.load_main_ingredients(get_engine(), menus)
     # 어울림 근거표(B6 Phase 2) — 파일이 없으면 빈 목록이라 항이 자동 비활성.
     affinity_table = None if args.no_affinity else ma.load_affinity_table()
     # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
-    req = MealPlanRequest(days=args.days,
-                          hard=hc.HardConstraintConfig(nutrient_max_per_day=nutrient_max,
-                                                       enable_staple_main=True,
-                                                       enable_menu_pairing=True),
+    cfg = hc.HardConstraintConfig(target_kcal_per_day=kcal,
+                                  nutrient_max_per_day=nutrient_max,
+                                  enable_staple_main=True,
+                                  enable_menu_pairing=True)
+    if tg.get("meal_energy_ratios"):
+        cfg.meal_energy_ratios = tg["meal_energy_ratios"]
+    req = MealPlanRequest(days=args.days, meals=meals,
+                          hard=cfg,
                           hard_nutrient_by_idx=nutrient_by_idx,
                           solver_time_limit=args.time_limit,
                           warm_start=not args.no_warm_start,
@@ -443,6 +474,38 @@ def main():
     print(f"[메뉴 후보 {len(menus)}종"
           f" / 주재료 확보 {len(main_by_idx or {})}종"
           f" / 어울림 근거 {len(affinity_table or [])}행]")
+    if profile:
+        print(f"[대상] {profile.group_name} · {len(meals)}식({','.join(meals)})"
+              f" → {kcal:,.0f}kcal"
+              f"{f' · Na≤{sodium_max:,.0f}mg' if sodium_max else ''}")
+        print(f"[근거] {tg['basis']} · 출처 {profile.source}")
     print_result(build_and_solve(menus, req), req)
+
+
+def _resolve_meals(arg: str | None, profile) -> tuple:
+    """--meals 인자 > 프로파일 기본 끼니 수 > 3식 순으로 끼니 이름을 정한다.
+
+    끼니 수만 아는 경우(프로파일 default_meals)는 **어느 끼니인지**를 정해야 배분 비율이
+    나온다 — 1식은 점심, 2식은 점심·저녁으로 본다(급식 현장 관행).
+    """
+    if arg:
+        names = tuple(m.strip() for m in arg.split(",") if m.strip())
+        if names:
+            return names
+    n = getattr(profile, "default_meals", 3) if profile else 3
+    return {1: ("점심",), 2: ("점심", "저녁")}.get(n, up.DEFAULT_MEALS)
+
+
+def _print_profiles(profiles: dict) -> None:
+    """급식 대상 프로파일 목록(영양사가 자기 업장을 고르는 표)."""
+    if not profiles:
+        print("프로파일 표를 찾지 못했습니다 — data/processed/user_group_profiles.csv 확인")
+        return
+    print(f"{'key':22s} {'대상':26s} {'1일kcal':>8s} {'단백질g':>7s} "
+          f"{'Na상한mg':>9s} {'기본끼니':>6s}  출처")
+    for p in profiles.values():
+        print(f"{p.profile_key:22s} {p.group_name:26s} {p.daily_kcal:8,.0f} "
+              f"{(p.protein_g or 0):7.1f} {(p.sodium_cdrr_mg or 0):9,.0f} "
+              f"{p.default_meals:6d}  {p.source}")
 if __name__ == "__main__":
     main()

@@ -112,6 +112,58 @@ def _load_main_ingredients(menus) -> dict | None:
         return None
 
 
+def _load_profiles() -> dict:
+    """급식 대상 프로파일 표를 읽는다(B: 열량·나트륨 기준의 출처).
+
+    실패하면 빈 dict — 프로파일 없이도 payload 의 target_kcal_per_day 로 동작해야 한다.
+
+    ⚠ 모듈 3 경로를 **여기서도** 붙인다. `_load_module3()` 을 거치지 않는 호출부
+    (GET /profiles)가 있어, 그것만 믿으면 프로파일이 조용히 비어 503 이 난다.
+    """
+    try:
+        path = config.module3_src_path()
+        if path is not None and str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+        import user_profiles as up
+
+        return up.load_profiles()
+    except Exception:
+        return {}
+
+
+def _resolve_targets(payload):
+    """프로파일 + 끼니 수 → (끼니 이름들, 목표 kcal, 나트륨 상한, 끼니 비율, 근거).
+
+    프로파일을 주면 payload 의 target_kcal_per_day·sodium_max_mg_per_day 를 **덮는다**.
+    끼니를 줄이면 목표도 함께 줄어야 하기 때문이다 — 안 그러면 한 끼에 하루치가 몰린다.
+    """
+    profiles = _load_profiles()
+    profile = profiles.get(payload.profile_key) if payload.profile_key else None
+    if payload.profile_key and profile is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "unknown_profile_key",
+                    "message": f"알 수 없는 프로파일: {payload.profile_key}",
+                    "available": sorted(profiles)},
+        )
+    if payload.meals:
+        meals = tuple(payload.meals)
+    elif profile is not None:
+        meals = {1: ("점심",), 2: ("점심", "저녁")}.get(
+            profile.default_meals, ("아침", "점심", "저녁"))
+    else:
+        meals = ("아침", "점심", "저녁")
+    if profile is None:
+        return meals, payload.target_kcal_per_day, payload.sodium_max_mg_per_day, None, None
+    import user_profiles as up
+
+    tg = up.targets_for(profile, meals)
+    return (meals, tg["target_kcal_per_day"], tg["sodium_max_mg_per_day"],
+            tg["meal_energy_ratios"], {"profile": profile.group_name,
+                                       "basis": tg["basis"], "source": profile.source,
+                                       "note": profile.note})
+
+
 def _load_affinity_table() -> list | None:
     """메뉴 어울림 근거표를 읽는다(B6 Phase 2). 실패하면 None(항 비활성).
 
@@ -162,6 +214,29 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     return [_to_jsonable(a) for a in alts]
 
 
+@router.get("/profiles", response_model=list[schemas.UserProfileOut],
+            summary="급식 대상 프로파일 목록 (열량·나트륨 기준)")
+def list_profiles():
+    """영양사가 자기 업장의 급식 대상을 고르는 목록.
+
+    수치 출처는 **2025 한국인 영양소 섭취기준**(보건복지부·한국영양학회, 2025.12)과
+    **학교급식법 시행규칙 [별표3]**이다. `source`가 '파생'인 행(혼성)은 남녀 1:1 평균이므로
+    실제 성비로 조정해야 하며, 프론트는 `source`·`note`를 값과 함께 표시할 것.
+
+    ⚠ '환자' 프로파일은 **일반식**이다. 치료식(당뇨·신장 등)은 의료진·병원 영양팀이
+    정할 사항이라 본 시스템은 기준값을 제공하지 않는다.
+    """
+    profiles = _load_profiles()
+    if not profiles:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "profile_table_unavailable",
+                    "message": "급식 대상 프로파일 표를 읽지 못했습니다.",
+                    "hint": "data/processed/user_group_profiles.csv 존재 여부 확인"},
+        )
+    return [schemas.UserProfileOut(**vars(p)) for p in profiles.values()]
+
+
 @router.post("/generate", summary="식단 자동 생성 (모듈 3 CSP 위임)")
 def generate(payload: schemas.MenuGenerateRequest) -> dict:
     """CSP Solver로 식단을 생성한다(옵션: 알레르기 그룹별 대체식 동반).
@@ -177,20 +252,25 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     """
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
+    meals, kcal, sodium_max, ratios, basis = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
-    sodium_by_idx = _load_sodium(menus) if payload.sodium_max_mg_per_day else None
+    sodium_by_idx = _load_sodium(menus) if sodium_max else None
     cfg = hc.HardConstraintConfig(
-        target_kcal_per_day=payload.target_kcal_per_day,
+        target_kcal_per_day=kcal,
         kcal_tolerance=payload.kcal_tolerance,
         budget_limit_per_person=payload.budget_limit_per_person,
         excluded_allergens=set(payload.excluded_allergens),
-        nutrient_max_per_day=({"sodium": payload.sodium_max_mg_per_day}
-                              if sodium_by_idx else {}),
+        nutrient_max_per_day=({"sodium": sodium_max} if sodium_by_idx else {}),
         enable_staple_main=payload.enforce_menu_structure,
         enable_menu_pairing=payload.enforce_menu_structure,
+        exclude_menu_ids=set(payload.exclude_menu_ids),
+        include_menu_ids=set(payload.include_menu_ids),
     )
+    if ratios:
+        cfg.meal_energy_ratios = ratios
     req = cs.MealPlanRequest(
-        days=payload.days, hard=cfg, solver_time_limit=payload.solver_time_limit,
+        days=payload.days, meals=meals, hard=cfg,
+        solver_time_limit=payload.solver_time_limit,
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
@@ -199,6 +279,13 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
+        # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
+        "applied_targets": {
+            "meals": list(meals),
+            "target_kcal_per_day": kcal,
+            "sodium_max_mg_per_day": sodium_max,
+            "profile": basis,
+        },
         "plan": _to_jsonable(res.plan),
         "daily_kcal": _to_jsonable(res.daily_kcal),
         "total_cost_won": res.total_cost,

@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import csp_hard_constraints as hc  # noqa: E402
 import csp_solver as cs  # noqa: E402
 import menu_affinity as ma  # noqa: E402
+import user_profiles as up  # noqa: E402
 import menu_taxonomy as mt  # noqa: E402
 import soft_constraints_diversity as scd  # noqa: E402
 from load_nutrition_from_recipe_db import get_engine  # noqa: E402
@@ -47,12 +48,11 @@ from load_nutrition_from_recipe_db import get_engine  # noqa: E402
 #     · 2,000mg = WHO 성인 1일 권고 상한. 일반식 프로파일에 적용.
 #     · 노인은 저염 대상이므로 1,500mg 로 강화. 실측상 달성 가능함을 확인하고 채택했으나,
 #       연령·기저질환별 정확한 기준치는 영양사 검수에서 확정한다.
-PROFILES = {
-    "성인": {"kcal": 2000.0, "sodium": 2000.0, "note": "일반 성인 기준 (권장 2,000kcal)"},
-    "학령기": {"kcal": 1800.0, "sodium": 2000.0, "note": "초·중학생 기준 (권장 1,800kcal)"},
-    "노인": {"kcal": 1700.0, "sodium": 1500.0,
-             "note": "노인복지 기준 (권장 1,700kcal) · 저염 대상 → 나트륨 상한 강화"},
-}
+# 검수 자료에 실을 기본 프로파일(급식 대상). key 는 user_group_profiles.csv 의 profile_key.
+#   ⚠ 2026-08-15 이전 판은 여기에 프로젝트가 임의로 정한 수치(성인 2,000 / 학령기 1,800 /
+#     노인 1,700kcal)를 박아 두었다. 근거가 없어 검수 확정 대상으로 표기해 왔는데,
+#     이제 공인 기준(2025 한국인 영양소 섭취기준 + 학교급식법 [별표3])에서 가져온다.
+DEFAULT_PROFILE_KEYS = "middle_mix,office_mix,senior_mix"
 MEAL_NAMES = ("아침", "점심", "저녁")
 
 
@@ -72,7 +72,9 @@ def load_nutrients(menu_ids: list[int]) -> dict:
 def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
                   sodium_max: float | None = None, sodium_by_idx: dict | None = None,
                   main_by_idx: dict | None = None,
-                  affinity_table: list | None = None):
+                  affinity_table: list | None = None,
+                  meals: tuple = MEAL_NAMES,
+                  meal_ratios: tuple | None = None):
     """프로파일 1건을 풀이한다.
 
     Args:
@@ -93,9 +95,11 @@ def solve_profile(menus: list, kcal: float, days: int, time_limit: float,
         enable_staple_main=True,        # H-4b 주식 슬롯은 밥·면·죽·빵만
         enable_menu_pairing=True,       # H-4c 찌개·전골·탕은 밥류와만
     )
+    if meal_ratios:
+        cfg.meal_energy_ratios = meal_ratios
     res = cs.build_and_solve(
         menus, cs.MealPlanRequest(
-            days=days, meals=MEAL_NAMES, hard=cfg, solver_time_limit=time_limit,
+            days=days, meals=meals, hard=cfg, solver_time_limit=time_limit,
             hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_max else None),
             main_by_idx=main_by_idx, affinity_table=affinity_table))
     return res, cfg
@@ -119,16 +123,23 @@ def esc(s) -> str:
     return html.escape(str(s))
 
 
-def render_plan_table(res, by_name, cfg) -> str:
-    """일자 × 끼니 식단표 HTML."""
+def render_plan_table(res, by_name, cfg, meals_names=MEAL_NAMES) -> str:
+    """일자 × 끼니 식단표 HTML.
+
+    끼니 이름은 **실제 편성한 것**을 받는다(1식·2식 지원). 상수 MEAL_NAMES 를 그대로 쓰면
+    점심만 편성한 식단표에 빈 아침·저녁 칸이 생긴다.
+    """
     meal_ok = {(i["day"], i["meal_index"]): i for i in res.hard_breakdown["meal_kcal"]}
+    ratios = cfg.meal_energy_ratios
+    if len(ratios) != len(meals_names):      # 끼니 배분 제약이 꺼진 경우(1식 등)
+        ratios = tuple(1.0 / len(meals_names) for _ in meals_names)
     out = ['<table><thead><tr><th>일자</th>']
     out += [f"<th>{esc(n)}<br><small>목표 {cfg.target_kcal_per_day * r:.0f}kcal</small></th>"
-            for n, r in zip(MEAL_NAMES, cfg.meal_energy_ratios)]
+            for n, r in zip(meals_names, ratios)]
     out.append("<th>일 합계</th></tr></thead><tbody>")
     for day, meals in res.plan.items():
         out.append(f"<tr><td class='day'>{day}일</td>")
-        for si, mname in enumerate(MEAL_NAMES):
+        for si, mname in enumerate(meals_names):
             dishes = []
             for name in meals.get(mname, []):
                 m = by_name.get(name)
@@ -435,7 +446,11 @@ def main() -> int:
     """생성 진입점."""
     ap = argparse.ArgumentParser(description="영양사 검수용 예시 식단표 HTML 생성")
     ap.add_argument("--days", type=int, default=7)
-    ap.add_argument("--profiles", default="성인,학령기,노인")
+    ap.add_argument("--profiles", default=DEFAULT_PROFILE_KEYS,
+                    help="급식 대상 profile_key 를 쉼표로. "
+                         "목록은 `python module_3/src/csp_solver.py --list-profiles`")
+    ap.add_argument("--meals", default=None,
+                    help="끼니 이름을 쉼표로 (예: '점심'). 미지정 시 프로파일 기본값")
     ap.add_argument("--time-limit", type=float, default=90.0)
     ap.add_argument("--no-sodium-limit", action="store_true",
                     help="나트륨 상한(H-2e)을 끄고 생성 — 상한 적용 전후 비교용")
@@ -456,29 +471,40 @@ def main() -> int:
     print(f"[후보] {len(menus)}종 · 나트륨 적재 {len(sodium_by_idx)}종"
           f" · 주재료 확보 {len(main_by_idx)}종 · 어울림 근거 {len(affinity_table)}행")
 
+    profiles = up.load_profiles()
     sections = []
-    for label in [p.strip() for p in args.profiles.split(",") if p.strip()]:
-        prof = PROFILES.get(label)
+    for key in [p.strip() for p in args.profiles.split(",") if p.strip()]:
+        prof = profiles.get(key)
         if prof is None:
-            print(f"  [skip] 미정의 프로파일: {label}")
+            print(f"  [skip] 미정의 프로파일: {key} (--list-profiles 로 확인)")
             continue
-        na_max = None if args.no_sodium_limit else prof.get("sodium")
-        res, cfg = solve_profile(menus, prof["kcal"], args.days, args.time_limit,
+        meals = (tuple(m.strip() for m in args.meals.split(",")) if args.meals
+                 else {1: ("점심",), 2: ("점심", "저녁")}.get(prof.default_meals, MEAL_NAMES))
+        tg = up.targets_for(prof, meals)
+        na_max = None if args.no_sodium_limit else tg["sodium_max_mg_per_day"]
+        res, cfg = solve_profile(menus, tg["target_kcal_per_day"], args.days,
+                                 args.time_limit,
                                  sodium_max=na_max, sodium_by_idx=sodium_by_idx,
                                  main_by_idx=main_by_idx,
-                                 affinity_table=affinity_table)
-        print(f"  [{label}] {res.status} {res.wall_time:.1f}초"
+                                 affinity_table=affinity_table,
+                                 meals=meals,
+                                 meal_ratios=tg["meal_energy_ratios"])
+        label = f"{prof.group_name} · {len(meals)}식"
+        print(f"  [{label}] {res.status} {res.wall_time:.1f}초 "
+              f"· {tg['target_kcal_per_day']:,.0f}kcal"
               f"{f' · Na≤{na_max:,.0f}mg' if na_max else ''}")
         if not res.plan:
             sections.append(f"<h2>{esc(label)}</h2><div class='box warn'>"
                             f"해를 찾지 못했습니다 (status={esc(res.status)}).</div>")
             continue
         sections.append(
-            f"<h2>{esc(label)} — {prof['kcal']:.0f}kcal/일"
+            f"<h2>{esc(label)} — {tg['target_kcal_per_day']:,.0f}kcal"
             f"{f' · 나트륨 ≤{na_max:,.0f}mg' if na_max else ''}</h2>"
-            f"<p><small>{esc(prof['note'])}</small></p>"
+            f"<p><small>대상 {esc(prof.age_band)} · {esc('/'.join(meals))} 편성 · "
+            f"근거 {esc(tg['basis'])} · 출처 {esc(prof.source)}"
+            f"{' · ' + esc(prof.note) if prof.note else ''}</small></p>"
             "<h3>자동 검증</h3>" + render_verification(res, cfg, by_name) +
-            "<h3>식단표</h3><div class='tblwrap'>" + render_plan_table(res, by_name, cfg) +
+            "<h3>식단표</h3><div class='tblwrap'>" + render_plan_table(res, by_name, cfg, meals) +
             "</div><h3>일별 영양소 합계</h3><div class='tblwrap'>" +
             render_nutrient_table(res, by_name, nutrients, na_max) + "</div>")
 

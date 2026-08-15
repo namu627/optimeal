@@ -116,6 +116,18 @@ class HardConstraintConfig:
     #   추가 변수 없이 선형 제약만 쓰므로 비용이 싸다(|M|×(days-w+1) 제약).
     menu_repeat_window_days: int = 3
 
+    # ── H-5 영양사 수동 지정 (2026-08-15) ──────────────────────────
+    #   영양사가 특정 메뉴를 손으로 넣거나 빼는 통로. 프론트(모듈4)의 식단 편집 화면이
+    #   쓸 자리이며, 여기서는 **솔버 계약만** 정의한다.
+    #   · exclude_menu_ids: 그 메뉴를 지평 전체에서 배제(0 고정).
+    #   · include_menu_ids: 그 메뉴를 지평 안에 **최소 1회** 편성.
+    #     ⚠ 끼니·날짜를 지정하는 형태가 아니다. (d,s) 고정은 메뉴 중복 창·열량 밴드와
+    #       충돌해 INFEASIBLE 을 만들기 쉬워, 우선 "반드시 한 번은 낸다"만 보장한다.
+    #   · 두 목록에 같은 id 가 들어오면 **배제가 이긴다**(안전한 쪽). 그 사실은
+    #     `conflicting_menu_ids` 로 보고해 사용자가 모르고 지나치지 않게 한다.
+    exclude_menu_ids: set = field(default_factory=set)
+    include_menu_ids: set = field(default_factory=set)
+
     # ── 식단가(예산 커트라인) ──────────────────────────────────────
     budget_limit_per_person: float | None = 3500.0  # None이면 예산 제약 미적용
     budget_period: str = "day"            # "day": 일별 상한 / "total": 기간 총액 상한
@@ -134,6 +146,11 @@ class HardConstraint:
     excluded_idx: set = field(default_factory=set)     # 편성 배제된 메뉴 인덱스(H-1a·H-3 합산, 리포팅용)
     # H-2e 상한 적용에 실제로 쓴 값 {영양소명: {메뉴인덱스: 양}} — 리포트가 제약과 같은 수를 보게 한다.
     nutrient_values: dict = field(default_factory=dict)
+    # H-5 영양사 수동 지정 결과(리포팅용). 요청한 id 가 후보에 아예 없을 수도 있으므로
+    # "요청분"과 "실제로 건 것"을 나눠 둔다 — 조용히 무시되면 영양사가 반영된 줄 안다.
+    forced_idx: set = field(default_factory=set)             # 필수 편성이 걸린 메뉴 인덱스
+    conflicting_menu_ids: set = field(default_factory=set)   # 추가·제거에 동시 지정된 id(배제 우선)
+    unknown_menu_ids: set = field(default_factory=set)       # 후보 목록에 없는 id
 
 
 # ===========================================================================
@@ -238,6 +255,30 @@ def add_hard_constraints(
                 excluded_idx.add(m)
                 ban(m)
     active["excluded_foods"] = bool(cfg.excluded_foods)
+
+    # =======================================================================
+    # H-5 영양사 수동 지정 — 특정 메뉴 배제 / 필수 편성
+    #   메뉴 id 기반이라 메뉴명 오식별(B-5)에 영향받지 않는다.
+    # =======================================================================
+    conflicting = set(cfg.exclude_menu_ids) & set(cfg.include_menu_ids)
+    if cfg.exclude_menu_ids:
+        for m in M:
+            if getattr(menus[m], "menu_id", None) in cfg.exclude_menu_ids:
+                excluded_idx.add(m)
+                ban(m)
+    forced_idx = set()
+    if cfg.include_menu_ids:
+        for m in M:
+            mid = getattr(menus[m], "menu_id", None)
+            if mid in cfg.include_menu_ids and mid not in conflicting:
+                forced_idx.add(m)
+                model.Add(sum(x[m, d, s] for d in D for s in S) >= 1)
+    active["manual_exclude"] = bool(cfg.exclude_menu_ids)
+    active["manual_include"] = bool(forced_idx)
+    # 후보에 없는 id 는 제약이 걸릴 데가 없다 → 조용히 사라지지 않게 모아서 보고한다.
+    known_ids = {getattr(menus[m], "menu_id", None) for m in M}
+    unknown_menu_ids = ((set(cfg.exclude_menu_ids) | set(cfg.include_menu_ids))
+                        - known_ids)
 
     # =======================================================================
     # H-1b 안전영역 — CCP2 메뉴 끼니당 상한
@@ -455,7 +496,10 @@ def add_hard_constraints(
 
     return HardConstraint(config=cfg, kcal_lo=kcal_lo, kcal_hi=kcal_hi,
                           active_terms=active, excluded_idx=excluded_idx,
-                          nutrient_values=nutrient_values)
+                          nutrient_values=nutrient_values,
+                          forced_idx=forced_idx,
+                          conflicting_menu_ids=conflicting,
+                          unknown_menu_ids=unknown_menu_ids)
 
 
 # ===========================================================================
@@ -509,6 +553,31 @@ def evaluate_hard_breakdown(
         "menu_repeat": _repeat_report(solver, x, menus, hard, days=days, n_meals=n_meals),
         "nutrient_max": _nutrient_max_report(solver, x, menus, hard, days=days, n_meals=n_meals),
         "pairing": _pairing_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "manual": _manual_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+    }
+
+
+def _manual_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-5 영양사 수동 지정의 실제 반영 결과.
+
+    "요청했는데 반영 안 됨"이 조용히 지나가지 않게, 후보에 없던 id(`unknown`)와
+    추가·제거 동시 지정(`conflicting`)을 함께 돌려준다.
+    """
+    cfg = hard.config
+    if not (cfg.exclude_menu_ids or cfg.include_menu_ids):
+        return {}
+    placed = {}
+    for m in hard.forced_idx:
+        placed[getattr(menus[m], "menu_id", None)] = sum(
+            int(solver.Value(x[m, d, s])) for d in range(days) for s in range(n_meals))
+    return {
+        "excluded_requested": sorted(cfg.exclude_menu_ids),
+        "included_requested": sorted(cfg.include_menu_ids),
+        "included_placed_counts": placed,
+        "conflicting_menu_ids": sorted(hard.conflicting_menu_ids),
+        "unknown_menu_ids": sorted(i for i in hard.unknown_menu_ids if i is not None),
+        "all_ok": (all(c >= 1 for c in placed.values())
+                   and not hard.conflicting_menu_ids and not hard.unknown_menu_ids),
     }
 
 
