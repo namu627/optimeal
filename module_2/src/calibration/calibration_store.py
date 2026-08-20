@@ -116,7 +116,11 @@ class CalibrationStore:
         Args:
             db_path: SQLite 경로. 기본 ':memory:'(PoC/테스트용).
         """
-        self.con = sqlite3.connect(str(db_path))
+        # check_same_thread=False: 요청당 커넥션이 FastAPI 스레드풀의 서로 다른 워커에서
+        # 생성·종료될 수 있어 필수. 미설정 시 동시 요청의 약 절반이
+        # sqlite3.ProgrammingError(교차 스레드)로 500 실패했다. 락 경합은 busy timeout으로 흡수.
+        # (API 통합테스트에서 발견·수정, 2026-08-18 남유찬)
+        self.con = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30.0)
         self.con.row_factory = sqlite3.Row
         self.con.executescript(_SCHEMA)
         self.con.commit()

@@ -17,10 +17,22 @@ OptiMeal 백엔드 진입점 (FastAPI, FR-12).
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .routers import calibration, menu, nutrition, scaling
+
+# [통합테스트 수정안] 프론트(React/Vite)가 브라우저에서 이 API를 호출하려면 CORS 필수.
+# 개발 기본값은 Vite(5173)·CRA(3000). 운영은 OPTIMEAL_CORS_ORIGINS(콤마구분)로 지정.
+_CORS_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "OPTIMEAL_CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173",
+    ).split(",") if o.strip()
+]
 
 DESCRIPTION = """
 **ADR-008 이후의 계약**: 본 API의 스케일링은 정확 예측기가 아니다.
@@ -39,6 +51,13 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description=DESCRIPTION,
         contact={"name": "권성민 (Back)"},
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     application.include_router(calibration.router)
     application.include_router(scaling.router)
