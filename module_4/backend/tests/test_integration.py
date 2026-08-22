@@ -339,6 +339,27 @@ def test_error_responses_are_structured_json(client):
         "/api/scaling/predict", json={"recipe_key": RECIPE_KEY, "n_target": 0}).json()
 
 
+def test_openapi_json_in_sync_with_app():
+    """[드리프트 가드] 커밋된 docs/api/openapi.json 이 앱의 실제 엔드포인트 표면과 일치하는지.
+    불일치(엔드포인트 추가/삭제/요약 변경인데 재생성 누락) 시 실패 →
+    `python scripts/gen_openapi.py` 재실행 필요. (버전 노이즈 회피 위해 표면만 비교)"""
+    import json as _json
+    from pathlib import Path
+    from module_4.backend.src.main import create_app
+    committed = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+    if not committed.exists():
+        pytest.skip("docs/api/openapi.json 없음 — scripts/gen_openapi.py 로 생성")
+
+    def surface(spec):
+        return sorted(f"{m.upper()} {p} :: {op.get('summary', '')}"
+                      for p, ops in spec["paths"].items() for m, op in ops.items())
+
+    saved = _json.loads(committed.read_text(encoding="utf-8"))
+    live = create_app().openapi()
+    assert surface(saved) == surface(live), \
+        "openapi.json 이 앱과 불일치 — `python scripts/gen_openapi.py` 재실행 필요"
+
+
 # ===========================================================================
 # [D] 실 DB · CSP 파이프라인 · Hard Constraint (인프라 필요 — 없으면 skip)
 # ===========================================================================

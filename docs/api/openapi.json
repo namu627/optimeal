@@ -2,12 +2,18 @@
   "openapi": "3.1.0",
   "info": {
     "title": "OptiMeal API",
-    "description": "\n**ADR-008 이후의 계약**: 본 API의 스케일링은 정확 예측기가 아니다.\n\n* cold-start 는 **선형(b=1)** — 실측 OOS에서 최선·무편향이었기 때문이다(과소예측 위험 없음).\n* 정확도는 영양사 보정을 `/api/calibration/observations` 로 **누적**하면서 개선된다.\n* CBR 참고 이력은 표시 전용이며 **자동 적용하지 않는다**(`auto_apply=false`).\n* 모든 스케일링 응답은 재료별 `method`·`n_obs`·`confidence` 를 동반한다(감사 가능성).\n\n\n---\n### 프론트엔드 개발자용 연동 안내\n- **Base URL(개발)**: `http://localhost:8000`\n- **CORS**: `localhost:5173`(Vite)·`localhost:3000`(CRA) 허용. 운영은 `OPTIMEAL_CORS_ORIGINS`로 지정.\n- **인증**: 현재 없음(학내 프로젝트). 영양사 식별은 요청의 `site_id`로 구분.\n- **선택적 의존성**: `/api/nutrition/*`·`/api/menu/*`는 PostgreSQL·모듈3 필요. 미구성 시 **503 + reason·hint** 반환(500 아님) → 프론트는 503을 \"인프라 준비중\"으로 처리.\n- **핵심 흐름**: ① 레시피 목록(`/api/scaling/recipes`) → ② 스케일링(`/api/scaling/predict`, site_id 주면 보정 반영) → ③ 영양사 보정 누적(`/api/calibration/observations`). 스케일링 응답의 재료별 `method`·`confidence`를 UI에 표시할 것(ADR-008 정직성).\n- **알려진 미구현**: 식단가(원가)·알레르기 배제는 데이터 적재 후 활성화 예정(`hard_breakdown`에 반영됨).\n",
+    "description": "\n**ADR-008 이후의 계약**: 본 API의 스케일링은 정확 예측기가 아니다.\n\n* cold-start 는 **선형(b=1)** — 실측 OOS에서 최선·무편향이었기 때문이다(과소예측 위험 없음).\n* 정확도는 영양사 보정을 `/api/calibration/observations` 로 **누적**하면서 개선된다.\n* CBR 참고 이력은 표시 전용이며 **자동 적용하지 않는다**(`auto_apply=false`).\n* 모든 스케일링 응답은 재료별 `method`·`n_obs`·`confidence` 를 동반한다(감사 가능성).\n\n---\n### 프론트엔드 개발자용 연동 안내\n* **Base URL(개발)**: `http://localhost:8000`\n* **CORS**: `localhost:5173`(Vite)·`localhost:3000`(CRA) 허용. 운영은 `OPTIMEAL_CORS_ORIGINS`(콤마 구분)로 지정.\n* **인증**: 현재 없음(학내 프로젝트). 영양사 식별은 요청의 `site_id`로 구분.\n* **선택적 의존성**: `/api/nutrition/*`·`/api/menu/*`는 PostgreSQL·모듈3 필요. 미구성 시 **503 + reason·hint** 반환(500 아님) → 프론트는 503을 \"인프라 준비중\"으로 처리.\n* **핵심 흐름**: ① 레시피 목록(`/api/scaling/recipes`) → ② 스케일링(`/api/scaling/predict`, `site_id`를 주면 보정 반영) → ③ 영양사 보정 누적(`/api/calibration/observations`). 스케일링 응답의 재료별 `method`·`confidence`를 UI에 표시할 것.\n* **알려진 미구현**: 식단가(원가)·알레르기 배제는 데이터(`recipe_ingredient_map`·`constraints`) 적재 후 활성화 예정.\n",
     "contact": {
       "name": "권성민 (Back)"
     },
     "version": "0.1.0"
   },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "개발 서버"
+    }
+  ],
   "paths": {
     "/api/calibration/sites": {
       "get": {
@@ -47,11 +53,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SiteIn"
-              },
-              "example": {
-                "site_id": 5,
-                "site_name": "○○중학교",
-                "site_type": "학교"
               }
             }
           },
@@ -96,15 +97,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ObservationIn"
-              },
-              "example": {
-                "site_id": 5,
-                "recipe_id": 31,
-                "ingredient_id": 37,
-                "n_target": 100,
-                "base_amount_g": 3.0,
-                "corrected_g": 180.0,
-                "cbr_shown": false
               }
             }
           },
@@ -505,13 +497,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ScalingRequest"
-              },
-              "example": {
-                "recipe_key": "A1034",
-                "n_target": 100,
-                "site_id": 5,
-                "include_cbr": true,
-                "cbr_top_k": 3
               }
             }
           },
@@ -769,24 +754,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MenuGenerateRequest"
-              },
-              "example": {
-                "days": 7,
-                "profile_key": "mid_mix",
-                "target_kcal_per_day": 2000,
-                "kcal_tolerance": 0.1,
-                "sodium_max_mg_per_day": 2000,
-                "budget_limit_per_person": 3500,
-                "with_alternatives": true,
-                "allergy_groups": [
-                  {
-                    "label": "우유알레르기",
-                    "allergens": [
-                      "우유"
-                    ],
-                    "count": 5
-                  }
-                ]
               }
             }
           },
@@ -1219,7 +1186,25 @@
         },
         "type": "object",
         "title": "MenuGenerateRequest",
-        "description": "식단 생성 요청(모듈 3 CSP로 위임)."
+        "description": "식단 생성 요청(모듈 3 CSP로 위임).",
+        "example": {
+          "allergy_groups": [
+            {
+              "allergens": [
+                "우유"
+              ],
+              "count": 5,
+              "label": "우유알레르기"
+            }
+          ],
+          "budget_limit_per_person": 3500,
+          "days": 7,
+          "kcal_tolerance": 0.1,
+          "profile_key": "mid_mix",
+          "sodium_max_mg_per_day": 2000,
+          "target_kcal_per_day": 2000,
+          "with_alternatives": true
+        }
       },
       "ObservationIn": {
         "properties": {
@@ -1285,7 +1270,16 @@
           "corrected_g"
         ],
         "title": "ObservationIn",
-        "description": "영양사 보정 1건(누적 대상). corrected_g가 '관측된 정답'이다."
+        "description": "영양사 보정 1건(누적 대상). corrected_g가 '관측된 정답'이다.",
+        "example": {
+          "base_amount_g": 3.0,
+          "cbr_shown": false,
+          "corrected_g": 180.0,
+          "ingredient_id": 37,
+          "n_target": 100,
+          "recipe_id": 31,
+          "site_id": 5
+        }
       },
       "ObservationOut": {
         "properties": {
@@ -1439,7 +1433,14 @@
           "n_target"
         ],
         "title": "ScalingRequest",
-        "description": "레시피 스케일링 요청."
+        "description": "레시피 스케일링 요청.",
+        "example": {
+          "cbr_top_k": 3,
+          "include_cbr": true,
+          "n_target": 100,
+          "recipe_key": "A1034",
+          "site_id": 5
+        }
       },
       "ScalingResponse": {
         "properties": {
@@ -1539,7 +1540,12 @@
           "site_id"
         ],
         "title": "SiteIn",
-        "description": "업장(조리현장) 등록 요청. user_group(급식 대상)과 별개 개념."
+        "description": "업장(조리현장) 등록 요청. user_group(급식 대상)과 별개 개념.",
+        "example": {
+          "site_id": 5,
+          "site_name": "○○중학교",
+          "site_type": "학교"
+        }
       },
       "UserProfileOut": {
         "properties": {
@@ -1663,6 +1669,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",
@@ -1674,11 +1687,5 @@
         "title": "ValidationError"
       }
     }
-  },
-  "servers": [
-    {
-      "url": "http://localhost:8000",
-      "description": "개발 서버"
-    }
-  ]
+  }
 }

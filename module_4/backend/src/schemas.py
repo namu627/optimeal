@@ -23,6 +23,8 @@ Confidence = Literal["cold_start", "low", "high"]
 # ---------------------------------------------------------------------------
 class SiteIn(BaseModel):
     """업장(조리현장) 등록 요청. user_group(급식 대상)과 별개 개념."""
+    model_config = {"json_schema_extra": {
+        "example": {"site_id": 5, "site_name": "○○중학교", "site_type": "학교"}}}
     site_id: int = Field(..., ge=1, description="업장 id")
     site_name: str = Field("", max_length=100)
     site_type: str = Field("", max_length=50, description="예: 학교/노인복지원/산업체")
@@ -30,6 +32,9 @@ class SiteIn(BaseModel):
 
 class ObservationIn(BaseModel):
     """영양사 보정 1건(누적 대상). corrected_g가 '관측된 정답'이다."""
+    model_config = {"json_schema_extra": {"example": {
+        "site_id": 5, "recipe_id": 31, "ingredient_id": 37, "n_target": 100,
+        "base_amount_g": 3.0, "corrected_g": 180.0, "cbr_shown": False}}}
     site_id: int = Field(..., ge=1)
     recipe_id: int = Field(..., ge=1)
     ingredient_id: int = Field(..., ge=1)
@@ -102,6 +107,9 @@ class CbrOut(BaseModel):
 # ---------------------------------------------------------------------------
 class ScalingRequest(BaseModel):
     """레시피 스케일링 요청."""
+    model_config = {"json_schema_extra": {"example": {
+        "recipe_key": "A1034", "n_target": 100, "site_id": 5,
+        "include_cbr": True, "cbr_top_k": 3}}}
     recipe_key: str = Field(..., description="df_B.csv small_recipe_id (예: A1034)")
     n_target: int = Field(..., ge=1, le=5000, description="목표 인원수 N")
     site_id: Optional[int] = Field(None, ge=1, description="업장 id. 주면 그 업장 보정을 적용")
@@ -165,6 +173,11 @@ class UserProfileOut(BaseModel):
 
 class MenuGenerateRequest(BaseModel):
     """식단 생성 요청(모듈 3 CSP로 위임)."""
+    model_config = {"json_schema_extra": {"example": {
+        "days": 7, "profile_key": "mid_mix", "target_kcal_per_day": 2000,
+        "kcal_tolerance": 0.10, "sodium_max_mg_per_day": 2000,
+        "budget_limit_per_person": 3500, "with_alternatives": True,
+        "allergy_groups": [{"label": "우유알레르기", "allergens": ["우유"], "count": 5}]}}}
     days: int = Field(7, ge=1, le=31)
     month: Optional[int] = Field(None, ge=1, le=12, description="제철 기준 월")
     profile_key: Optional[str] = Field(
