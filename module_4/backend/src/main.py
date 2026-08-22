@@ -17,10 +17,22 @@ OptiMeal 백엔드 진입점 (FastAPI, FR-12).
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .routers import calibration, menu, nutrition, scaling
+
+# [통합테스트 수정안] 프론트(React/Vite)가 브라우저에서 이 API를 호출하려면 CORS 필수.
+# 개발 기본값은 Vite(5173)·CRA(3000). 운영은 OPTIMEAL_CORS_ORIGINS(콤마구분)로 지정.
+_CORS_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "OPTIMEAL_CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173",
+    ).split(",") if o.strip()
+]
 
 DESCRIPTION = """
 **ADR-008 이후의 계약**: 본 API의 스케일링은 정확 예측기가 아니다.
@@ -29,6 +41,15 @@ DESCRIPTION = """
 * 정확도는 영양사 보정을 `/api/calibration/observations` 로 **누적**하면서 개선된다.
 * CBR 참고 이력은 표시 전용이며 **자동 적용하지 않는다**(`auto_apply=false`).
 * 모든 스케일링 응답은 재료별 `method`·`n_obs`·`confidence` 를 동반한다(감사 가능성).
+
+---
+### 프론트엔드 개발자용 연동 안내
+* **Base URL(개발)**: `http://localhost:8000`
+* **CORS**: `localhost:5173`(Vite)·`localhost:3000`(CRA) 허용. 운영은 `OPTIMEAL_CORS_ORIGINS`(콤마 구분)로 지정.
+* **인증**: 현재 없음(학내 프로젝트). 영양사 식별은 요청의 `site_id`로 구분.
+* **선택적 의존성**: `/api/nutrition/*`·`/api/menu/*`는 PostgreSQL·모듈3 필요. 미구성 시 **503 + reason·hint** 반환(500 아님) → 프론트는 503을 "인프라 준비중"으로 처리.
+* **핵심 흐름**: ① 레시피 목록(`/api/scaling/recipes`) → ② 스케일링(`/api/scaling/predict`, `site_id`를 주면 보정 반영) → ③ 영양사 보정 누적(`/api/calibration/observations`). 스케일링 응답의 재료별 `method`·`confidence`를 UI에 표시할 것.
+* **알려진 미구현**: 식단가(원가)·알레르기 배제는 데이터(`recipe_ingredient_map`·`constraints`) 적재 후 활성화 예정.
 """
 
 
@@ -39,6 +60,14 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description=DESCRIPTION,
         contact={"name": "권성민 (Back)"},
+        servers=[{"url": "http://localhost:8000", "description": "개발 서버"}],
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     application.include_router(calibration.router)
     application.include_router(scaling.router)
