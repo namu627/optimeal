@@ -20,6 +20,12 @@
     ① 주식유형×김치   — 김치 1개 고정이 유지되어 상수항이 되므로 **기본 OFF**(§왜 OFF인가).
     ④ 맛 계열        — Phase 0 에서 데이터 부족으로 제외 확정(커버리지 13.4%).
 
+2026-08-26 추가 — **조리법 다양성 규칙**(표가 아니라 운영 규칙, §AffinityWeights):
+    표 기반 ②③ 은 Bool 지시변수라 2접시나 3접시나 감점이 같아 '달걀찜·계란찜·갈비찜'
+    같은 3중복을 못 막았고, 근거가 얕은 조리법(끓이기·부침)은 아예 무감점이었다.
+    → 접시 수에 비례하는 두 항을 더한다: 같은 조리법 **2개 초과 접시**당 강한 감점 +
+    **중복 접시**당 감점(= 조리법이 다양할수록 가산). 표 유무와 무관하게 활성.
+
 읽어야 할 것: [[design/menu_affinity]] §Phase 2, `scripts/build_menu_affinity.py`(표 생성).
 """
 from __future__ import annotations
@@ -119,6 +125,18 @@ class AffinityWeights:
     # 희소 축(porridge n_both=3 등)에 강한 점수를 주면 표본 잡음을 규칙으로 굳힌다.
     use_low_confidence: bool = False
 
+    # ── 조리법 다양성 규칙 (2026-08-26) — 근거표가 아니라 **운영 규칙** ──────
+    # 위 w_method_same 은 표에서 온 Bool 지시변수라 **2접시나 3접시나 감점이 같다**.
+    # 그래서 '달걀찜·계란찜·갈비찜'처럼 3중복이 -8 만 물고 통과할 수 있었다.
+    # 아래 두 항은 접시 수에 **비례**하고, 표에 근거가 없는 조리법(끓이기·부침)까지
+    # 균일하게 덮는다 → 표가 없어도 활성이다(규칙은 데이터 유무와 무관).
+    method_max_per_meal: int = 2   # 한 끼니에 허용하는 같은 조리법 접시 수(초과분 감점)
+    w_method_over_limit: int = 25  # 상한 초과 접시 1개당 감점(강한 Soft, Hard 아님)
+    # 다양성 가산점. **중복 접시 1개당 감점**으로 등가 구현한다 —
+    # distinct 종수에 가점을 주면 부찬 2~3 범위에서 "접시를 늘릴수록 이득"이 되어
+    # 항상 3개로 쏠린다(끼니 크기 중립성). 접시 수가 고정이면 두 형태는 상수차이다.
+    w_method_variety: int = 4
+
 
 @dataclass
 class AffinitySoftObjective:
@@ -126,12 +144,15 @@ class AffinitySoftObjective:
     score: object                                     # cp_model LinearExpr
     active_terms: dict = field(default_factory=dict)  # {축: 활성여부}
     method_dup_vars: dict = field(default_factory=dict)   # {(d,s,조리법): BoolVar}
+    method_over_vars: dict = field(default_factory=dict)  # {(d,s,조리법): 상한 초과 접시 수 IntVar}
+    method_extra_vars: dict = field(default_factory=dict)  # {(d,s,조리법): 중복 접시 수 IntVar}
     method_cross_vars: dict = field(default_factory=dict)  # {(d,s,a,b): BoolVar}
     staple_soup_vars: dict = field(default_factory=dict)  # {(d,s,주식유형,국유형): BoolVar}
     # 제약이 실제로 쓴 라벨·계수. 리포트는 **이 값만** 읽는다 — MenuItem 을 다시
     # 분류하면 언젠가 두 경로가 갈려 표가 조용히 거짓말을 한다(2026-08-11·08-14 전례).
     method_by_idx: dict = field(default_factory=dict)     # {메뉴인덱스: 조리법}
     coefficients: dict = field(default_factory=dict)      # {(축, a, b): 정수계수}
+    weights: object = None                                # 실제로 쓴 AffinityWeights(리포트용)
 
 
 # ===========================================================================
@@ -240,6 +261,9 @@ def add_affinity_soft_objective(
 
     dup_vars: dict = {}
     cross_vars: dict = {}
+    over_vars: dict = {}
+    extra_vars: dict = {}
+    limit = max(1, w.method_max_per_meal)
     for d in D:
         for s in S:
             used: dict = {}
@@ -247,9 +271,10 @@ def add_affinity_soft_objective(
                 placed = [x[m, d, s] for m in members]
                 if not placed:
                     continue
+                count = sum(placed)
+                n_g = len(members)
                 need_used = any(cross_coef.get(k) for k in cross_coef if g in k)
                 if same_coef.get(g):
-                    count = sum(placed)
                     dup = model.NewBoolVar(f"affdup_{d}_{s}_{g}")
                     # 완전 반영(양방향) — 리포트가 이 변수를 그대로 읽어도 어긋나지 않게.
                     model.Add(count >= 2).OnlyEnforceIf(dup)
@@ -257,6 +282,21 @@ def add_affinity_soft_objective(
                     dup_vars[d, s, g] = dup
                     terms.append(same_coef[g] * dup)
                     coefficients[AXIS_METHOD, g, g] = same_coef[g]
+                # ── 규칙 항 ①② — 접시 수에 비례(위 dup 지시변수의 사각지대) ──
+                #   계수가 음수이고 목적이 Maximize 라 두 IntVar 는 하한
+                #   max(0, count-k) 로 눌린다 (`_scd` 의 cook_short 와 같은 관용구).
+                #   ① 다양성: 중복 접시 1개당 감점 = 조리법이 다양할수록 가산.
+                if w.w_method_variety and n_g >= 2:
+                    extra = model.NewIntVar(0, n_g, f"affextra_{d}_{s}_{g}")
+                    model.Add(extra >= count - 1)
+                    extra_vars[d, s, g] = extra
+                    terms.append(-w.w_method_variety * extra)
+                #   ② 상한: 같은 조리법 limit(기본 2)개 초과 접시당 강한 감점.
+                if w.w_method_over_limit and n_g > limit:
+                    over = model.NewIntVar(0, n_g, f"affover_{d}_{s}_{g}")
+                    model.Add(over >= count - limit)
+                    over_vars[d, s, g] = over
+                    terms.append(-w.w_method_over_limit * over)
                 if need_used:
                     used[g] = _scd._new_used_bool(model, f"affused_{d}_{s}_{g}", placed)
             for (a, b), coef in cross_coef.items():
@@ -269,6 +309,8 @@ def add_affinity_soft_objective(
                 coefficients[AXIS_METHOD, a, b] = coef
     active["method_same"] = bool(dup_vars)
     active["method_cross"] = bool(cross_vars)
+    active["method_over_limit"] = bool(over_vars)
+    active["method_variety"] = bool(extra_vars)
 
     # ------------------------------------------------------------------ #
     # ⑤ 주식유형 × 국유형                                                  #
@@ -336,10 +378,13 @@ def add_affinity_soft_objective(
         score=sum(terms) if terms else 0,
         active_terms=active,
         method_dup_vars=dup_vars,
+        method_over_vars=over_vars,
+        method_extra_vars=extra_vars,
         method_cross_vars=cross_vars,
         staple_soup_vars=pair_vars,
         method_by_idx=side_methods,
         coefficients=coefficients,
+        weights=w,
     )
 
 
@@ -380,6 +425,31 @@ def evaluate_affinity_breakdown(
     """
     dup_events, cross_events, pair_events = [], [], []
     penalty = 0
+    # ── 규칙 항(상한·다양성)은 **편성 결과를 다시 세어** 보고한다 ──────────────
+    #   IntVar 는 목적이 하한으로 눌러 주지만 FEASIBLE 조기중단 해에서는 느슨할 수
+    #   있다. 리포트가 실제 접시 수보다 적게 말하면 안 되므로 x 를 직접 센다.
+    #   라벨은 여전히 **제약이 쓴 것**(`aff.method_by_idx`)만 쓴다 — 여기서 메뉴를
+    #   다시 분류하면 주입 경로가 생겼을 때 표만 조용히 어긋난다.
+    w = aff.weights or AffinityWeights()
+    limit = max(1, w.method_max_per_meal)
+    over_events, dup_meal_count, extra_dishes, over_dishes = [], 0, 0, 0
+    for d in range(days):
+        for s in range(n_meals):
+            counts: dict = {}
+            for m, g in aff.method_by_idx.items():
+                if int(solver.Value(x[m, d, s])):
+                    counts.setdefault(g, []).append(menus[m].name)
+            for g, names in counts.items():
+                if len(names) >= 2:
+                    dup_meal_count += 1
+                    extra_dishes += len(names) - 1
+                if len(names) > limit:
+                    over_dishes += len(names) - limit
+                    over_events.append({"day": d + 1, "meal_index": s, "method": g,
+                                        "count": len(names), "limit": limit,
+                                        "menus": sorted(names),
+                                        "score": -w.w_method_over_limit * (len(names) - limit)})
+    penalty += -w.w_method_variety * extra_dishes - w.w_method_over_limit * over_dishes
     for (d, s, g), var in aff.method_dup_vars.items():
         if int(solver.Value(var)):
             coef = aff.coefficients.get((AXIS_METHOD, g, g), 0)
@@ -402,6 +472,13 @@ def evaluate_affinity_breakdown(
                                 "pair": [a, b], "score": coef})
     return {
         "active_terms": aff.active_terms,
+        # 규칙 항(2026-08-26): 한 끼 같은 조리법 상한과 다양성. 표 근거와 무관하게
+        # 전 조리법(끓이기·부침 포함)에 걸리므로 아래 3개는 **전수** 집계다.
+        "method_max_per_meal": limit,
+        "method_over_limit_meals": over_events,
+        "method_over_limit_count": len(over_events),
+        "method_duplicate_meals_all": dup_meal_count,
+        "method_duplicate_dishes": extra_dishes,
         # 감점 대상이 된 조리법 라벨. 근거표에 신뢰할 관측이 없는 축(끓이기·부침)은
         # 여기 없고 **감점도 없다** — 검수 자료에서 "중복 0건"을 이 범위로 읽어야 한다.
         "penalized_methods": sorted({a for (ax, a, b) in aff.coefficients

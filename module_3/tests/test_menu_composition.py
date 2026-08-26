@@ -16,6 +16,7 @@ import pytest
 SRC = os.path.join(os.path.dirname(__file__), "..", "src")
 sys.path.insert(0, os.path.abspath(SRC))
 
+import menu_affinity as ma                   # noqa: E402
 import menu_taxonomy as mt                   # noqa: E402
 from csp_solver import (DEFAULT_COMPOSITION, MealPlanRequest, MenuItem,  # noqa: E402
                         build_and_solve)
@@ -100,9 +101,16 @@ def pool():
 
 
 def solve(menus, *, composition=None, days=1):
-    """관심사 외 제약(칼로리·예산·중복창)은 꺼서 구성만 본다."""
+    """관심사 외 제약(칼로리·예산·중복창·어울림)은 꺼서 구성만 본다.
+
+    어울림의 조리법 상한·다양성(2026-08-26)은 표 없이도 켜지고 **접시 수에
+    비례**하는 감점이라, 켜 두면 "상한을 풀면 부찬이 더 담긴다"는 음성 대조
+    픽스처가 무력화된다(중복 조리법 접시가 감점이라 2개에서 멈춘다).
+    구성 상한을 보는 테스트이므로 여기서는 끈다.
+    """
     return build_and_solve(menus, MealPlanRequest(
         days=days, meals=MEALS, hard=None, solver_time_limit=30.0,
+        affinity_weights=ma.AffinityWeights(w_method_over_limit=0, w_method_variety=0),
         **({"composition": composition} if composition else {})))
 
 
