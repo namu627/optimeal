@@ -397,8 +397,14 @@ def print_result(res: MealPlanResult, req: MealPlanRequest):
         ab = res.affinity_breakdown
         print("\n[Soft·메뉴 어울림]")
         print(f"  · 활성 축: {ab['active_terms']} · 조리법 커버리지 {ab['method_coverage']}종")
-        print(f"  · 같은 조리법 중복 끼니 {ab['method_duplicate_count']}건 "
+        print(f"  · 같은 조리법 중복 끼니 {ab['method_duplicate_count']}건(감점 축) "
+              f"· 전 조리법 중복 {ab['method_duplicate_meals_all']}건 "
               f"· 어울림 점수 {ab['affinity_score']}")
+        print(f"  · 한 끼 같은 조리법 상한 {ab['method_max_per_meal']}접시 "
+              f"· 초과 {ab['method_over_limit_count']}건")
+        for e in ab["method_over_limit_meals"][:5]:
+            print(f"    - [상한초과] {e['day']}일 {e['meal_index']}끼: {e['method']} "
+                  f"{e['count']}접시 — {', '.join(e['menus'])} ({e['score']})")
         for e in ab["method_duplicate_meals"][:5]:
             print(f"    - {e['day']}일 {e['meal_index']}끼: {e['method']} "
                   f"{', '.join(e['menus'])} ({e['score']})")
@@ -455,8 +461,12 @@ def main():
         nutrient_by_idx = {"sodium": sodium_by_idx}
     # 주재료 축(B6 Phase 1) — DB 에 있는 메뉴만 채워지고 나머지는 중립.
     main_by_idx = None if args.no_main_axis else scd.load_main_ingredients(get_engine(), menus)
-    # 어울림 근거표(B6 Phase 2) — 파일이 없으면 빈 목록이라 항이 자동 비활성.
+    # 어울림 근거표(B6 Phase 2) — 파일이 없으면 빈 목록이라 표 기반 항이 자동 비활성.
+    #   단 조리법 상한·다양성(2026-08-26)은 표가 아니라 규칙이라 표를 빼도 살아 있다.
+    #   --no-affinity 는 "어울림 항 전체 OFF" 라는 뜻이므로 규칙 항 가중치도 0 으로 둔다.
     affinity_table = None if args.no_affinity else ma.load_affinity_table()
+    affinity_weights = (ma.AffinityWeights(w_method_over_limit=0, w_method_variety=0)
+                        if args.no_affinity else None)
     # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
     cfg = hc.HardConstraintConfig(target_kcal_per_day=kcal,
                                   nutrient_max_per_day=nutrient_max,
@@ -470,7 +480,8 @@ def main():
                           solver_time_limit=args.time_limit,
                           warm_start=not args.no_warm_start,
                           main_by_idx=main_by_idx,
-                          affinity_table=affinity_table)
+                          affinity_table=affinity_table,
+                          affinity_weights=affinity_weights)
     print(f"[메뉴 후보 {len(menus)}종"
           f" / 주재료 확보 {len(main_by_idx or {})}종"
           f" / 어울림 근거 {len(affinity_table or [])}행]")

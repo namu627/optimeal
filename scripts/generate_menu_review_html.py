@@ -234,33 +234,45 @@ def _order_check(res, by_name) -> tuple:
 def _affinity_check(res, by_name):
     """어울림(같은 조리법 중복) 독립 검증 — 편성 결과를 다시 세어 본다.
 
-    ⚠ 감점 대상은 **근거가 충분한 조리법**뿐이다(관측 30건 미만 축은 계수 없음).
-    그래서 "감점 축 위반"과 "그 외 축 중복"을 나눠 보고한다. 하나로 합치면
-    근거 없는 축의 중복까지 시스템이 막은 것처럼 읽힌다.
+    두 가지를 나눠 보고한다. 규칙이 서로 다르기 때문이다:
+      · **상한(2접시)**: 2026-08-26 추가한 운영 규칙. 근거표와 무관하게
+        **전 조리법**에 걸린다 → 3접시 이상이면 위반으로 본다(판정 기준).
+      · **2접시 중복**: 표에 근거가 있는 조리법만 감점 대상이다(관측 30건 미만
+        축은 계수가 없다). 그래서 "감점 축"과 "근거 부족 축"을 나눠 적는다 —
+        합치면 근거 없는 축의 중복까지 시스템이 막은 것처럼 읽힌다.
     """
     ab = res.affinity_breakdown or {}
     penalized = set(ab.get("penalized_methods") or ())
+    limit = ab.get("method_max_per_meal", 2)
     items = list(by_name.values())
     methods = scd.classify_cooking_methods(items)
     method_of = {m.name: methods.get(i) for i, m in enumerate(items)
                  if m.category in ma.SIDE_CATEGORIES}
-    scored, other = 0, 0
-    for _day, _meal, names in _meal_dishes(res, by_name):
-        seen = defaultdict(int)
+    scored, other, over = 0, 0, []
+    for day, meal, names in _meal_dishes(res, by_name):
+        seen = defaultdict(list)
         for name in names:
             g = method_of.get(name)
             if g:
-                seen[g] += 1
-        for g, c in seen.items():
-            if c >= 2:
+                seen[g].append(name)
+        for g, dishes in seen.items():
+            if len(dishes) >= 2:
                 if g in penalized:
                     scored += 1
                 else:
                     other += 1
-    note = f"감점 축({len(penalized)}종) 위반 {scored}건"
+            if len(dishes) > limit:
+                over.append(f"{day}일 {meal} {g} {len(dishes)}접시"
+                            f"({'·'.join(sorted(dishes))})")
+    note2 = f"감점 축({len(penalized)}종) 위반 {scored}건"
     if other:
-        note += f" · 근거 부족 축 중복 {other}건(감점 대상 아님)"
-    return ("메뉴 어울림 (한 끼 같은 조리법 중복)", note, scored == 0)
+        note2 += f" · 근거 부족 축 중복 {other}건(감점 대상 아님)"
+    return [
+        (f"한 끼 같은 조리법 상한 ({limit}접시 이하)",
+         "초과 0건" if not over else f"초과 {len(over)}건: {', '.join(over[:3])}",
+         not over),
+        ("메뉴 어울림 (한 끼 같은 조리법 2접시 중복)", note2, scored == 0),
+    ]
 
 
 def _meal_dishes(res, by_name):
@@ -288,7 +300,7 @@ def render_verification(res, cfg, by_name) -> str:
         _order_check(res, by_name),
     ]
     if res.affinity_breakdown:
-        items.append(_affinity_check(res, by_name))
+        items.extend(_affinity_check(res, by_name))
     na = (hb.get("nutrient_max") or {}).get("sodium")
     if na:
         items.append((f"나트륨 1일 상한 ({na['limit']:,.0f}mg)",
