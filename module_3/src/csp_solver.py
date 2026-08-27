@@ -164,6 +164,9 @@ class MealPlanRequest:
     soft_weights: object = None        # sc.SoftWeights (None=기본값)
     pref_scores: dict = None           # {메뉴 인덱스: 기호도 점수} (None=중립)
     group_id: int = None               # 기호도 DB 조회용 타겟 그룹(선택)
+    # 식단가 하한(원). 하루 총원가가 이 값 미만이면 Soft 감점(품질·만족도 프록시).
+    #   None=하한 미적용(현행 동작 불변). 켤 때는 가격 커버리지 점검 후 사용.
+    budget_floor_won: float = None
     diversity_weights: object = None   # scd.DiversityWeights (None=기본값)
     # 주재료 축 {메뉴 인덱스: 대표 주재료명} — scd 의 주재료 중복 회피 항이 읽는다.
     #   MenuItem 에 없는 값이라 side-channel 로 넘긴다(B6 Phase 1, 2026-08-14).
@@ -249,6 +252,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         days=req.days, n_meals=len(req.meals),
         weights=req.soft_weights,
         pref_scores=req.pref_scores,
+        budget_floor_won=req.budget_floor_won,
     )
     div = scd.add_diversity_soft_objective(
         model, x, menus,
@@ -427,6 +431,10 @@ def main():
     ap.add_argument("--meals", default=None,
                     help="끼니 이름을 쉼표로 (예: '점심' / '점심,저녁' / '아침,점심,저녁'). "
                          "미지정 시 프로파일 기본값, 프로파일도 없으면 3식")
+    ap.add_argument("--budget-cap", type=float, default=3500.0,
+                    help="식단가 Hard 상한 (1인 1일, 원). 기본 3500, 0이면 예산 상한 미적용")
+    ap.add_argument("--budget-floor", type=float, default=0.0,
+                    help="식단가 Soft 하한 (1인 1일, 원). 0이면 하한 미적용(현행 기본)")
     args = ap.parse_args()
     profiles = up.load_profiles()
     if args.list_profiles:
@@ -458,8 +466,12 @@ def main():
     # 어울림 근거표(B6 Phase 2) — 파일이 없으면 빈 목록이라 항이 자동 비활성.
     affinity_table = None if args.no_affinity else ma.load_affinity_table()
     # H-4b·H-4c 는 실제 음식명 기반이라 운영 경로(DB 메뉴)에서 켠다.
+    # 식단가 상한·하한(1인 1일, 원). 0/미지정이면 해당 항 비활성.
+    budget_cap = args.budget_cap if args.budget_cap and args.budget_cap > 0 else None
+    budget_floor = args.budget_floor if args.budget_floor and args.budget_floor > 0 else None
     cfg = hc.HardConstraintConfig(target_kcal_per_day=kcal,
                                   nutrient_max_per_day=nutrient_max,
+                                  budget_limit_per_person=budget_cap,
                                   enable_staple_main=True,
                                   enable_menu_pairing=True)
     if tg.get("meal_energy_ratios"):
@@ -470,7 +482,10 @@ def main():
                           solver_time_limit=args.time_limit,
                           warm_start=not args.no_warm_start,
                           main_by_idx=main_by_idx,
-                          affinity_table=affinity_table)
+                          affinity_table=affinity_table,
+                          budget_floor_won=budget_floor)
+    print(f"[식단가] 상한 {f'{budget_cap:,.0f}원' if budget_cap else '미적용'}"
+          f" · 하한 {f'{budget_floor:,.0f}원' if budget_floor else '미적용'}")
     print(f"[메뉴 후보 {len(menus)}종"
           f" / 주재료 확보 {len(main_by_idx or {})}종"
           f" / 어울림 근거 {len(affinity_table or [])}행]")
