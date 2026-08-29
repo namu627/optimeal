@@ -43,6 +43,7 @@ class MenuItem:
     colors: set = field(default_factory=set)     # 색감 집합 ← 색감 목적함수
     allergens: set = field(default_factory=set)  # 알레르겐 재료명 집합 (Hard 태스크에서 사용)
     season_score: float = 0.0          # 제철 빈도 점수 (0~1) ← 제철 목적함수
+    ingredients: set = field(default_factory=set)  # 전체 재료명 집합 ← R90 대체식 재료 공유용
 def get_engine():
     """DB 접속 엔진(PostgreSQL). 접속 정보는 환경변수(POSTGRES_*)에서 읽는다.
     - 컨테이너 실행(docker exec): compose가 POSTGRES_HOST=db 주입 → 'db'.
@@ -72,7 +73,8 @@ SELECT
     COALESCE(AVG(si.freq_score), 0) AS season_score,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.color_category), NULL) AS colors,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT CASE WHEN al.ingredient_id IS NOT NULL
-                                         THEN ing.ingredient_name END), NULL) AS allergens
+                                         THEN ing.ingredient_name END), NULL) AS allergens,
+    ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name), NULL) AS ingredients
 FROM nutrition_recipe nr
 LEFT JOIN recipe r               ON r.nutrition_recipe_id = nr.nutrition_id
 LEFT JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
@@ -99,6 +101,7 @@ def load_menus(month: int | None = None,
                 calories=float(r["calories"] or 0), cost_won=float(r["cost_won"] or 0),
                 colors=set(r["colors"] or []), allergens=set(r["allergens"] or []),
                 season_score=float(r["season_score"] or 0),
+                ingredients=set(r["ingredients"] or []),
             ))
     if not menus:
         raise RuntimeError("DB에서 메뉴 후보를 찾지 못했습니다 — 데이터 적재 상태를 확인하세요.")
