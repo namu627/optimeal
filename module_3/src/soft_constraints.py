@@ -119,6 +119,10 @@ class SoftWeights:
     w_pref: int = 5           # 기호도 1점(선호 재료 1건)당 가점
     w_cost: int = 1           # 원가 COST_UNIT(원)당 감점
     cost_unit_won: int = 100  # 원가 정규화 단위(원). 100원 = w_cost 점
+    # ── 식단가 하한(적정선 미만 감점) — 최저가 쏠림/품질 저하 방지 ──────────
+    w_floor: int = 2          # 적정선 부족분 cost_unit_won(원)당 감점.
+                              #   w_cost(=1)보다 크게 두어야 적정선 경계에서 '더 싸게'의
+                              #   유혹을 눌러 최저가 쏠림을 막는다(순 -w_floor+w_cost/단위).
 
 
 # ===========================================================================
@@ -132,6 +136,8 @@ class SoftObjective:
     total_cost_expr: object              # 총 식재료비 정수 선형식(원)
     pref_expr: object                    # 기호도 점수 선형식
     food_types: dict[int, set]           # 분류 결과(리포팅용)
+    floor_shortfall_vars: dict = None    # 식단가 하한 부족분 {day: IntVar} (미적용 시 빈 dict)
+    budget_floor_won: float | None = None  # 하한 원값(원) — 정확값 미달 판정용 리포팅
 
 
 def scale_targets(per_week: float, days: int) -> int:
@@ -155,6 +161,7 @@ def add_soft_objective(
     pref_scores: dict[int, float] | None = None,
     food_types: dict[int, set] | None = None,
     commercial_menu_ids: set | None = None,
+    budget_floor_won: float | None = None,
 ) -> SoftObjective:
     """제공빈도·기호도·식단가 Soft 목적을 모델에 더하고 점수식을 돌려준다.
 
@@ -168,6 +175,8 @@ def add_soft_objective(
         pref_scores: {메뉴 인덱스: 기호도 점수(선호+/기피−)}. None이면 중립(0).
         food_types: 사전 계산된 분류 결과. None이면 내부 classify_food_types.
         commercial_menu_ids: 가공식품 확정용 menu_id 집합.
+        budget_floor_won: 하루 적정 식단가 하한(원). None/0이면 하한항 비활성.
+            하루 총원가가 이 값 미만이면 부족분만큼 감점(품질·만족도 프록시).
 
     Returns:
         SoftObjective. `.score` 를 다른 Soft 항과 합산해 Maximize.
@@ -219,8 +228,35 @@ def add_soft_objective(
         for m in M for d in D for s in S
     )
 
-    # --- 총점 = -빈도위반*w_freq + 기호도*w_pref - 원가*w_cost (최대화) --------
-    score = (-w.w_freq * freq_penalty) + (w.w_pref * pref_expr) + (-w.w_cost * cost_penalty)
+    # --- (3b) 식단가 하한: 하루 총원가가 적정선 미만이면 감점 ------------------
+    #   Hard 상한과 대칭. '낮을수록 무한정 좋음'을 끊어 최저가 쏠림/품질 저하를 막는다.
+    #   제공빈도 min-규칙과 동일한 부족분-IntVar 패턴(viol >= target - count)을 재사용.
+    #   ⚠ 원가 0원(가격 결측) 메뉴가 많으면 하루 원가를 부당하게 끌어내려 과잉 감점된다.
+    #     하한을 켜기 전 가격 커버리지(원가 0원 메뉴 비율)를 확인할 것 — demo_budget.py 출력의 '원가>0 메뉴' 라인 참고.
+    floor_shortfall_vars: dict = {}
+    floor_penalty_terms = []
+    if budget_floor_won is not None and budget_floor_won > 0:
+        unit = max(1, w.cost_unit_won)
+        floor_units = int(round(budget_floor_won / unit))
+        for d in D:
+            day_cost_units = sum(
+                int(round((getattr(menus[m], "cost_won", 0.0) or 0.0) / unit)) * x[m, d, s]
+                for m in M for s in S
+            )
+            # 부족분: short >= floor_units - day_cost_units  (적정선 이상이면 0)
+            short = model.NewIntVar(0, floor_units, f"budget_short_{d}")
+            model.Add(short >= floor_units - day_cost_units)
+            floor_shortfall_vars[d] = short
+            floor_penalty_terms.append(short)
+    floor_penalty = sum(floor_penalty_terms) if floor_penalty_terms else 0
+
+    # --- 총점 = -빈도위반*w_freq + 기호도*w_pref - 원가*w_cost - 하한부족*w_floor (최대화) ---
+    score = (
+        (-w.w_freq * freq_penalty)
+        + (w.w_pref * pref_expr)
+        + (-w.w_cost * cost_penalty)
+        + (-w.w_floor * floor_penalty)
+    )
 
     return SoftObjective(
         score=score,
@@ -228,6 +264,8 @@ def add_soft_objective(
         total_cost_expr=total_cost_expr,
         pref_expr=pref_expr,
         food_types=food_types,
+        floor_shortfall_vars=floor_shortfall_vars,
+        budget_floor_won=budget_floor_won,
     )
 
 
@@ -269,10 +307,27 @@ def evaluate_breakdown(
         int(round(getattr(menus[m], "cost_won", 0.0) or 0.0)) * int(solver.Value(x[m, d, s]))
         for m in M for d in D for s in S
     )
+
+    # 식단가 하한 준수 — 하루별 총원가와 부족분(적정선 미만분). 미적용 시 None.
+    floor_report = None
+    if soft.floor_shortfall_vars:
+        floor_report = []
+        for d in D:
+            day_cost = sum(int(round(getattr(menus[m], "cost_won", 0.0) or 0.0))
+                           * int(solver.Value(x[m, d, s])) for m in M for s in S)
+            short = int(solver.Value(soft.floor_shortfall_vars[d]))
+            floor_won = int(round(soft.budget_floor_won or 0))
+            exact_short = max(0, floor_won - day_cost)   # 정확값(원) 기준 미달분
+            floor_report.append({"day": d + 1, "cost": day_cost,
+                                 "shortfall_units": short, "floor_ok": short == 0,
+                                 "shortfall_won": exact_short,
+                                 "floor_ok_exact": exact_short == 0})
+
     return {
         "frequency": freq_report,
         "preference_score": pref_total,
         "total_cost_won": cost_total,
+        "budget_floor": floor_report,
     }
 
 
