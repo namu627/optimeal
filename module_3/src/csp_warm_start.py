@@ -130,13 +130,16 @@ def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
         obj += [sign * y[m, s] for m in pool
                 if food_type in food_types.get(m, ()) for s in meals]
     obj += [-_COMMERCIAL_PENALTY * y[m, s] for m in pool if m in commercial for s in meals]
+    # ⚠ 표가 없어도 부른다 — 조리법 상한·다양성(2026-08-26)은 표가 아니라 **규칙**이라
+    #   표 없이도 본 모델에서 활성이다. 힌트가 그 항을 모르면 상한을 어긴 하루를
+    #   초기해로 밀어 넣고, 솔버가 그걸 고치느라 시간을 쓴다("힌트가 모르는 제약은
+    #   SLA 로 되돌아온다" — 2026-08-14 Phase 1 교훈).
     aff_score = None
-    if affinity_table:
-        aff = ma.add_affinity_soft_objective(
-            model, x1, sub, days=1, n_meals=n_meals,
-            table=affinity_table, weights=affinity_weights)
-        if any(aff.active_terms.values()):
-            aff_score = aff.score
+    aff = ma.add_affinity_soft_objective(
+        model, x1, sub, days=1, n_meals=n_meals,
+        table=affinity_table, weights=affinity_weights)
+    if any(aff.active_terms.values()):
+        aff_score = aff.score
     if obj or aff_score is not None:
         model.Maximize(sum(obj) + (aff_score if aff_score is not None else 0))
     solver = cp_model.CpSolver()

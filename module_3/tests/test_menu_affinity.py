@@ -150,8 +150,21 @@ def _sides(*names):
     return [MenuItem(i + 1, n, "부찬", 50.0) for i, n in enumerate(names)]
 
 
-def test_empty_table_makes_every_term_inactive():
-    """표를 주지 않으면 변수도 점수도 생기지 않는다 — 8/14 이전과 동일 동작."""
+def _table_only() -> ma.AffinityWeights:
+    """규칙 항(조리법 상한·다양성)을 끈 가중치 — **표 기반 항만** 보고 싶을 때.
+
+    규칙 항은 표 유무와 무관하게 살아 있으므로(2026-08-26), 표의 효과를 재는
+    테스트에서 이걸 쓰지 않으면 두 항이 섞여 무엇이 일했는지 알 수 없다.
+    """
+    return ma.AffinityWeights(w_method_over_limit=0, w_method_variety=0)
+
+
+def test_empty_table_makes_every_table_term_inactive():
+    """표를 주지 않으면 **표 기반** 항은 변수도 점수도 만들지 않는다.
+
+    (규칙 항은 표와 무관하지만, 후보에 같은 조리법이 2개 이상 있을 때만 변수가
+    생긴다. 여기 픽스처는 무침 1·조림 1 이라 규칙 항도 만들 게 없다.)
+    """
     _solver, _x, aff = _meal_model(_sides("가지무침", "감자조림"), rows=[])
     assert aff.score == 0
     assert not any(aff.active_terms.values())
@@ -190,11 +203,11 @@ def test_negative_control_without_affinity_the_same_method_repeats():
     rows = _rows((METHOD, "무침", "무침", -76, 551, "ok"))
     labels = ma._scd.classify_cooking_methods(menus)
 
-    def _methods(table):
-        solver, x, _aff = _meal_model(menus, rows=table, reward=True)
+    def _methods(table, weights=None):
+        solver, x, _aff = _meal_model(menus, rows=table, reward=True, weights=weights)
         return sorted(labels[m] for m in range(len(menus)) if solver.Value(x[m, 0, 0]))
 
-    off, on = _methods([]), _methods(rows)
+    off, on = _methods([], weights=_table_only()), _methods(rows)
     assert off == ["무침", "무침"], f"픽스처가 중복을 못 만들었다: {off}"
     assert on == ["무침", "조림"], f"ON 인데 중복이 남았다: {on}"
 
@@ -248,6 +261,120 @@ def test_injected_cooking_methods_win_over_menu_name():
 
 
 # --------------------------------------------------------------------------- #
+# (C-2) 조리법 상한·다양성 규칙 (2026-08-26) — 표가 아니라 운영 규칙              #
+#                                                                             #
+#   동기: '달걀찜·계란찜·갈비찜'이 한 끼에 같이 나올 수 있었다. 표 기반 감점은     #
+#   Bool 지시변수라 2접시나 3접시나 같은 -8 이었기 때문이다.                      #
+# --------------------------------------------------------------------------- #
+def _steam(*names):
+    """전부 '찜'으로 분류되는 부찬들(같은 조리법 후보 풀)."""
+    return [MenuItem(i + 1, n, "부찬", 50.0) for i, n in enumerate(names)]
+
+
+def test_three_same_method_dishes_cost_more_than_two():
+    """★핵심 — 3접시가 2접시보다 **더** 아프다(지시변수만으로는 같았다).
+
+    표 기반 항을 끄고 규칙 항만 남겨 두 상태의 목적값을 직접 비교한다.
+    """
+    menus = _steam("달걀찜", "계란찜", "갈비찜")
+
+    def _score(per_meal):
+        solver, _x, _aff = _meal_model(menus, rows=[], per_meal=per_meal)
+        return solver.ObjectiveValue()
+
+    two, three = _score(2), _score(3)
+    # 2접시: 다양성 -4 / 3접시: 다양성 -8 + 상한초과 -25 = -33
+    assert two == -4 and three == -33, f"2접시 {two} · 3접시 {three}"
+    assert three < two
+
+
+def test_over_limit_term_is_active_without_the_affinity_table():
+    """표가 없어도(=근거 없는 조리법이어도) 상한 항은 살아 있다.
+
+    표에 confidence='ok' 행이 없는 끓이기·부침은 예전엔 완전 무감점이었다
+    (부침×부침 은 관측 1건짜리 'low' 행이라 계수가 되지 않는다).
+    """
+    menus = [MenuItem(i + 1, n, "부찬", 50.0)
+             for i, n in enumerate(["감자부침", "부추부침", "김치부침"])]
+    _solver, _x, aff = _meal_model(menus, rows=[], per_meal=3)
+    assert set(aff.method_by_idx.values()) == {"부침"}
+    assert aff.active_terms["method_over_limit"] is True
+    assert aff.active_terms["method_variety"] is True
+    assert aff.active_terms["method_same"] is False, "표가 없는데 표 기반 항이 켜졌다"
+
+
+def test_cap_pushes_the_third_dish_to_another_method():
+    """★음성 대조 — 상한 항을 끄면 실제로 같은 조리법 3접시가 편성된다.
+
+    찜 3종에 작은 제철 가점을 줘서 '찜으로 쏠릴 이유'를 만든다. 가점(3점/접시)이
+    상한 감점(-25)을 못 넘도록 작게 준다(2026-08-14 주재료 축 테스트와 같은 함정).
+    """
+    specs = [("달걀찜", 0.3), ("계란찜", 0.3), ("갈비찜", 0.3), ("가지무침", 0.0)]
+    menus = [MenuItem(i + 1, n, "부찬", 50.0, season_score=sc)
+             for i, (n, sc) in enumerate(specs)]
+    labels = ma._scd.classify_cooking_methods(menus)
+
+    def _methods(weights):
+        solver, x, _aff = _meal_model(menus, rows=[], per_meal=3,
+                                      weights=weights, reward=True)
+        return sorted(labels[m] for m in range(len(menus)) if solver.Value(x[m, 0, 0]))
+
+    off = _methods(_table_only())
+    on = _methods(None)
+    assert off == ["찜", "찜", "찜"], f"픽스처가 3중복을 못 만들었다: {off}"
+    assert on == ["무침", "찜", "찜"], f"상한이 안 걸렸다: {on}"
+
+
+def test_two_same_method_dishes_are_still_allowed_when_needed():
+    """상한은 **2개까지 허용**이다 — Soft 라 무조건 금지가 아니다.
+
+    대안이 없으면(후보가 찜 2종뿐) 2접시가 그대로 편성되고, 상한 초과 감점은 0.
+    """
+    solver, x, aff = _meal_model(_steam("달걀찜", "갈비찜"), rows=[], per_meal=2)
+    rep = ma.evaluate_affinity_breakdown(solver, x, _steam("달걀찜", "갈비찜"), aff,
+                                         days=1, n_meals=1)
+    assert rep["method_over_limit_count"] == 0
+    assert rep["method_duplicate_meals_all"] == 1     # 2접시 중복은 보고는 된다
+    assert rep["affinity_score"] == -4                # 다양성 감점만
+
+
+def test_variety_bonus_does_not_inflate_meal_size():
+    """다양성을 **가산점**이 아니라 중복 감점으로 구현한 이유(끼니 크기 중립성).
+
+    조리법이 서로 다른 접시를 늘리는 데에는 감점이 붙지 않는다 → 목적값 동일.
+    distinct 종수에 가점을 줬다면 접시를 늘릴수록 이득이라 부찬이 항상 3개로 쏠린다.
+    """
+    menus = [MenuItem(i + 1, n, "부찬", 50.0)
+             for i, n in enumerate(["가지무침", "감자조림", "달걀찜"])]
+
+    def _score(per_meal):
+        solver, _x, _aff = _meal_model(menus, rows=[], per_meal=per_meal)
+        return solver.ObjectiveValue()
+
+    assert _score(2) == _score(3) == 0
+
+
+def test_over_limit_report_names_the_offending_dishes():
+    """상한 초과 끼니를 사람이 고칠 수 있게 보고한다(무슨 조리법·몇 접시·어떤 메뉴)."""
+    menus = _steam("달걀찜", "계란찜", "갈비찜")
+    solver, x, aff = _meal_model(menus, rows=[], per_meal=3)
+    rep = ma.evaluate_affinity_breakdown(solver, x, menus, aff, days=1, n_meals=1)
+    assert rep["method_max_per_meal"] == 2
+    assert rep["method_over_limit_count"] == 1
+    ev = rep["method_over_limit_meals"][0]
+    assert ev["method"] == "찜" and ev["count"] == 3 and ev["score"] == -25
+    assert ev["menus"] == ["갈비찜", "계란찜", "달걀찜"]
+
+
+def test_limit_is_configurable():
+    """상한 수치는 가중치로 조정 가능하다(영양사 검수 결과로 바뀔 수 있는 값)."""
+    menus = _steam("달걀찜", "계란찜", "갈비찜")
+    w = ma.AffinityWeights(method_max_per_meal=3)
+    _solver, _x, aff = _meal_model(menus, rows=[], per_meal=3, weights=w)
+    assert aff.method_over_vars == {}, "상한 3인데 3접시가 초과로 잡혔다"
+
+
+# --------------------------------------------------------------------------- #
 # (D) 리포트 정합 — 제약이 쓴 라벨을 그대로 보여주는가                            #
 # --------------------------------------------------------------------------- #
 def test_breakdown_reports_the_labels_the_constraint_used():
@@ -263,7 +390,9 @@ def test_breakdown_reports_the_labels_the_constraint_used():
     ev = rep["method_duplicate_meals"][0]
     assert ev["method"] == "무침" and ev["score"] == -8
     assert ev["menus"] == ["가지무침", "오이무침"]
-    assert rep["affinity_score"] == -8
+    # 총점 = 표 기반 중복 -8 + 규칙(다양성) 중복 접시 1개 × -4
+    assert rep["affinity_score"] == -12
+    assert rep["method_duplicate_dishes"] == 1
     assert rep["method_coverage"] == 2
 
 
