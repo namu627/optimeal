@@ -31,12 +31,21 @@ def main():
     priced = [m for m in menus if m.cost_won > 0]
     print(f"[원가>0 메뉴 {len(priced)}종 · 평균 {sum(m.cost_won for m in priced)/max(len(priced),1):,.0f}원]")
 
-    # 현재 존재하는 카테고리로 끼니 구성(반상 세분 전이라 '반찬' 사용)
-    comp = {}
-    for c, n in (("주식", 1), ("국", 1), ("반찬", 3)):
-        if c in cats:
-            comp[c] = n
-    print(f"[끼니 구성(데모용): {comp}]  ※ 주찬/부찬/김치 세분은 데이터 보강 후 별도 과제")
+    # 끼니 구성 — DB 가 반상(주찬·부찬·김치)으로 세분돼 있으면 그대로 쓰고,
+    #   세분 전 DB 라면 구 '반찬' 으로 되돌린다. (예전에는 '반찬' 만 봐서, 반상 재분류가
+    #   끝난 DB 에서 주식·국 2품만 편성되는 축소 데모가 나왔다.)
+    banssang = {"주찬", "부찬", "김치"} <= cats
+    wanted = ((("주식", 1), ("국", 1), ("주찬", 1), ("부찬", 2), ("김치", 1)) if banssang
+              else (("주식", 1), ("국", 1), ("반찬", 3)))
+    comp = {c: n for c, n in wanted if c in cats}
+    print(f"[끼니 구성(데모용): {comp}]"
+          f"{'' if banssang else '  ※ 반상(주찬/부찬/김치) 세분 전 DB — 구 반찬으로 대체'}")
+
+    # 원가가 전부 0원이면 하한은 매일 최대 부족분을 감점해 '너무 쌈' 을 오탐한다.
+    floor = args.floor if args.floor > 0 else None
+    if floor and not priced:
+        print("[경고] 원가>0 메뉴 0종 — ingredient_price 미적재. 하한을 끄고 진행한다(오탐 방지).")
+        floor = None
 
     # 예산 외 제약은 꺼서 '식단가 로직'만 또렷이 본다
     cfg = hc.HardConstraintConfig(
@@ -48,7 +57,7 @@ def main():
     req = cs.MealPlanRequest(
         days=args.days, meals=("점심",), composition=comp,
         hard=cfg,
-        budget_floor_won=(args.floor if args.floor > 0 else None),
+        budget_floor_won=floor,
         warm_start=False, solver_time_limit=15.0,
     )
 
@@ -60,7 +69,7 @@ def main():
         return
 
     print(f"식단가 Hard 상한: {args.cap:,.0f}원/일" +
-          (f" · Soft 하한: {args.floor:,.0f}원/일" if args.floor > 0 else " · 하한 미적용"))
+          (f" · Soft 하한: {floor:,.0f}원/일" if floor else " · 하한 미적용"))
     print("=" * 60)
 
     hb = {d["day"]: d for d in (res.hard_breakdown or {}).get("per_day", [])}
@@ -88,7 +97,11 @@ def main():
     print("-" * 60)
     print(f"1인 {args.days}일 총 식재료비: {res.total_cost:,}원  "
           f"(하루 평균 {res.total_cost/args.days:,.0f}원)")
-    print("\n※ 원가는 가락시장(청과·수산) 가격만 반영돼 실제보다 낮게 잡힘 — 로직 시연용.")
+    if priced:
+        print("\n※ 원가는 가락시장(청과·수산) 가격만 반영돼 실제보다 낮게 잡힘 — 로직 시연용.")
+    else:
+        print("\n※ ingredient_price 가 비어 전 메뉴 원가 0원 — 배선만 확인된 상태다."
+              "\n   가격 적재: scripts/load_ingredient_price.py (GARAK_ID/GARAK_PASSWD 필요).")
 
 
 if __name__ == "__main__":

@@ -479,6 +479,14 @@ def main():
     # 식단가 상한·하한(1인 1일, 원). 0/미지정이면 해당 항 비활성.
     budget_cap = args.budget_cap if args.budget_cap and args.budget_cap > 0 else None
     budget_floor = args.budget_floor if args.budget_floor and args.budget_floor > 0 else None
+    # 가격 커버리지 점검 — 원가가 전부 0원이면 하한은 매일 '최대 부족분'을 감점해
+    #   "너무 쌈" 을 오탐한다(모든 해가 같은 감점이라 선택은 안 바뀌지만 리포트가 거짓이 된다).
+    #   가격이 *일부만* 들어온 단계가 더 위험하다 — 가격 있는 메뉴만 불리해진다.
+    priced = sum(1 for m in menus if (getattr(m, "cost_won", 0) or 0) > 0)
+    if budget_floor and priced == 0:
+        print(f"[식단가] ⚠ 원가>0 메뉴 0/{len(menus)}종 — ingredient_price 미적재라 "
+              f"하한을 끈다(오탐 방지). 가격 적재 후 다시 켤 것.")
+        budget_floor = None
     cfg = hc.HardConstraintConfig(target_kcal_per_day=kcal,
                                   nutrient_max_per_day=nutrient_max,
                                   budget_limit_per_person=budget_cap,
@@ -496,7 +504,8 @@ def main():
                           affinity_weights=affinity_weights,
                           budget_floor_won=budget_floor)
     print(f"[식단가] 상한 {f'{budget_cap:,.0f}원' if budget_cap else '미적용'}"
-          f" · 하한 {f'{budget_floor:,.0f}원' if budget_floor else '미적용'}")
+          f" · 하한 {f'{budget_floor:,.0f}원' if budget_floor else '미적용'}"
+          f" · 원가>0 메뉴 {priced}/{len(menus)}종")
 
     print(f"[메뉴 후보 {len(menus)}종"
           f" / 주재료 확보 {len(main_by_idx or {})}종"
