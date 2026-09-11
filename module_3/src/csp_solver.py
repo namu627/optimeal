@@ -493,10 +493,10 @@ def main():
                           warm_start=not args.no_warm_start,
                           main_by_idx=main_by_idx,
                           affinity_table=affinity_table,
+                          affinity_weights=affinity_weights,
                           budget_floor_won=budget_floor)
     print(f"[식단가] 상한 {f'{budget_cap:,.0f}원' if budget_cap else '미적용'}"
           f" · 하한 {f'{budget_floor:,.0f}원' if budget_floor else '미적용'}")
-                          affinity_weights=affinity_weights)
 
     print(f"[메뉴 후보 {len(menus)}종"
           f" / 주재료 확보 {len(main_by_idx or {})}종"
