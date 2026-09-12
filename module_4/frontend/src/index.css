@@ -1,0 +1,11 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Pretendard, -apple-system, sans-serif; }
+#root {
+  min-height: 100vh;
+  background:
+    radial-gradient(700px 440px at 10% 6%, #E7F7EF 0%, rgba(231,247,239,0) 70%),
+    radial-gradient(580px 420px at 92% 18%, #E6F4F6 0%, rgba(230,244,246,0) 72%),
+    radial-gradient(720px 480px at 62% 104%, #F1F9E8 0%, rgba(241,249,232,0) 70%),
+    #FBFDFC;
+}
+.tabular { font-variant-numeric: tabular-nums; }
