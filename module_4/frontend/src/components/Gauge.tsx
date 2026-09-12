@@ -1,43 +1,26 @@
 import { colors } from '../theme';
 
 type Props = {
-  value: number;      // 달성률 %
-  label: string;      // 항목 이름
+  value: number;
+  label: string;
   size?: number;
   thickness?: number;
-  tolerance?: number; // 적정 범위 (기본 ±10%)
+  tolerance?: number;
 };
 
-export default function Gauge({
-  value,
-  label,
-  size = 96,
-  thickness = 9,
-  tolerance = 10,
-}: Props) {
+export default function Gauge({ value, label, size = 96, thickness = 9, tolerance = 10 }: Props) {
   const radius = (size - thickness) / 2;
   const circumference = 2 * Math.PI * radius;
   const ratio = Math.min(value, 100) / 100;
 
   const color =
-    value < 100 - tolerance
-      ? colors.warning
-      : value > 100 + tolerance
-      ? colors.error
-      : colors.primary;
+    value < 100 - tolerance ? colors.warning : value > 100 + tolerance ? colors.error : colors.primary;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
       <div style={{ position: 'relative', width: size, height: size }}>
         <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={colors.gaugeTrack}
-            strokeWidth={thickness}
-          />
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={colors.gaugeTrack} strokeWidth={thickness} />
           <circle
             cx={size / 2}
             cy={size / 2}
