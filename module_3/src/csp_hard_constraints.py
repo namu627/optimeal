@@ -11,11 +11,14 @@ Soft 모듈(`soft_constraints.py`·`soft_constraints_diversity.py`)과 **동일 
 Hard Constraint (위반 시 식단 무효 — 가능영역 정의). 기준: 제약조건 정의서 H-1~H-4 / FR-11 / ADR-008
   H-1 안전영역 : 배제식품 미사용(H-1a), CCP2 메뉴 끼니당 상한(H-1b)
   H-2 영양기준 : 에너지 ±10%(H-2a, 일 단위) / 탄단지 비율(H-2b, 주 평균) /
-                 당류·첨가당 상한(H-2c, 주 평균) / 필수영양소(H-2d, 일 단위)
+                 당류·첨가당 상한(H-2c, 주 평균) / 필수영양소(H-2d, 일 단위) /
+                 영양소 상한(H-2e, 일 단위 — 나트륨 등 과잉 위험 영양소)
                  · 열량구성비·당류 비율은 정의서 기준 "주 평균" → ratio_window_days(기본 7) 창 단위로 강제.
-                 · 에너지·필수영양소는 하루 총량 기준(일 단위).
+                 · 에너지·필수영양소·영양소 상한은 하루 총량 기준(일 단위).
   H-3 법적표시 : 알레르기 편성 배제 (원산지·표시 자체는 데이터 표기 영역)
   H-4 식단구조 : 반상 유형별 필수 구성(opt-in; menu.category taxonomy 일치 필요)
+                 H-4b 주식 자격 — 주식 슬롯은 탄수화물 주식(밥·면·죽·빵)만
+                 H-4c 메뉴 궁합 — 찌개·전골·탕은 밥류 주식과만 배식
   ★ 식단가(예산): 총 식재료비가 커트라인 초과 시 무조건 아웃. 커트라인 이내 최적화는 Soft.
 ────────────────────────────────────────────────────────────────────────────
 
@@ -37,6 +40,12 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
+# 메뉴 분류(주식 유형·국 유형). 스크립트/패키지 양쪽 실행 지원 — csp_solver 와 동일 규약.
+try:
+    from . import menu_taxonomy as _mt
+except ImportError:  # `python csp_hard_constraints.py` 직접 실행 시
+    import menu_taxonomy as _mt
+
 
 # ===========================================================================
 # 설정 자료구조 — Soft 의 SoftWeights/DiversityWeights 와 동일 위상
@@ -54,6 +63,12 @@ class HardConstraintConfig:
     target_kcal_per_day: float = 2000.0   # H-2a 1일 권장 에너지(kcal)
     kcal_tolerance: float = 0.10          # H-2a 허용 편차 ±10%
     enable_energy: bool = True            # H-2a 활성(calories 항상 존재 → 기본 ON)
+    # H-2a' 끼니별 에너지 배분 (PRD §끼니별 영양 배분: 아침30·점심40·저녁30%)
+    #   len(meal_energy_ratios) == n_meals 이고 enable_energy 일 때만 적용된다.
+    #   끼니 수가 다르면(1끼·2끼 등) 자동 skip → 기존 호출부 동작 불변.
+    meal_energy_ratios: tuple = (0.30, 0.40, 0.30)
+    meal_ratio_tolerance: float = 0.15    # 끼니별 허용 편차 ±15%(일 단위 ±10%보다 느슨)
+    enable_meal_ratio: bool = True
     carb_ratio: tuple = (55.0, 65.0)      # H-2b 탄수화물 55~65%
     protein_ratio: tuple = (7.0, 20.0)    # H-2b 단백질 7~20%
     fat_ratio: tuple = (15.0, 30.0)       # H-2b 지방 15~30%
@@ -62,6 +77,14 @@ class HardConstraintConfig:
     added_sugar_max_ratio: float = 10.0   # H-2c 첨가당 ≤ 총열량 10%
     enable_sugar_limit: bool = False      # H-2c 활성(당류 데이터 필요)
     essential_nutrient_min: dict = field(default_factory=dict)  # H-2d {영양소명: 1일 최소량}(있으면 활성)
+    # H-2e 영양소 1일 상한 {영양소명: 1일 최대량}(있으면 활성). 나트륨 등 **과잉이 위험한** 영양소용.
+    #   예: {"sodium": 2000.0} → 하루 총 나트륨 ≤ 2,000mg (WHO 성인 권고).
+    #   ⚠ 기본값은 비어 있다(미적용). 켜려면 값이 실제로 주입되는 경로에서만 켤 것 —
+    #     nutrient_max_missing='exclude' 기본 정책상 데이터 없이 켜면 전 메뉴가 배제되어 INFEASIBLE.
+    nutrient_max_per_day: dict = field(default_factory=dict)
+    # H-2e 결측 처리 정책. 상한 제약에서 "값 없음"을 0으로 보면 나트륨 0인 메뉴로 둔갑해
+    #   제약이 조용히 무력화된다 → 기본은 배제(exclude). 'zero'는 데이터 완전성이 확인된 경우만.
+    nutrient_max_missing: str = "exclude"  # 'exclude' | 'zero'
     ratio_precision: int = 100            # 비율 분모(퍼센트=100). 1000이면 소수 첫째자리까지 반영.
     ratio_window_days: int = 7            # H-2b·H-2c 비율 적용 창(주 평균=7일). 창 단위 평균 비율을 강제.
 
@@ -75,6 +98,35 @@ class HardConstraintConfig:
     #   ★ 현 확정: 골조의 '주식1·국1·반찬2'를 사용(H-4 비활성 유지). 반상(밥·주찬·부찬·김치)은
     #     반찬→주찬/부찬 세분·김치 태깅 등 데이터 보강 후 이 파라미터로 켠다.
     meal_composition: dict = field(default_factory=dict)
+
+    # ── H-4b 주식 자격 / H-4c 메뉴 궁합 (2026-08-11 영양사 지적) ────
+    #   H-4b: 주식 슬롯에 스프·스테이크 같은 비주식이 들어가는 것을 막는다.
+    #   H-4c: 찌개·전골·탕은 밥류 주식과만 배식한다(국수 + 부대찌개 금지).
+    #   ⚠ 둘 다 **기본 OFF**. 메뉴명 키워드 분류에 의존하므로, 메뉴명이 실제 음식명인
+    #     운영 경로에서만 켠다. mock 픽스처('주식0' 등)에서 켜면 전 메뉴가 비주식으로
+    #     판정되어 INFEASIBLE 이 된다.
+    enable_staple_main: bool = False       # H-4b
+    enable_menu_pairing: bool = False      # H-4c
+    main_category: str = "주식"            # 주식 슬롯 카테고리명
+    soup_category: str = "국"              # 국 슬롯 카테고리명
+
+    # ── 메뉴 중복 회피 (PRD §Soft "3일 이내 재등장 금지"를 강제 창으로 구현) ──
+    #   창(window) 내에서 동일 메뉴를 1회만 허용. 창이 하루 전체 끼니를 포함하므로
+    #   "같은 날 점심·저녁 중복"도 함께 막힌다. 0 이면 미적용.
+    #   추가 변수 없이 선형 제약만 쓰므로 비용이 싸다(|M|×(days-w+1) 제약).
+    menu_repeat_window_days: int = 3
+
+    # ── H-5 영양사 수동 지정 (2026-08-15) ──────────────────────────
+    #   영양사가 특정 메뉴를 손으로 넣거나 빼는 통로. 프론트(모듈4)의 식단 편집 화면이
+    #   쓸 자리이며, 여기서는 **솔버 계약만** 정의한다.
+    #   · exclude_menu_ids: 그 메뉴를 지평 전체에서 배제(0 고정).
+    #   · include_menu_ids: 그 메뉴를 지평 안에 **최소 1회** 편성.
+    #     ⚠ 끼니·날짜를 지정하는 형태가 아니다. (d,s) 고정은 메뉴 중복 창·열량 밴드와
+    #       충돌해 INFEASIBLE 을 만들기 쉬워, 우선 "반드시 한 번은 낸다"만 보장한다.
+    #   · 두 목록에 같은 id 가 들어오면 **배제가 이긴다**(안전한 쪽). 그 사실은
+    #     `conflicting_menu_ids` 로 보고해 사용자가 모르고 지나치지 않게 한다.
+    exclude_menu_ids: set = field(default_factory=set)
+    include_menu_ids: set = field(default_factory=set)
 
     # ── 식단가(예산 커트라인) ──────────────────────────────────────
     budget_limit_per_person: float | None = 3500.0  # None이면 예산 제약 미적용
@@ -92,6 +144,13 @@ class HardConstraint:
     kcal_hi: int = 0                                   # 정수화 칼로리 상한(×SCALE)
     active_terms: dict = field(default_factory=dict)   # {term명: bool}
     excluded_idx: set = field(default_factory=set)     # 편성 배제된 메뉴 인덱스(H-1a·H-3 합산, 리포팅용)
+    # H-2e 상한 적용에 실제로 쓴 값 {영양소명: {메뉴인덱스: 양}} — 리포트가 제약과 같은 수를 보게 한다.
+    nutrient_values: dict = field(default_factory=dict)
+    # H-5 영양사 수동 지정 결과(리포팅용). 요청한 id 가 후보에 아예 없을 수도 있으므로
+    # "요청분"과 "실제로 건 것"을 나눠 둔다 — 조용히 무시되면 영양사가 반영된 줄 안다.
+    forced_idx: set = field(default_factory=set)             # 필수 편성이 걸린 메뉴 인덱스
+    conflicting_menu_ids: set = field(default_factory=set)   # 추가·제거에 동시 지정된 id(배제 우선)
+    unknown_menu_ids: set = field(default_factory=set)       # 후보 목록에 없는 id
 
 
 # ===========================================================================
@@ -112,6 +171,8 @@ def add_hard_constraints(
     sugar_by_idx: dict | None = None,          # {m: g}            H-2c
     added_sugar_by_idx: dict | None = None,    # {m: g}            H-2c
     nutrient_by_idx: dict | None = None,       # {영양소명: {m: 양}} H-2d
+    staple_kind_by_idx: dict | None = None,    # {m: 'rice'|'noodle'|…} H-4b·H-4c
+    soup_kind_by_idx: dict | None = None,      # {m: 'stew'|'soup'}     H-4c
 ) -> HardConstraint:
     """model / x / menus 에 Hard 제약(H-1~H-4 + 예산)을 추가한다.
 
@@ -122,13 +183,18 @@ def add_hard_constraints(
       H-2b 탄단지   : cfg.enable_macro_ratio (데이터 필요 → 기본 False)
       H-2c 당류     : cfg.enable_sugar_limit (데이터 필요 → 기본 False)
       H-2d 필수영양소: cfg.essential_nutrient_min 이 비어있지 않으면 활성
+      H-2e 영양소상한: cfg.nutrient_max_per_day 가 비어있지 않으면 활성(값 주입 필수)
       H-3 알레르기  : cfg.excluded_allergens 가 비어있지 않으면 활성
       H-4 식단구조  : cfg.meal_composition 이 비어있지 않으면 활성(taxonomy 일치 필수)
+      H-4b 주식자격 : cfg.enable_staple_main (메뉴명이 실제 음식명일 때만 켤 것)
+      H-4c 메뉴궁합 : cfg.enable_menu_pairing (동상)
       예산          : cfg.budget_limit_per_person 이 None 이 아니면 활성
 
     값 없는(None) 메뉴 처리(enable 된 제약 한정, 보수적):
       · 합계형 상한(H-2c 당류): 미상 → 0 기여(데이터 완전성 전제).
       · 비율/최소형(H-2b·H-2d): 미상 → 0 기여(하한 위반 유도 가능 → 완전한 데이터에서만 켤 것).
+      · 상한형(H-2e): 미상 → **편성 배제**(cfg.nutrient_max_missing='exclude', 기본).
+        상한에서 미상을 0으로 보면 제약이 조용히 무력화되므로 반대 방향으로 보수적이다.
       · CCP2(H-1b): ccp2_menu_ids/getattr 로 True 인 메뉴만 카운트(미상=비CCP2로 간주).
     """
     cfg = config or HardConstraintConfig()
@@ -143,6 +209,24 @@ def add_hard_constraints(
         if side is not None and m in side:
             return side[m] or 0.0
         return getattr(menus[m], attr, None) or 0.0
+
+    def raw(side, m, attr):
+        """num() 과 달리 **결측(None)을 0으로 뭉개지 않고** 그대로 돌려준다(H-2e 상한용)."""
+        if side is not None and m in side:
+            return side[m]
+        return getattr(menus[m], attr, None)
+
+    def staple_kind(m):
+        """주식 유형. 주입값 우선, 없으면 메뉴명으로 분류(H-4b·H-4c)."""
+        if staple_kind_by_idx is not None and m in staple_kind_by_idx:
+            return staple_kind_by_idx[m]
+        return _mt.classify_staple_kind(getattr(menus[m], "name", "") or "")
+
+    def soup_kind(m):
+        """국 유형(stew=국물 주찬 / soup=일반 국). 주입값 우선(H-4c)."""
+        if soup_kind_by_idx is not None and m in soup_kind_by_idx:
+            return soup_kind_by_idx[m]
+        return _mt.classify_soup_kind(getattr(menus[m], "name", "") or "")
 
     def macro(m, key):
         if macro_by_idx is not None and m in macro_by_idx:
@@ -173,6 +257,30 @@ def add_hard_constraints(
     active["excluded_foods"] = bool(cfg.excluded_foods)
 
     # =======================================================================
+    # H-5 영양사 수동 지정 — 특정 메뉴 배제 / 필수 편성
+    #   메뉴 id 기반이라 메뉴명 오식별(B-5)에 영향받지 않는다.
+    # =======================================================================
+    conflicting = set(cfg.exclude_menu_ids) & set(cfg.include_menu_ids)
+    if cfg.exclude_menu_ids:
+        for m in M:
+            if getattr(menus[m], "menu_id", None) in cfg.exclude_menu_ids:
+                excluded_idx.add(m)
+                ban(m)
+    forced_idx = set()
+    if cfg.include_menu_ids:
+        for m in M:
+            mid = getattr(menus[m], "menu_id", None)
+            if mid in cfg.include_menu_ids and mid not in conflicting:
+                forced_idx.add(m)
+                model.Add(sum(x[m, d, s] for d in D for s in S) >= 1)
+    active["manual_exclude"] = bool(cfg.exclude_menu_ids)
+    active["manual_include"] = bool(forced_idx)
+    # 후보에 없는 id 는 제약이 걸릴 데가 없다 → 조용히 사라지지 않게 모아서 보고한다.
+    known_ids = {getattr(menus[m], "menu_id", None) for m in M}
+    unknown_menu_ids = ((set(cfg.exclude_menu_ids) | set(cfg.include_menu_ids))
+                        - known_ids)
+
+    # =======================================================================
     # H-1b 안전영역 — CCP2 메뉴 끼니당 상한
     # =======================================================================
     ccp2_on = cfg.enable_ccp2 or (ccp2_menu_ids is not None)
@@ -200,6 +308,24 @@ def add_hard_constraints(
             model.Add(day_kcal >= kcal_lo)
             model.Add(day_kcal <= kcal_hi)
     active["energy"] = cfg.enable_energy
+
+    # =======================================================================
+    # H-2a' 영양기준 — 끼니별 에너지 배분 (아침30·점심40·저녁30%)
+    #   끼니 수와 비율 개수가 맞을 때만 적용(1끼·2끼 호출부 보호).
+    # =======================================================================
+    ratios = tuple(cfg.meal_energy_ratios or ())
+    meal_ratio_on = (cfg.enable_energy and cfg.enable_meal_ratio
+                     and len(ratios) == n_meals and n_meals > 1)
+    if meal_ratio_on:
+        for d in D:
+            for s, ratio in zip(S, ratios):
+                target = cfg.target_kcal_per_day * ratio
+                lo = int(target * (1 - cfg.meal_ratio_tolerance) * SCALE)
+                hi = int(target * (1 + cfg.meal_ratio_tolerance) * SCALE)
+                meal_kcal = sum(int(menus[m].calories * SCALE) * x[m, d, s] for m in M)
+                model.Add(meal_kcal >= lo)
+                model.Add(meal_kcal <= hi)
+    active["meal_energy_ratio"] = meal_ratio_on
 
     # =======================================================================
     # H-2b 영양기준 — 탄단지 열량 비율 (탄/단 4kcal·g, 지 9kcal·g) · 주 평균
@@ -249,6 +375,31 @@ def add_hard_constraints(
     active["essential_nutrient"] = bool(cfg.essential_nutrient_min)
 
     # =======================================================================
+    # H-2e 영양기준 — 영양소 1일 상한 (나트륨 등 과잉 위험 영양소)
+    #   Σ_day amount(m)·x ≤ max_amount.  값이 없는 메뉴는 정책에 따라 배제(기본)한다.
+    #   ※ 하한(H-2d)과 반대로, 상한에서 결측을 0으로 두면 "그 영양소가 없는 메뉴"가 되어
+    #     제약을 우회하는 통로가 된다. 그래서 결측은 0이 아니라 배제로 처리한다.
+    # =======================================================================
+    nutrient_values: dict = {}
+    if cfg.nutrient_max_per_day:
+        exclude_missing = (cfg.nutrient_max_missing or "exclude") == "exclude"
+        for nutrient, max_amount in cfg.nutrient_max_per_day.items():
+            side = nutrient_by_idx.get(nutrient) if nutrient_by_idx else None
+            usable = []
+            for m in M:
+                v = raw(side, m, nutrient)
+                if v is None and exclude_missing:
+                    excluded_idx.add(m)
+                    ban(m)
+                    continue
+                usable.append((m, float(v or 0.0)))
+            nutrient_values[nutrient] = dict(usable)
+            for d in D:
+                day_amount = sum(int(v * SCALE) * x[m, d, s] for m, v in usable for s in S)
+                model.Add(day_amount <= int(max_amount * SCALE))
+    active["nutrient_max"] = bool(cfg.nutrient_max_per_day)
+
+    # =======================================================================
     # H-3 법적표시 — 알레르기 편성 배제
     # =======================================================================
     if cfg.excluded_allergens:
@@ -278,6 +429,56 @@ def add_hard_constraints(
     active["meal_composition"] = bool(cfg.meal_composition)
 
     # =======================================================================
+    # H-4b 식단구조 — 주식 슬롯 자격 (탄수화물 주식만)
+    #   '포니언 스프'가 주식 슬롯을 단독으로 채우던 문제(2026-08-11 지적 1)를 막는다.
+    #   DB 재분류(scripts/reclassify_menu_categories.py)와 **이중 방어** — 재분류가
+    #   안 된 DB에서도 솔버 단에서 불가능해야 한다.
+    # =======================================================================
+    if cfg.enable_staple_main:
+        for m in M:
+            if getattr(menus[m], "category", None) != cfg.main_category:
+                continue
+            if staple_kind(m) not in _mt.STAPLE_KINDS:
+                excluded_idx.add(m)
+                ban(m)
+    active["staple_main"] = cfg.enable_staple_main
+
+    # =======================================================================
+    # H-4c 식단구조 — 메뉴 궁합 (찌개·전골·탕은 밥류 주식과만)
+    #   끼니마다 "비밥류 주식"과 "국물 주찬"이 동시에 뽑히지 않게 한다.
+    #   두 합 모두 0/1 이므로 합 ≤ 1 한 줄이면 충분하다(추가 변수 없음).
+    # =======================================================================
+    if cfg.enable_menu_pairing:
+        non_rice = [m for m in M
+                    if getattr(menus[m], "category", None) == cfg.main_category
+                    and staple_kind(m) in _mt.STAPLE_KINDS
+                    and staple_kind(m) != "rice"]
+        stews = [m for m in M
+                 if getattr(menus[m], "category", None) == cfg.soup_category
+                 and soup_kind(m) == _mt.STEW_KIND]
+        if non_rice and stews:
+            for d in D:
+                for s in S:
+                    model.Add(sum(x[m, d, s] for m in non_rice)
+                              + sum(x[m, d, s] for m in stews) <= 1)
+    active["menu_pairing"] = cfg.enable_menu_pairing
+
+    # =======================================================================
+    # 메뉴 중복 회피 — 창(window) 내 동일 메뉴 1회 (PRD "3일 이내 재등장 금지")
+    #   창이 하루의 모든 끼니를 포함하므로 같은 날 점심·저녁 중복도 함께 막힌다.
+    #   days < window 이면 전 기간을 하나의 창으로 본다.
+    # =======================================================================
+    w = int(cfg.menu_repeat_window_days or 0)
+    if w > 0:
+        span = min(w, days)
+        for m in M:
+            for d0 in range(0, days - span + 1):
+                model.Add(
+                    sum(x[m, d, s] for d in range(d0, d0 + span) for s in S) <= 1
+                )
+    active["menu_repeat_window"] = w > 0
+
+    # =======================================================================
     # 식단가(예산) — 커트라인. 초과 식단은 무조건 후보에서 제외(Hard).
     # =======================================================================
     if cfg.budget_limit_per_person is not None:
@@ -294,7 +495,11 @@ def add_hard_constraints(
     active["budget"] = cfg.budget_limit_per_person is not None
 
     return HardConstraint(config=cfg, kcal_lo=kcal_lo, kcal_hi=kcal_hi,
-                          active_terms=active, excluded_idx=excluded_idx)
+                          active_terms=active, excluded_idx=excluded_idx,
+                          nutrient_values=nutrient_values,
+                          forced_idx=forced_idx,
+                          conflicting_menu_ids=conflicting,
+                          unknown_menu_ids=unknown_menu_ids)
 
 
 # ===========================================================================
@@ -317,8 +522,12 @@ def evaluate_hard_breakdown(
 
     per_day = []
     for d in D:
-        kcal = sum(int(menus[m].calories) for m in M for s in S if solver.Value(x[m, d, s]))
-        cost = sum(int(menus[m].cost_won) for m in M for s in S if solver.Value(x[m, d, s]))
+        # ⚠ 접시별 int() 절단 금지 — 제약은 int(값*SCALE)(소수 2자리)로 걸린다.
+        #   접시마다 버리면 하루 접시 수만큼(3끼×4접시=최대 ~12kcal) 과소 집계되어
+        #   제약을 만족한 해가 kcal_ok=False 로 오보된다(2026-08-10 재현·수정).
+        #   집계는 float 로 하고 표시 직전에만 반올림한다.
+        kcal = round(sum(menus[m].calories for m in M for s in S if solver.Value(x[m, d, s])), 1)
+        cost = round(sum(menus[m].cost_won for m in M for s in S if solver.Value(x[m, d, s])))
         per_day.append({
             "day": d + 1,
             "kcal": kcal,
@@ -340,4 +549,133 @@ def evaluate_hard_breakdown(
         "excluded_menu_count": len(hard.excluded_idx),
         "excluded_clean": allergen_clean,   # 배제 대상(배제식품·알레르기) 편성 안 됨
         "active_terms": hard.active_terms,
+        "meal_kcal": _meal_kcal_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "menu_repeat": _repeat_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "nutrient_max": _nutrient_max_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "pairing": _pairing_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+        "manual": _manual_report(solver, x, menus, hard, days=days, n_meals=n_meals),
+    }
+
+
+def _manual_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-5 영양사 수동 지정의 실제 반영 결과.
+
+    "요청했는데 반영 안 됨"이 조용히 지나가지 않게, 후보에 없던 id(`unknown`)와
+    추가·제거 동시 지정(`conflicting`)을 함께 돌려준다.
+    """
+    cfg = hard.config
+    if not (cfg.exclude_menu_ids or cfg.include_menu_ids):
+        return {}
+    placed = {}
+    for m in hard.forced_idx:
+        placed[getattr(menus[m], "menu_id", None)] = sum(
+            int(solver.Value(x[m, d, s])) for d in range(days) for s in range(n_meals))
+    return {
+        "excluded_requested": sorted(cfg.exclude_menu_ids),
+        "included_requested": sorted(cfg.include_menu_ids),
+        "included_placed_counts": placed,
+        "conflicting_menu_ids": sorted(hard.conflicting_menu_ids),
+        "unknown_menu_ids": sorted(i for i in hard.unknown_menu_ids if i is not None),
+        "all_ok": (all(c >= 1 for c in placed.values())
+                   and not hard.conflicting_menu_ids and not hard.unknown_menu_ids),
+    }
+
+
+def _pairing_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-4b·H-4c 실측 — 주식 자격 위반과 부적합 궁합 조합을 끼니 단위로 확인한다."""
+    cfg = hard.config
+    if not (hard.active_terms.get("staple_main") or hard.active_terms.get("menu_pairing")):
+        return {}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    no_staple, bad_pairs = [], []
+    for d in D:
+        for s in S:
+            picked = [m for m in M if solver.Value(x[m, d, s])]
+            staples = [m for m in picked
+                       if getattr(menus[m], "category", None) == cfg.main_category]
+            kinds = [_mt.classify_staple_kind(menus[m].name) for m in staples]
+            if staples and not any(k in _mt.STAPLE_KINDS for k in kinds):
+                no_staple.append({"day": d + 1, "meal_index": s,
+                                  "menus": [menus[m].name for m in staples]})
+            soups = [m for m in picked
+                     if getattr(menus[m], "category", None) == cfg.soup_category]
+            for sm in staples:
+                sk = _mt.classify_staple_kind(menus[sm].name)
+                for so in soups:
+                    ok = _mt.is_compatible(sk, _mt.classify_soup_kind(menus[so].name))
+                    if not ok:
+                        bad_pairs.append({"day": d + 1, "meal_index": s,
+                                          "staple": menus[sm].name, "soup": menus[so].name})
+    return {
+        "meals_without_staple": no_staple,
+        "incompatible_pairs": bad_pairs,
+        "all_ok": not no_staple and not bad_pairs,
+    }
+
+
+def _nutrient_max_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """H-2e 영양소 일 상한 실측 — {영양소: {limit, per_day:[{day, amount, ok}], max_day}}.
+
+    ⚠ 제약이 쓴 값(hard.nutrient_values)을 그대로 재사용한다. 리포트가 DB를 다시 조회해
+      다른 값을 쓰면 정상 식단이 위반으로 보일 수 있다(2026-08-10 칼로리 절단 사례와 동종).
+    """
+    if not hard.active_terms.get("nutrient_max"):
+        return {}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    out = {}
+    for nutrient, limit in hard.config.nutrient_max_per_day.items():
+        vals = hard.nutrient_values.get(nutrient, {})
+        per_day = []
+        for d in D:
+            amount = sum(vals.get(m, 0.0) for m in M for s in S if solver.Value(x[m, d, s]))
+            per_day.append({"day": d + 1, "amount": round(amount, 1), "ok": amount <= limit})
+        out[nutrient] = {
+            "limit": limit,
+            "per_day": per_day,
+            "max_day": max((i["amount"] for i in per_day), default=0.0),
+            "all_ok": all(i["ok"] for i in per_day),
+        }
+    return out
+
+
+def _meal_kcal_report(solver, x, menus, hard, *, days, n_meals) -> list:
+    """끼니별 kcal 과 목표 밴드 준수 여부(H-2a')를 요약한다."""
+    cfg = hard.config
+    if not hard.active_terms.get("meal_energy_ratio"):
+        return []
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    out = []
+    for d in D:
+        for s, ratio in zip(S, cfg.meal_energy_ratios):
+            kcal = round(sum(menus[m].calories for m in M if solver.Value(x[m, d, s])), 1)
+            target = cfg.target_kcal_per_day * ratio
+            lo = target * (1 - cfg.meal_ratio_tolerance)
+            hi = target * (1 + cfg.meal_ratio_tolerance)
+            out.append({"day": d + 1, "meal_index": s, "kcal": kcal,
+                        "target": round(target, 1), "ok": lo <= kcal <= hi})
+    return out
+
+
+def _repeat_report(solver, x, menus, hard, *, days, n_meals) -> dict:
+    """메뉴 중복 실측 — 창 제약이 실제로 지켜졌는지 확인한다."""
+    if not hard.active_terms.get("menu_repeat_window"):
+        return {"window_days": 0, "violations": [], "max_same_menu_count": None}
+    M, D, S = range(len(menus)), range(days), range(n_meals)
+    placed: dict[int, list] = {}
+    for m in M:
+        for d in D:
+            for s in S:
+                if solver.Value(x[m, d, s]):
+                    placed.setdefault(m, []).append(d)
+    span = min(int(hard.config.menu_repeat_window_days), days)
+    violations = []
+    for m, ds in placed.items():
+        ds.sort()
+        for a, b in zip(ds, ds[1:]):
+            if b - a < span:
+                violations.append({"menu": menus[m].name, "days": [a + 1, b + 1]})
+    return {
+        "window_days": span,
+        "violations": violations,
+        "max_same_menu_count": max((len(v) for v in placed.values()), default=0),
     }

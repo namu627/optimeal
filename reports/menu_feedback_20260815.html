@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OptiMeal 영양사 피드백 — 2026-08-15</title>
+<style>
+:root{--fg:#1a1a1a;--mut:#666;--line:#d9d9d9;--ok:#0a7d3c;--bad:#c0392b;
+--accent:#1c5fa8;--bg:#fff;--card:#fafafa;--warn:#fff8e1}
+*{box-sizing:border-box}
+body{margin:0;padding:28px 18px 80px;font-family:-apple-system,'Apple SD Gothic Neo',
+'Malgun Gothic',sans-serif;color:var(--fg);background:var(--bg);line-height:1.65}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:1.55rem;margin:0 0 6px}
+h2{font-size:1.15rem;margin:34px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--fg)}
+h3{font-size:1rem;margin:22px 0 8px;color:var(--accent)}
+.meta{color:var(--mut);font-size:.85rem;margin-bottom:18px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;
+padding:14px 16px;margin:12px 0}
+.box.warn{background:var(--warn);border-color:#e6c65c}
+.src{color:var(--mut);font-size:.82rem;margin:2px 0 10px}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0;
+background:var(--card)}
+.cardhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.kc{color:var(--mut);font-size:.82rem}
+.dishes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
+border-radius:999px;padding:5px 11px;background:#fff;font-size:.9rem;cursor:pointer}
+.chip:has(input:checked){border-color:var(--bad);background:#fdecea;color:var(--bad);
+font-weight:600}
+.chip .cat{color:var(--mut);font-size:.75rem}
+.chip:has(input:checked) .cat{color:var(--bad)}
+.ask{margin:8px 0;display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.ask.small{font-size:.85rem;color:var(--mut);display:block}
+.ask .q{font-weight:600}
+label{cursor:pointer}
+textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:6px;
+padding:7px 9px;font:inherit;font-size:.9rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:8px 0}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#f2f4f7}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.chk td label{margin-right:12px;white-space:nowrap}
+.tag{background:#eef2f7;border-radius:4px;padding:1px 6px;font-size:.8rem}
+.q-block{border-left:4px solid var(--accent);padding:10px 14px;margin:14px 0;
+background:var(--card)}
+.q-block .opts{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.evi{color:var(--mut);font-size:.85rem;margin-top:6px}
+.rubric td.sc{text-align:center}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
+padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:center;
+box-shadow:0 -2px 10px rgba(0,0,0,.06)}
+button{font:inherit;font-size:.92rem;padding:9px 16px;border-radius:7px;
+border:1px solid var(--accent);
+background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:#fff;color:var(--accent)}
+#status{color:var(--mut);font-size:.85rem}
+.addrow{margin-top:8px}
+@media print{
+  .bar{display:none}
+  body{padding:0}
+  .card{break-inside:avoid}
+}
+</style></head>
+<body data-form-id="2026-08-15"><div class="wrap">
+
+<h1>OptiMeal 영양사 피드백</h1>
+<div class="meta">생성일 2026-08-15 · 폼 버전 1.0 ·
+후보 메뉴 960종 · 평가 대상 12끼니</div>
+
+<div class="box"><b>부탁드리는 것</b><br>
+시스템이 자동으로 짠 식단입니다. <b>영양 계산과 제약 준수는 기계가 이미 확인</b>했습니다
+(열량·나트륨·중복·구성). 저희가 판단할 수 없어 여쭙는 것은 <b>맛·조리 현실성·메뉴 궁합</b>
+처럼 현장 경험이 있어야 아는 부분입니다.<br><br>
+<b>작성한 내용은 자동 저장</b>되니 중간에 닫으셔도 됩니다. 다 쓰신 뒤 아래
+<b>[답변 파일 저장]</b>을 누르면 파일 하나가 만들어집니다. 그 파일만 보내 주시면 됩니다.
+</div>
+
+<div class="box">
+<b>작성자</b><br>
+<table><tr>
+<td>성함 <input type="text" data-reviewer="name" id="rv-name"></td>
+<td>소속(업장) <input type="text" data-reviewer="site" id="rv-site"></td>
+<td>경력(년) <input type="text" data-reviewer="years" id="rv-years"></td>
+</tr></table>
+</div>
+
+<h2>1. 결정을 부탁드리는 것 (4건)</h2>
+<p>아래는 <b>저희가 임의로 정할 수 없는</b> 사항입니다. 데이터가 가리키는 방향을 함께
+적었으니, 현장 기준으로 정해 주십시오.</p>
+
+<div class="q-block">
+<b>Q1. 빵·면 끼니에도 김치를 넣어야 합니까?</b>
+<div class="opts">
+<label><input type="radio" name="q1" data-kind="decision" data-q="kimchi_by_staple"
+  value="keep_all"> (a) 지금처럼 <b>모든 끼니에 김치 1개</b>를 넣는다</label>
+<label><input type="radio" name="q1" data-kind="decision" data-q="kimchi_by_staple"
+  value="conditional"> (b) <b>밥·죽만 필수</b>, 빵·면은 넣어도 되고 안 넣어도 된다</label>
+</div>
+<div class="evi">실제 학교 급식 15,250끼니에서 김치 편성률: 밥 91.8% · 죽 99.0% · 면 71.5% · <b>빵 47.5%</b>.
+자료는 (b)를 가리키지만, 이전에 "김치 1개"로 확정해 주신 사항이라 임의로 바꾸지
+않았습니다. 지금은 클럽 샌드위치에도 배물김치가 붙습니다.</div>
+</div>
+
+<div class="q-block">
+<b>Q2. 나트륨 상한을 이 값으로 두어도 됩니까?</b>
+<table><thead><tr><th>대상</th><th>1일 열량(kcal)</th><th>1일 나트륨 상한(mg)</th></tr>
+</thead><tbody><tr><td>중학교(혼성)</td><td class='num'>2,250</td><td class='num'>2,300</td></tr><tr><td>노인 65~74세(혼성)</td><td class='num'>1,800</td><td class='num'>1,900</td></tr></tbody></table>
+<div class="opts">
+<label><input type="radio" name="q2" data-kind="decision" data-q="sodium_limit"
+  value="as_is"> 이대로 좋다</label>
+<label><input type="radio" name="q2" data-kind="decision" data-q="sodium_limit"
+  value="lower"> 더 낮춰야 한다</label>
+<label><input type="radio" name="q2" data-kind="decision" data-q="sodium_limit"
+  value="higher"> 이 값으로는 맛이 안 난다 (올려야 한다)</label>
+</div>
+<input type="text" data-kind="decision-note" data-q="sodium_limit" id="q2note"
+  placeholder="바꿔야 한다면 몇 mg 이 적당한지, 그렇게 보시는 이유">
+<div class="evi">2025 한국인 영양소 섭취기준의 만성질환위험감소섭취량(CDRR)입니다.
+1식만 급식하는 경우 이 값의 40%를 상한으로 씁니다.
+<b>맛·간이 급식으로 성립하는 하한선</b>을 같이 봐 주시면 좋겠습니다.</div>
+</div>
+
+<div class="q-block">
+<b>Q3. 한 끼에 같은 조리법이 겹치는 것을 어느 정도로 피해야 합니까?</b>
+<table class="chk"><thead><tr><th>조리법</th>
+<th>실제 급식에서<br>같이 나오는 정도</th><th>현재 감점</th>
+<th>한 끼에 2접시 이상이면?</th></tr></thead><tbody><tr><td>조림</td><td class='num'>0.40</td><td class='num'>-9</td><td><label><input type='radio' name='m-조림' data-kind='method' data-method='조림' value='keep' checked> 적절</label><label><input type='radio' name='m-조림' data-kind='method' data-method='조림' value='stronger'> 더 강하게</label><label><input type='radio' name='m-조림' data-kind='method' data-method='조림' value='weaker'> 더 약하게</label><label><input type='radio' name='m-조림' data-kind='method' data-method='조림' value='off'> 상관없음</label></td></tr><tr><td>무침</td><td class='num'>0.47</td><td class='num'>-8</td><td><label><input type='radio' name='m-무침' data-kind='method' data-method='무침' value='keep' checked> 적절</label><label><input type='radio' name='m-무침' data-kind='method' data-method='무침' value='stronger'> 더 강하게</label><label><input type='radio' name='m-무침' data-kind='method' data-method='무침' value='weaker'> 더 약하게</label><label><input type='radio' name='m-무침' data-kind='method' data-method='무침' value='off'> 상관없음</label></td></tr><tr><td>찜</td><td class='num'>0.51</td><td class='num'>-7</td><td><label><input type='radio' name='m-찜' data-kind='method' data-method='찜' value='keep' checked> 적절</label><label><input type='radio' name='m-찜' data-kind='method' data-method='찜' value='stronger'> 더 강하게</label><label><input type='radio' name='m-찜' data-kind='method' data-method='찜' value='weaker'> 더 약하게</label><label><input type='radio' name='m-찜' data-kind='method' data-method='찜' value='off'> 상관없음</label></td></tr><tr><td>구이</td><td class='num'>0.54</td><td class='num'>-6</td><td><label><input type='radio' name='m-구이' data-kind='method' data-method='구이' value='keep' checked> 적절</label><label><input type='radio' name='m-구이' data-kind='method' data-method='구이' value='stronger'> 더 강하게</label><label><input type='radio' name='m-구이' data-kind='method' data-method='구이' value='weaker'> 더 약하게</label><label><input type='radio' name='m-구이' data-kind='method' data-method='구이' value='off'> 상관없음</label></td></tr><tr><td>볶음</td><td class='num'>0.86</td><td class='num'>-2</td><td><label><input type='radio' name='m-볶음' data-kind='method' data-method='볶음' value='keep' checked> 적절</label><label><input type='radio' name='m-볶음' data-kind='method' data-method='볶음' value='stronger'> 더 강하게</label><label><input type='radio' name='m-볶음' data-kind='method' data-method='볶음' value='weaker'> 더 약하게</label><label><input type='radio' name='m-볶음' data-kind='method' data-method='볶음' value='off'> 상관없음</label></td></tr><tr><td>튀김</td><td class='num'>0.79</td><td class='num'>-2</td><td><label><input type='radio' name='m-튀김' data-kind='method' data-method='튀김' value='keep' checked> 적절</label><label><input type='radio' name='m-튀김' data-kind='method' data-method='튀김' value='stronger'> 더 강하게</label><label><input type='radio' name='m-튀김' data-kind='method' data-method='튀김' value='weaker'> 더 약하게</label><label><input type='radio' name='m-튀김' data-kind='method' data-method='튀김' value='off'> 상관없음</label></td></tr></tbody></table>
+<div class="evi">"실제 급식에서 같이 나오는 정도"는 학교 급식 자료에서 센 값입니다
+(1보다 작으면 현장에서 피하는 경향). 현재 이 정도로 감점하고 있는데, 강도가 맞는지
+봐 주십시오. <b>끓이기·부침은 자료가 적어 아직 막지 않습니다.</b></div>
+</div>
+
+<div class="q-block">
+<b>Q4. 반찬 개수(주찬 1 · 부찬 2~3)가 맞습니까?</b>
+<div class="opts">
+<label><input type="radio" name="q4" data-kind="decision" data-q="composition"
+  value="ok"> 적절하다</label>
+<label><input type="radio" name="q4" data-kind="decision" data-q="composition"
+  value="change"> 바꿔야 한다</label>
+</div>
+<input type="text" data-kind="decision-note" data-q="composition" id="q4note"
+  placeholder="바꾼다면 어떻게 (예: 부찬 2개 고정 / 주찬 2개 필요)">
+</div>
+
+<h2>2. 끼니별로 봐 주십시오</h2>
+<p>각 끼니가 <b>현장에서 그대로 낼 수 있는지</b>와, 그 안에 <b>서로 안 어울리는 메뉴</b>가
+있는지 표시해 주십시오. 체크하신 조합은 그대로 금지 규칙 후보가 됩니다.</p>
+<h3>중학교(혼성) · 점심 (755kcal · 나트륨 ≤920mg)</h3><p class='src'>기준 근거: 학교급식법 [별표3] 1식 기준</p>
+<div class="card" data-meal="middle_mix-1-점심">
+  <div class="cardhead"><b>1일차 점심</b>
+    <span class="kc">733kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='무 현미밥'>무 현미밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='홍합 배춧국'>홍합 배춧국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='L..A갈비구이'>L..A갈비구이<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='검은콩피시볼조림'>검은콩피시볼조림<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='고구마순나물'>고구마순나물<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-1-점심' value='배추겉절이'>배추겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-middle_mix-1-점심" data-kind="verdict"
+      data-meal="middle_mix-1-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-middle_mix-1-점심" data-kind="verdict"
+      data-meal="middle_mix-1-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-middle_mix-1-점심" data-kind="verdict"
+      data-meal="middle_mix-1-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="middle_mix-1-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="middle_mix-2-점심">
+  <div class="cardhead"><b>2일차 점심</b>
+    <span class="kc">822kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='봄나물밥'>봄나물밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='된장냉국'>된장냉국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='두부튀김&amp;무소스'>두부튀김&amp;무소스<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='얼갈이 무침'>얼갈이 무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='초계탕과 사색곤약'>초계탕과 사색곤약<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-2-점심' value='과일겉절이'>과일겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-middle_mix-2-점심" data-kind="verdict"
+      data-meal="middle_mix-2-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-middle_mix-2-점심" data-kind="verdict"
+      data-meal="middle_mix-2-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-middle_mix-2-점심" data-kind="verdict"
+      data-meal="middle_mix-2-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="middle_mix-2-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="middle_mix-3-점심">
+  <div class="cardhead"><b>3일차 점심</b>
+    <span class="kc">777kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='산나물 유부초밥'>산나물 유부초밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='미역 미소국'>미역 미소국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='장어수육구이'>장어수육구이<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='버섯 두유 소스 볶음'>버섯 두유 소스 볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='부추 배무침'>부추 배무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='middle_mix-3-점심' value='무염 겉절이'>무염 겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-middle_mix-3-점심" data-kind="verdict"
+      data-meal="middle_mix-3-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-middle_mix-3-점심" data-kind="verdict"
+      data-meal="middle_mix-3-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-middle_mix-3-점심" data-kind="verdict"
+      data-meal="middle_mix-3-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="middle_mix-3-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div><h3>노인 65~74세(혼성) · 아침/점심/저녁 (1,800kcal · 나트륨 ≤1,900mg)</h3><p class='src'>기준 근거: 파생(남녀 1:1 평균) 1일 기준 × 끼니비율 1.00</p>
+<div class="card" data-meal="senior_mix-1-아침">
+  <div class="cardhead"><b>1일차 아침</b>
+    <span class="kc">1761kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='무 현미밥'>무 현미밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='꽃게바지락찌개'>꽃게바지락찌개<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='컬리플라워소스 광어스테이크'>컬리플라워소스 광어스테이크<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='겨자 오이고추소박이'>겨자 오이고추소박이<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='콩나물부추볶음'>콩나물부추볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-아침' value='무염 겉절이'>무염 겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-1-아침" data-kind="verdict"
+      data-meal="senior_mix-1-아침" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-아침" data-kind="verdict"
+      data-meal="senior_mix-1-아침" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-아침" data-kind="verdict"
+      data-meal="senior_mix-1-아침" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-1-아침"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-1-점심">
+  <div class="cardhead"><b>1일차 점심</b>
+    <span class="kc">1761kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='죽순콩나물밥'>죽순콩나물밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='바지락맑은국'>바지락맑은국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='고기완두조림'>고기완두조림<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='가지볶음'>가지볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='고구마순나물'>고구마순나물<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='단호박 마전'>단호박 마전<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-점심' value='통배추 겉절이'>통배추 겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-1-점심" data-kind="verdict"
+      data-meal="senior_mix-1-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-점심" data-kind="verdict"
+      data-meal="senior_mix-1-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-점심" data-kind="verdict"
+      data-meal="senior_mix-1-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-1-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-1-저녁">
+  <div class="cardhead"><b>1일차 저녁</b>
+    <span class="kc">1761kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='귀리죽'>귀리죽<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='홍합 배춧국'>홍합 배춧국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='부추조개살 콩비지조림'>부추조개살 콩비지조림<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='달래두부김치무침'>달래두부김치무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='만가닥버섯볶음'>만가닥버섯볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='무오색쌈'>무오색쌈<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-1-저녁' value='배추겉절이'>배추겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-1-저녁" data-kind="verdict"
+      data-meal="senior_mix-1-저녁" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-저녁" data-kind="verdict"
+      data-meal="senior_mix-1-저녁" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-1-저녁" data-kind="verdict"
+      data-meal="senior_mix-1-저녁" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-1-저녁"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-2-아침">
+  <div class="cardhead"><b>2일차 아침</b>
+    <span class="kc">1942kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='근채류주먹밥'>근채류주먹밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='닭곰탕'>닭곰탕<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='안심스테이크'>안심스테이크<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='김치양배추볶음'>김치양배추볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='유부초절임'>유부초절임<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='토마토제철나물 샐러드'>토마토제철나물 샐러드<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-아침' value='고추김치'>고추김치<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-2-아침" data-kind="verdict"
+      data-meal="senior_mix-2-아침" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-아침" data-kind="verdict"
+      data-meal="senior_mix-2-아침" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-아침" data-kind="verdict"
+      data-meal="senior_mix-2-아침" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-2-아침"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-2-점심">
+  <div class="cardhead"><b>2일차 점심</b>
+    <span class="kc">1942kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='참나물페스토 파스타'>참나물페스토 파스타<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='된장국'>된장국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='영양 달걀찜'>영양 달걀찜<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='모둠채소 수제피클'>모둠채소 수제피클<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='아욱 된장무침'>아욱 된장무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-점심' value='과일겉절이'>과일겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-2-점심" data-kind="verdict"
+      data-meal="senior_mix-2-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-점심" data-kind="verdict"
+      data-meal="senior_mix-2-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-점심" data-kind="verdict"
+      data-meal="senior_mix-2-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-2-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-2-저녁">
+  <div class="cardhead"><b>2일차 저녁</b>
+    <span class="kc">1942kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='봄나물밥'>봄나물밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='배추된장국'>배추된장국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='유자 대구조림'>유자 대구조림<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='비트무절임'>비트무절임<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='오이 짱아지 무침'>오이 짱아지 무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-2-저녁' value='더덕얼갈이겉절이'>더덕얼갈이겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-2-저녁" data-kind="verdict"
+      data-meal="senior_mix-2-저녁" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-저녁" data-kind="verdict"
+      data-meal="senior_mix-2-저녁" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-2-저녁" data-kind="verdict"
+      data-meal="senior_mix-2-저녁" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-2-저녁"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-3-아침">
+  <div class="cardhead"><b>3일차 아침</b>
+    <span class="kc">1886kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='주꾸미보리죽'>주꾸미보리죽<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='된장냉국'>된장냉국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='낙지모듬초말이'>낙지모듬초말이<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='곤약잡채'>곤약잡채<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='톳나물 두부무침'>톳나물 두부무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-아침' value='배물김치'>배물김치<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-3-아침" data-kind="verdict"
+      data-meal="senior_mix-3-아침" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-아침" data-kind="verdict"
+      data-meal="senior_mix-3-아침" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-아침" data-kind="verdict"
+      data-meal="senior_mix-3-아침" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-3-아침"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-3-점심">
+  <div class="cardhead"><b>3일차 점심</b>
+    <span class="kc">1886kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='현미 고구마 아란치니'>현미 고구마 아란치니<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='버섯 들깨탕'>버섯 들깨탕<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='함박스테이크&amp;토마토카레소스'>함박스테이크&amp;토마토카레소스<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='우엉들깨무침'>우엉들깨무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='팽이버섯 야채볶음'>팽이버섯 야채볶음<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-점심' value='저염 겉절이'>저염 겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-3-점심" data-kind="verdict"
+      data-meal="senior_mix-3-점심" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-점심" data-kind="verdict"
+      data-meal="senior_mix-3-점심" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-점심" data-kind="verdict"
+      data-meal="senior_mix-3-점심" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-3-점심"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+<div class="card" data-meal="senior_mix-3-저녁">
+  <div class="cardhead"><b>3일차 저녁</b>
+    <span class="kc">1886kcal/일</span></div>
+  <div class="dishes"><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='봄나물주먹밥'>봄나물주먹밥<span class='cat'>주식</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='감자미역국'>감자미역국<span class='cat'>국</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='버섯 굴소스 볶음'>버섯 굴소스 볶음<span class='cat'>주찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='순두부 사과 소스 오이무침'>순두부 사과 소스 오이무침<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='야채 과일 돌구이'>야채 과일 돌구이<span class='cat'>부찬</span></label><label class='chip'><input type='checkbox' data-kind='badpair' data-meal='senior_mix-3-저녁' value='상추 겉절이'>상추 겉절이<span class='cat'>김치</span></label></div>
+  <div class="ask">
+    <span class="q">이 끼니, 현장에서 이대로 낼 수 있습니까?</span>
+    <label><input type="radio" name="v-senior_mix-3-저녁" data-kind="verdict"
+      data-meal="senior_mix-3-저녁" value="ok"> 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-저녁" data-kind="verdict"
+      data-meal="senior_mix-3-저녁" value="fix"> 수정하면 가능</label>
+    <label><input type="radio" name="v-senior_mix-3-저녁" data-kind="verdict"
+      data-meal="senior_mix-3-저녁" value="reject"> 부적합</label>
+  </div>
+  <div class="ask small">위 메뉴 중 <b>서로 어울리지 않는 것</b>에 체크해 주세요
+    (체크한 것들이 한 끼에 같이 나오면 안 된다는 뜻으로 받습니다).</div>
+  <textarea rows="2" data-kind="note" data-meal="senior_mix-3-저녁"
+    placeholder="수정이 필요하다면 무엇을 어떻게 (예: 국이 너무 짜다 / 조리 동선이 겹친다)"></textarea>
+</div>
+
+<h2>3. 메뉴 분류가 맞습니까</h2>
+<p>메뉴 이름만 보고 자동 분류한 것이라 <b>주찬/부찬 경계</b>가 현장 감각과 다를 수 있습니다.
+아래는 위 식단에 실제로 나온 메뉴입니다.</p>
+<table class="chk"><thead><tr><th>메뉴</th><th>현재 분류</th>
+<th>맞습니까? 아니면 무엇입니까</th></tr></thead><tbody>
+<tr><td>L..A갈비구이</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-0" data-kind="cat" data-menu="L..A갈비구이"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-0" data-kind="cat" data-menu="L..A갈비구이"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-0" data-kind="cat" data-menu="L..A갈비구이"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-0" data-kind="cat" data-menu="L..A갈비구이"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>가지볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-1" data-kind="cat" data-menu="가지볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-1" data-kind="cat" data-menu="가지볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-1" data-kind="cat" data-menu="가지볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-1" data-kind="cat" data-menu="가지볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>검은콩피시볼조림</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-2" data-kind="cat" data-menu="검은콩피시볼조림"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-2" data-kind="cat" data-menu="검은콩피시볼조림"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-2" data-kind="cat" data-menu="검은콩피시볼조림"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-2" data-kind="cat" data-menu="검은콩피시볼조림"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>겨자 오이고추소박이</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-3" data-kind="cat" data-menu="겨자 오이고추소박이"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-3" data-kind="cat" data-menu="겨자 오이고추소박이"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-3" data-kind="cat" data-menu="겨자 오이고추소박이"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-3" data-kind="cat" data-menu="겨자 오이고추소박이"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>고구마순나물</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-4" data-kind="cat" data-menu="고구마순나물"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-4" data-kind="cat" data-menu="고구마순나물"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-4" data-kind="cat" data-menu="고구마순나물"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-4" data-kind="cat" data-menu="고구마순나물"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>고기완두조림</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-5" data-kind="cat" data-menu="고기완두조림"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-5" data-kind="cat" data-menu="고기완두조림"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-5" data-kind="cat" data-menu="고기완두조림"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-5" data-kind="cat" data-menu="고기완두조림"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>고추김치</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-6" data-kind="cat" data-menu="고추김치"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-6" data-kind="cat" data-menu="고추김치"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-6" data-kind="cat" data-menu="고추김치"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-6" data-kind="cat" data-menu="고추김치"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>곤약잡채</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-7" data-kind="cat" data-menu="곤약잡채"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-7" data-kind="cat" data-menu="곤약잡채"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-7" data-kind="cat" data-menu="곤약잡채"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-7" data-kind="cat" data-menu="곤약잡채"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>과일겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-8" data-kind="cat" data-menu="과일겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-8" data-kind="cat" data-menu="과일겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-8" data-kind="cat" data-menu="과일겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-8" data-kind="cat" data-menu="과일겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>김치양배추볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-9" data-kind="cat" data-menu="김치양배추볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-9" data-kind="cat" data-menu="김치양배추볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-9" data-kind="cat" data-menu="김치양배추볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-9" data-kind="cat" data-menu="김치양배추볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>낙지모듬초말이</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-10" data-kind="cat" data-menu="낙지모듬초말이"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-10" data-kind="cat" data-menu="낙지모듬초말이"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-10" data-kind="cat" data-menu="낙지모듬초말이"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-10" data-kind="cat" data-menu="낙지모듬초말이"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>단호박 마전</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-11" data-kind="cat" data-menu="단호박 마전"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-11" data-kind="cat" data-menu="단호박 마전"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-11" data-kind="cat" data-menu="단호박 마전"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-11" data-kind="cat" data-menu="단호박 마전"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>달래두부김치무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-12" data-kind="cat" data-menu="달래두부김치무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-12" data-kind="cat" data-menu="달래두부김치무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-12" data-kind="cat" data-menu="달래두부김치무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-12" data-kind="cat" data-menu="달래두부김치무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>더덕얼갈이겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-13" data-kind="cat" data-menu="더덕얼갈이겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-13" data-kind="cat" data-menu="더덕얼갈이겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-13" data-kind="cat" data-menu="더덕얼갈이겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-13" data-kind="cat" data-menu="더덕얼갈이겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>두부튀김&amp;무소스</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-14" data-kind="cat" data-menu="두부튀김&amp;무소스"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-14" data-kind="cat" data-menu="두부튀김&amp;무소스"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-14" data-kind="cat" data-menu="두부튀김&amp;무소스"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-14" data-kind="cat" data-menu="두부튀김&amp;무소스"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>만가닥버섯볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-15" data-kind="cat" data-menu="만가닥버섯볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-15" data-kind="cat" data-menu="만가닥버섯볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-15" data-kind="cat" data-menu="만가닥버섯볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-15" data-kind="cat" data-menu="만가닥버섯볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>모둠채소 수제피클</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-16" data-kind="cat" data-menu="모둠채소 수제피클"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-16" data-kind="cat" data-menu="모둠채소 수제피클"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-16" data-kind="cat" data-menu="모둠채소 수제피클"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-16" data-kind="cat" data-menu="모둠채소 수제피클"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>무염 겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-17" data-kind="cat" data-menu="무염 겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-17" data-kind="cat" data-menu="무염 겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-17" data-kind="cat" data-menu="무염 겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-17" data-kind="cat" data-menu="무염 겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>무오색쌈</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-18" data-kind="cat" data-menu="무오색쌈"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-18" data-kind="cat" data-menu="무오색쌈"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-18" data-kind="cat" data-menu="무오색쌈"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-18" data-kind="cat" data-menu="무오색쌈"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>배물김치</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-19" data-kind="cat" data-menu="배물김치"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-19" data-kind="cat" data-menu="배물김치"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-19" data-kind="cat" data-menu="배물김치"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-19" data-kind="cat" data-menu="배물김치"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>배추겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-20" data-kind="cat" data-menu="배추겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-20" data-kind="cat" data-menu="배추겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-20" data-kind="cat" data-menu="배추겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-20" data-kind="cat" data-menu="배추겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>버섯 굴소스 볶음</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-21" data-kind="cat" data-menu="버섯 굴소스 볶음"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-21" data-kind="cat" data-menu="버섯 굴소스 볶음"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-21" data-kind="cat" data-menu="버섯 굴소스 볶음"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-21" data-kind="cat" data-menu="버섯 굴소스 볶음"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>버섯 두유 소스 볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-22" data-kind="cat" data-menu="버섯 두유 소스 볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-22" data-kind="cat" data-menu="버섯 두유 소스 볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-22" data-kind="cat" data-menu="버섯 두유 소스 볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-22" data-kind="cat" data-menu="버섯 두유 소스 볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>부추 배무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-23" data-kind="cat" data-menu="부추 배무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-23" data-kind="cat" data-menu="부추 배무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-23" data-kind="cat" data-menu="부추 배무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-23" data-kind="cat" data-menu="부추 배무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>부추조개살 콩비지조림</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-24" data-kind="cat" data-menu="부추조개살 콩비지조림"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-24" data-kind="cat" data-menu="부추조개살 콩비지조림"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-24" data-kind="cat" data-menu="부추조개살 콩비지조림"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-24" data-kind="cat" data-menu="부추조개살 콩비지조림"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>비트무절임</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-25" data-kind="cat" data-menu="비트무절임"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-25" data-kind="cat" data-menu="비트무절임"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-25" data-kind="cat" data-menu="비트무절임"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-25" data-kind="cat" data-menu="비트무절임"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>상추 겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-26" data-kind="cat" data-menu="상추 겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-26" data-kind="cat" data-menu="상추 겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-26" data-kind="cat" data-menu="상추 겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-26" data-kind="cat" data-menu="상추 겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>순두부 사과 소스 오이무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-27" data-kind="cat" data-menu="순두부 사과 소스 오이무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-27" data-kind="cat" data-menu="순두부 사과 소스 오이무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-27" data-kind="cat" data-menu="순두부 사과 소스 오이무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-27" data-kind="cat" data-menu="순두부 사과 소스 오이무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>아욱 된장무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-28" data-kind="cat" data-menu="아욱 된장무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-28" data-kind="cat" data-menu="아욱 된장무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-28" data-kind="cat" data-menu="아욱 된장무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-28" data-kind="cat" data-menu="아욱 된장무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>안심스테이크</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-29" data-kind="cat" data-menu="안심스테이크"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-29" data-kind="cat" data-menu="안심스테이크"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-29" data-kind="cat" data-menu="안심스테이크"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-29" data-kind="cat" data-menu="안심스테이크"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>야채 과일 돌구이</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-30" data-kind="cat" data-menu="야채 과일 돌구이"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-30" data-kind="cat" data-menu="야채 과일 돌구이"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-30" data-kind="cat" data-menu="야채 과일 돌구이"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-30" data-kind="cat" data-menu="야채 과일 돌구이"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>얼갈이 무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-31" data-kind="cat" data-menu="얼갈이 무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-31" data-kind="cat" data-menu="얼갈이 무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-31" data-kind="cat" data-menu="얼갈이 무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-31" data-kind="cat" data-menu="얼갈이 무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>영양 달걀찜</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-32" data-kind="cat" data-menu="영양 달걀찜"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-32" data-kind="cat" data-menu="영양 달걀찜"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-32" data-kind="cat" data-menu="영양 달걀찜"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-32" data-kind="cat" data-menu="영양 달걀찜"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>오이 짱아지 무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-33" data-kind="cat" data-menu="오이 짱아지 무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-33" data-kind="cat" data-menu="오이 짱아지 무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-33" data-kind="cat" data-menu="오이 짱아지 무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-33" data-kind="cat" data-menu="오이 짱아지 무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>우엉들깨무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-34" data-kind="cat" data-menu="우엉들깨무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-34" data-kind="cat" data-menu="우엉들깨무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-34" data-kind="cat" data-menu="우엉들깨무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-34" data-kind="cat" data-menu="우엉들깨무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>유부초절임</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-35" data-kind="cat" data-menu="유부초절임"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-35" data-kind="cat" data-menu="유부초절임"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-35" data-kind="cat" data-menu="유부초절임"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-35" data-kind="cat" data-menu="유부초절임"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>유자 대구조림</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-36" data-kind="cat" data-menu="유자 대구조림"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-36" data-kind="cat" data-menu="유자 대구조림"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-36" data-kind="cat" data-menu="유자 대구조림"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-36" data-kind="cat" data-menu="유자 대구조림"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>장어수육구이</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-37" data-kind="cat" data-menu="장어수육구이"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-37" data-kind="cat" data-menu="장어수육구이"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-37" data-kind="cat" data-menu="장어수육구이"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-37" data-kind="cat" data-menu="장어수육구이"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>저염 겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-38" data-kind="cat" data-menu="저염 겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-38" data-kind="cat" data-menu="저염 겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-38" data-kind="cat" data-menu="저염 겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-38" data-kind="cat" data-menu="저염 겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>초계탕과 사색곤약</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-39" data-kind="cat" data-menu="초계탕과 사색곤약"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-39" data-kind="cat" data-menu="초계탕과 사색곤약"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-39" data-kind="cat" data-menu="초계탕과 사색곤약"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-39" data-kind="cat" data-menu="초계탕과 사색곤약"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>컬리플라워소스 광어스테이크</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-40" data-kind="cat" data-menu="컬리플라워소스 광어스테이크"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-40" data-kind="cat" data-menu="컬리플라워소스 광어스테이크"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-40" data-kind="cat" data-menu="컬리플라워소스 광어스테이크"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-40" data-kind="cat" data-menu="컬리플라워소스 광어스테이크"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>콩나물부추볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-41" data-kind="cat" data-menu="콩나물부추볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-41" data-kind="cat" data-menu="콩나물부추볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-41" data-kind="cat" data-menu="콩나물부추볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-41" data-kind="cat" data-menu="콩나물부추볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>토마토제철나물 샐러드</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-42" data-kind="cat" data-menu="토마토제철나물 샐러드"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-42" data-kind="cat" data-menu="토마토제철나물 샐러드"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-42" data-kind="cat" data-menu="토마토제철나물 샐러드"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-42" data-kind="cat" data-menu="토마토제철나물 샐러드"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>톳나물 두부무침</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-43" data-kind="cat" data-menu="톳나물 두부무침"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-43" data-kind="cat" data-menu="톳나물 두부무침"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-43" data-kind="cat" data-menu="톳나물 두부무침"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-43" data-kind="cat" data-menu="톳나물 두부무침"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>통배추 겉절이</td><td><span class="tag">김치</span></td>
+<td>
+  <label><input type="radio" name="c-44" data-kind="cat" data-menu="통배추 겉절이"
+    data-current="김치" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-44" data-kind="cat" data-menu="통배추 겉절이"
+    data-current="김치" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-44" data-kind="cat" data-menu="통배추 겉절이"
+    data-current="김치" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-44" data-kind="cat" data-menu="통배추 겉절이"
+    data-current="김치" value="김치"> 김치</label>
+</td></tr>
+<tr><td>팽이버섯 야채볶음</td><td><span class="tag">부찬</span></td>
+<td>
+  <label><input type="radio" name="c-45" data-kind="cat" data-menu="팽이버섯 야채볶음"
+    data-current="부찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-45" data-kind="cat" data-menu="팽이버섯 야채볶음"
+    data-current="부찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-45" data-kind="cat" data-menu="팽이버섯 야채볶음"
+    data-current="부찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-45" data-kind="cat" data-menu="팽이버섯 야채볶음"
+    data-current="부찬" value="김치"> 김치</label>
+</td></tr>
+<tr><td>함박스테이크&amp;토마토카레소스</td><td><span class="tag">주찬</span></td>
+<td>
+  <label><input type="radio" name="c-46" data-kind="cat" data-menu="함박스테이크&amp;토마토카레소스"
+    data-current="주찬" value="ok" checked> 맞음</label>
+  <label><input type="radio" name="c-46" data-kind="cat" data-menu="함박스테이크&amp;토마토카레소스"
+    data-current="주찬" value="주찬"> 주찬</label>
+  <label><input type="radio" name="c-46" data-kind="cat" data-menu="함박스테이크&amp;토마토카레소스"
+    data-current="주찬" value="부찬"> 부찬</label>
+  <label><input type="radio" name="c-46" data-kind="cat" data-menu="함박스테이크&amp;토마토카레소스"
+    data-current="주찬" value="김치"> 김치</label>
+</td></tr></tbody></table>
+
+<h2>4. 같이 내면 안 되는 조합</h2>
+<p>위 식단에 없더라도, 현장에서 <b>같이 내지 않는 조합</b>이 있으면 적어 주십시오.
+지금 시스템이 아는 금기는 "찌개·전골·탕은 밥과만" 하나뿐입니다.</p>
+<table class="chk"><thead><tr><th style="width:30%">이것과</th>
+<th style="width:30%">이것은 같이 안 된다</th><th>이유(선택)</th></tr></thead>
+<tbody id="pairs"></tbody></table>
+<div class="addrow"><button type="button" class="ghost" id="btn-add-pair">+ 줄 추가</button></div>
+
+<h2>5. 종합 평가</h2>
+<table class="rubric"><thead><tr><th>항목</th>
+<th>1<br>매우 미흡</th><th>2</th><th>3</th><th>4</th><th>5<br>매우 우수</th></tr></thead>
+<tbody>
+<tr><td>① 맛·간 적절성</td><td class='sc'><input type='radio' name='rb-taste' data-kind='rubric' data-item='taste' value='1'></td><td class='sc'><input type='radio' name='rb-taste' data-kind='rubric' data-item='taste' value='2'></td><td class='sc'><input type='radio' name='rb-taste' data-kind='rubric' data-item='taste' value='3'></td><td class='sc'><input type='radio' name='rb-taste' data-kind='rubric' data-item='taste' value='4'></td><td class='sc'><input type='radio' name='rb-taste' data-kind='rubric' data-item='taste' value='5'></td></tr><tr><td>② 조리 실현 가능성</td><td class='sc'><input type='radio' name='rb-feasibility' data-kind='rubric' data-item='feasibility' value='1'></td><td class='sc'><input type='radio' name='rb-feasibility' data-kind='rubric' data-item='feasibility' value='2'></td><td class='sc'><input type='radio' name='rb-feasibility' data-kind='rubric' data-item='feasibility' value='3'></td><td class='sc'><input type='radio' name='rb-feasibility' data-kind='rubric' data-item='feasibility' value='4'></td><td class='sc'><input type='radio' name='rb-feasibility' data-kind='rubric' data-item='feasibility' value='5'></td></tr><tr><td>③ 대량 조리 현장 적합성</td><td class='sc'><input type='radio' name='rb-field' data-kind='rubric' data-item='field' value='1'></td><td class='sc'><input type='radio' name='rb-field' data-kind='rubric' data-item='field' value='2'></td><td class='sc'><input type='radio' name='rb-field' data-kind='rubric' data-item='field' value='3'></td><td class='sc'><input type='radio' name='rb-field' data-kind='rubric' data-item='field' value='4'></td><td class='sc'><input type='radio' name='rb-field' data-kind='rubric' data-item='field' value='5'></td></tr>
+</tbody></table>
+<textarea id="rubric-comment" rows="4"
+  placeholder="전체적으로 느끼신 점, 이 시스템이 현장에서 쓰이려면 무엇이 더 필요한지"></textarea>
+<p><small>3항목 평균 4.00 이상이면 "상용 가능"으로 판정합니다(ADR-002).</small></p>
+
+<div class="box warn"><b>지금 이 식단에 빠져 있는 것</b> — 검수 시 감안해 주십시오.<br>
+① <b>식단가(원가)</b>가 없습니다(식재료 단가 미확보). ② <b>알레르기 대체식</b>이 없습니다
+(알레르겐 매핑 미구축 — 불완전한 매핑으로 "대응됨"처럼 보이게 하지 않았습니다).
+③ 당류·칼륨·인 상한은 <b>메뉴별 함량 자료가 없어</b> 걸지 못했습니다.
+④ 맛 계열(단맛·매운맛) 충돌은 자료로 가려낼 수 없어 <b>규칙이 없습니다</b> — 4번 항목에
+적어 주시면 그대로 반영합니다.</div>
+
+<script type="application/json" id="form-meta">{"form_version": "1.0", "generated": "2026-08-15", "n_menus": 960, "n_meals": 12, "profiles": ["middle_mix", "senior_mix"]}</script>
+</div>
+<div class="bar">
+  <span id="status">자동 저장 대기</span>
+  <button type="button" id="btn-save">답변 파일 저장</button>
+  <button type="button" class="ghost" id="btn-copy">내용 복사</button>
+  <button type="button" class="ghost" id="btn-print">인쇄</button>
+  <button type="button" class="ghost" id="btn-reset">전체 지우기</button>
+</div>
+<script>
+(function(){
+  var KEY = 'optimeal-feedback-' + document.body.dataset.formId;
+  var $ = function(s,r){return (r||document).querySelectorAll(s);};
+
+  function collect(){
+    var d = JSON.parse(document.getElementById('form-meta').textContent);
+    d.submitted_at = new Date().toISOString();
+    d.reviewer = {};
+    $('[data-reviewer]').forEach(function(el){ d.reviewer[el.dataset.reviewer] = el.value; });
+    d.decisions = {};
+    $('input[data-kind=decision]:checked').forEach(function(el){
+      d.decisions[el.dataset.q] = el.value; });
+    $('[data-kind=decision-note]').forEach(function(el){
+      if (el.value.trim()) d.decisions[el.dataset.q + '_note'] = el.value.trim(); });
+    var meals = {};
+    function slot(id){ if(!meals[id]) meals[id]={meal:id,verdict:null,bad_pair:[],note:''};
+      return meals[id]; }
+    $('input[data-kind=verdict]:checked').forEach(function(el){
+      slot(el.dataset.meal).verdict = el.value; });
+    $('input[data-kind=badpair]:checked').forEach(function(el){
+      slot(el.dataset.meal).bad_pair.push(el.value); });
+    $('[data-kind=note]').forEach(function(el){
+      if (el.value.trim()) slot(el.dataset.meal).note = el.value.trim(); });
+    d.meal_reviews = Object.keys(meals).map(function(k){ return meals[k]; })
+      .filter(function(m){ return m.verdict || m.bad_pair.length || m.note; });
+    d.category_fixes = [];
+    $('input[data-kind=cat]:checked').forEach(function(el){
+      if (el.value !== 'ok')
+        d.category_fixes.push({menu: el.dataset.menu, current: el.dataset.current,
+                               correct: el.value}); });
+    d.method_feedback = {};
+    $('input[data-kind=method]:checked').forEach(function(el){
+      d.method_feedback[el.dataset.method] = el.value; });
+    d.forbidden_pairs = [];
+    $('.pairrow').forEach(function(row){
+      var a = row.querySelector('[data-pair=a]').value.trim();
+      var b = row.querySelector('[data-pair=b]').value.trim();
+      var why = row.querySelector('[data-pair=why]').value.trim();
+      if (a && b) d.forbidden_pairs.push({a:a, b:b, reason:why}); });
+    d.rubric = {};
+    $('input[data-kind=rubric]:checked').forEach(function(el){
+      d.rubric[el.dataset.item] = Number(el.value); });
+    var rc = document.getElementById('rubric-comment');
+    if (rc && rc.value.trim()) d.rubric.comment = rc.value.trim();
+    return d;
+  }
+
+  function save(){
+    try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch(e){}
+    var n = collect().meal_reviews.length;
+    document.getElementById('status').textContent =
+      '자동 저장됨 · 평가한 끼니 ' + n + '건';
+  }
+
+  // 저장/복원은 **입력 요소 단위**로 한다. collect() 결과를 저장하면
+  // 되돌릴 때 어느 입력이었는지 알 수 없다.
+  // 키는 **안정적인 것**만 쓴다(name·data-*). DOM 순서 인덱스로 키를 잡으면
+  // 동적으로 늘어나는 금기 조합 행에서 값이 엉뚱한 칸으로 복원된다.
+  function textKey(el){
+    if (el.id) return 'id:' + el.id;
+    if (el.dataset.kind === 'note') return 'note:' + el.dataset.meal;
+    return null;                       // 키를 못 만드는 입력은 저장하지 않는다
+  }
+  function snapshot(){
+    var s = {r:{}, c:{}, t:{}, p:[]};
+    $('input[type=radio]:checked').forEach(function(el){ s.r[el.name] = el.value; });
+    $('input[type=checkbox]:checked').forEach(function(el){
+      s.c[(el.dataset.meal||'') + '|' + el.value] = 1; });
+    $('textarea, input[type=text]').forEach(function(el){
+      var k = textKey(el); if (k && el.value) s.t[k] = el.value; });
+    // 금기 조합은 행 단위 배열로 따로 저장한다(행 수가 가변이라 키가 흔들린다).
+    $('.pairrow').forEach(function(row){
+      s.p.push([row.querySelector('[data-pair=a]').value,
+                row.querySelector('[data-pair=b]').value,
+                row.querySelector('[data-pair=why]').value]); });
+    return s;
+  }
+  function restore(){
+    var raw; try { raw = localStorage.getItem(KEY); } catch(e){ return; }
+    if (!raw) return;
+    var s; try { s = JSON.parse(raw); } catch(e){ return; }
+    Object.keys(s.r||{}).forEach(function(name){
+      var el = document.querySelector('input[name="'+CSS.escape(name)+'"][value="'+
+        CSS.escape(s.r[name])+'"]'); if (el) el.checked = true; });
+    $('input[type=checkbox]').forEach(function(el){
+      if ((s.c||{})[(el.dataset.meal||'') + '|' + el.value]) el.checked = true; });
+    $('textarea, input[type=text]').forEach(function(el){
+      var k = textKey(el); if (k && (s.t||{})[k]) el.value = s.t[k]; });
+    // 저장된 행 수만큼 만들고 채운다. 빈 행이라도 최소 2줄은 남긴다.
+    (s.p || []).forEach(function(vals){
+      var row = addPair();
+      row.querySelector('[data-pair=a]').value = vals[0] || '';
+      row.querySelector('[data-pair=b]').value = vals[1] || '';
+      row.querySelector('[data-pair=why]').value = vals[2] || ''; });
+  }
+
+  function download(){
+    var data = collect();
+    var name = (data.reviewer.name || 'anonymous').replace(/[^\w가-힣]/g,'');
+    var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'optimeal_feedback_' + data.generated + '_' + name + '.json';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  function copy(){
+    var t = JSON.stringify(collect(), null, 2);
+    navigator.clipboard.writeText(t).then(function(){
+      document.getElementById('status').textContent = '클립보드에 복사했습니다';
+    }, function(){
+      document.getElementById('status').textContent = '복사 실패 — 파일 저장을 이용하세요';
+    });
+  }
+
+  function addPair(){
+    var tb = document.getElementById('pairs');
+    var tr = document.createElement('tr');
+    tr.className = 'pairrow';
+    tr.innerHTML = '<td><input type="text" data-pair="a" placeholder="예: 국수"></td>' +
+      '<td><input type="text" data-pair="b" placeholder="예: 부대찌개"></td>' +
+      '<td><input type="text" data-pair="why" placeholder="왜 안 되는지 (선택)"></td>';
+    tb.appendChild(tr);
+    return tr;   // 복원이 방금 만든 행을 채울 수 있어야 한다
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    restore();
+    // 복원된 행이 2줄에 못 미치면 빈 줄을 채워 준다(처음 여는 경우 포함).
+    while (document.querySelectorAll('.pairrow').length < 2) addPair();
+    document.addEventListener('change', save);
+    document.addEventListener('input', save);
+    document.getElementById('btn-save').addEventListener('click', download);
+    document.getElementById('btn-copy').addEventListener('click', copy);
+    document.getElementById('btn-print').addEventListener('click', function(){ window.print(); });
+    document.getElementById('btn-add-pair').addEventListener('click', function(){ addPair(); });
+    document.getElementById('btn-reset').addEventListener('click', function(){
+      if (!confirm('작성한 내용을 모두 지웁니다. 계속할까요?')) return;
+      try { localStorage.removeItem(KEY); } catch(e){}
+      location.reload(); });
+    save();
+  });
+})();
+</script>
+</body></html>
