@@ -28,6 +28,8 @@ DF_B_CSV = PROJECT_ROOT / "module_2" / "df_B.csv"
 COEFFICIENTS_CSV = (
     PROJECT_ROOT / "module_2" / "src" / "engine" / "scaling_coefficients.csv"
 )
+# df_B.csv에는 recipe_name이 없어(익명화된 학습셋) 원본 소규모 레시피 자산에서 이름을 보강한다.
+SMALL_RECIPE_XLSX = PROJECT_ROOT / "data" / "raw" / "소규모_레시피_DB_남유찬_v0_10.xlsx"
 
 # 캘리브레이션 원장 (쓰기 대상 — 유일하게 API가 변경하는 상태)
 CALIBRATION_DB = Path(

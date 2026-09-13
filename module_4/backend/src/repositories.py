@@ -15,9 +15,14 @@ from __future__ import annotations
 
 import csv
 import functools
+import logging
 from typing import Optional
 
+import openpyxl
+
 from . import config
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
@@ -61,8 +66,43 @@ def ingredient_name_of(ingredient_id: int) -> Optional[str]:
     return None
 
 
+@functools.lru_cache(maxsize=1)
+def _load_recipe_names() -> dict[str, str]:
+    """소규모 레시피 원본 xlsx에서 recipe_id → recipe_name 매핑을 로드(캐시).
+
+    엑셀 구조(scripts/load_recipe_data.py와 동일 규약): 1행=메모, 2행=영문 컬럼명,
+    3행=한글 컬럼 설명, 4행부터 데이터.
+
+    xlsx 부재·openpyxl 미설치·기타 읽기 실패 시 크래시 대신 빈 dict를 반환한다
+    (호출측 list_recipes는 `names.get(key) or key`로 key 폴백).
+    """
+    try:
+        wb = openpyxl.load_workbook(config.SMALL_RECIPE_XLSX, read_only=True, data_only=True)
+    except (FileNotFoundError, ImportError, OSError) as exc:
+        logger.warning("레시피 이름 xlsx 로드 실패, key 폴백으로 진행: %s", exc)
+        return {}
+    try:
+        ws = wb.active
+        header = [c.value for c in next(ws.iter_rows(min_row=2, max_row=2))]
+        id_col = header.index("recipe_id")
+        name_col = header.index("recipe_name")
+        names: dict[str, str] = {}
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            rid = row[id_col]
+            if rid is None:
+                continue
+            rname = row[name_col]
+            names[str(rid).strip()] = str(rname).strip() if rname is not None else None
+        return names
+    except Exception as exc:
+        logger.warning("레시피 이름 xlsx 파싱 실패, key 폴백으로 진행: %s", exc)
+        return {}
+    finally:
+        wb.close()
+
+
 def list_recipes(limit: int = 50, offset: int = 0, q: str = "") -> list[dict]:
-    """레시피 목록(키·정수 id·조리방법·재료 수). q가 주어지면 키 부분일치 필터.
+    """레시피 목록(키·정수 id·메뉴명·조리방법·재료 수). q가 주어지면 키 부분일치 필터.
 
     Args:
         limit: 최대 반환 수.
@@ -70,14 +110,16 @@ def list_recipes(limit: int = 50, offset: int = 0, q: str = "") -> list[dict]:
         q: 레시피 키 부분일치 검색어.
 
     Returns:
-        [{recipe_key, recipe_id, group_type, cooking_method, n_ingredients}] 리스트.
+        [{recipe_key, recipe_id, recipe_name, group_type, cooking_method, n_ingredients}] 리스트.
     """
+    names = _load_recipe_names()
     grouped: dict[str, dict] = {}
     for r in _load_df_b():
         key = r["small_recipe_id"]
         item = grouped.setdefault(key, {
             "recipe_key": key,
             "recipe_id": recipe_id_of(key),
+            "recipe_name": names.get(key) or key,
             "group_type": r["group_type"],
             "cooking_method": r["cooking_method"],
             "n_ingredients": 0,
