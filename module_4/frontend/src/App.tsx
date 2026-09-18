@@ -3,6 +3,7 @@ import AppLayout from './layouts/AppLayout';
 import Home from './pages/Home';
 import PlanList from './pages/PlanList';
 import PlanCreate from './pages/PlanCreate';
+import PlanResult from './pages/PlanResult';
 import NutritionSearch from './pages/NutritionSearch';
 import Scaling from './pages/Scaling';
 import Calibration from './pages/Calibration';
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/plans" element={<PlanList />} />
         <Route path="/plans/new" element={<PlanCreate />} />
+        <Route path="/plans/result" element={<PlanResult />} />
         <Route path="/nutrition" element={<NutritionSearch />} />
         <Route path="/scaling" element={<Scaling />} />
         <Route path="/calibration" element={<Calibration />} />
