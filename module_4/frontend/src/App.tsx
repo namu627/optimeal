@@ -8,6 +8,7 @@ import Scaling from './pages/Scaling';
 import Calibration from './pages/Calibration';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import KpiPreview from './pages/KpiPreview';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/scaling" element={<Scaling />} />
         <Route path="/calibration" element={<Calibration />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/__preview/kpi" element={<KpiPreview />} />
       </Route>
     </Routes>
   );
