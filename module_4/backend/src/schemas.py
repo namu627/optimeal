@@ -219,6 +219,11 @@ class MenuGenerateRequest(BaseModel):
                     "INFEASIBLE 이 되기 쉬워서다. 같은 id 를 배제와 함께 주면 배제가 이긴다.",
     )
     solver_time_limit: float = Field(30.0, gt=0, le=120)
+    serving_count: int = Field(
+        320, ge=1,
+        description="배식 인원수. 조리 지시서(재료 투입량 = 1인분×인원수) 스케일에만 쓰이며 "
+                    "해 탐색(결정변수)에는 영향 없다.",
+    )
     with_alternatives: bool = Field(
         False, description="알레르기 그룹별 대체식(공통식+대체식 트랙) 동반 산출"
     )

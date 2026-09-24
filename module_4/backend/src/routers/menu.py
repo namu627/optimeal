@@ -84,7 +84,7 @@ def _load_menu_candidates(cs, month):
         HTTPException(503): DB 미기동·미적재.
     """
     try:
-        return cs.load_menus(month=month)
+        menus = cs.load_menus(month=month)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -94,6 +94,33 @@ def _load_menu_candidates(cs, month):
                 "hint": "docker-compose 로 PostgreSQL 기동 + nutrition_recipe 적재가 필요합니다.",
             },
         ) from exc
+    _reclassify_sides(menus)
+    return menus
+
+
+def _reclassify_sides(menus) -> None:
+    """조회 직후 '반찬' 통합 카테고리를 메뉴명 기준으로 주찬/부찬/김치로 나눈다(런타임 한정).
+
+    DB(`nutrition_recipe.menu_category`)는 건드리지 않는다 — 원래는
+    `scripts/reclassify_menu_categories.py --apply` 가 할 일이지만, 그 스크립트는
+    `original_data.grouping_type` 이 있는 행만 이동 대상으로 삼는데 현재 적재된
+    303,369건 전부 이 값이 NULL이라(2026-09-20 확인) 실행해도 0건만 이동되어
+    무력화된다. 반상 구성(H-4, 주찬1·부찬2~3·김치1)이 요구하는 카테고리가 DB에
+    전혀 없으면 그 즉시 조건과 무관하게 항상 INFEASIBLE 이 되므로, 여기서 이름
+    기반 규칙(module_3의 menu_taxonomy.classify_side_kind — grouping_type 없이도
+    동작)으로 최소한의 후보를 만든다.
+    ⚠ 이걸로도 완전히 해결되진 않는다 — 재분류해도 '김치'로 분류되는 실제 후보가
+    DB 전체에 1건뿐이라(원본 데이터 자체의 편중), 메뉴 중복 회피 제약
+    (menu_repeat_window_days=3)과 구조적으로 충돌해 2일 이상 지평은 여전히
+    INFEASIBLE 이다. 데이터 보강 또는 module_3 팀의 정책 조정이 필요하다.
+    """
+    try:
+        import menu_taxonomy as mt
+    except Exception:
+        return
+    for m in menus:
+        if m.category == "반찬":
+            m.category = mt.classify_side_kind(m.name)
 
 
 def _load_main_ingredients(menus) -> dict | None:
@@ -195,6 +222,68 @@ def _load_sodium(menus) -> dict | None:
         return None
 
 
+def _load_menu_nutrition(menus) -> dict:
+    """메뉴명 -> {kcal, protein, sodium, cost}. 프론트 검토 화면의 셀별 표기용(FR-검토).
+    calories·cost 는 후보(MenuItem)에 이미 있고, protein·sodium 은 nutrition_recipe 에서 보강한다.
+    조회에 실패해도 kcal·cost 는 채우고 protein·sodium 만 None 으로 둔다 — 응답은 항상 나간다.
+    """
+    prot: dict = {}
+    sod: dict = {}
+    try:
+        import csp_solver as cs
+        from sqlalchemy import text
+
+        ids = [m.menu_id for m in menus if getattr(m, "menu_id", None) is not None]
+        if ids:
+            q = text("SELECT nutrition_id, protein, sodium FROM nutrition_recipe "
+                     "WHERE nutrition_id = ANY(:ids)")
+            with cs.get_engine().connect() as conn:
+                for r in conn.execute(q, {"ids": ids}).mappings():
+                    if r["protein"] is not None:
+                        prot[r["nutrition_id"]] = float(r["protein"])
+                    if r["sodium"] is not None:
+                        sod[r["nutrition_id"]] = float(r["sodium"])
+    except Exception:
+        pass
+    out: dict = {}
+    for m in menus:
+        out[m.name] = {
+            "kcal": round(float(getattr(m, "calories", 0) or 0), 1),
+            "protein": prot.get(getattr(m, "menu_id", None)),
+            "sodium": sod.get(getattr(m, "menu_id", None)),
+            "cost": round(float(getattr(m, "cost_won", 0) or 0)),
+        }
+    return out
+
+
+def _build_menu_recipes(cs, plan: dict, servings: int) -> dict:
+    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서용).
+
+    module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
+    재료 구성은 메뉴명에만 의존하므로 여기서 메뉴명 키로 한 번만 접어 돌려준다
+    (프론트가 날짜와 무관하게 메뉴명으로 조회할 수 있게).
+    레시피(recipe_ingredient_map)가 없는 메뉴는 note만 채운 항목으로 남긴다.
+    실패해도(DB 미구성 등) 조리 지시서 없이 응답은 나가야 하므로 빈 dict로 저하한다.
+    """
+    if not plan or not servings:
+        return {}
+    try:
+        import cooking_sheet as csheet
+
+        recipe_of = csheet.make_db_recipe_of(cs.get_engine())
+        rows = csheet.build_cooking_sheet(plan, recipe_of, servings)
+    except Exception:
+        return {}
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["menu"], {
+            "cooking_method": r["cooking_method"],
+            "ingredients": r["ingredients"],
+            "note": r["note"],
+        })
+    return out
+
+
 def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
                          sodium_by_idx: dict | None = None) -> list[dict]:
     """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11)."""
@@ -294,6 +383,13 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "diversity_breakdown": _to_jsonable(res.diversity_breakdown),
         "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
     }
+
+    # 프론트 검토 화면: plan 은 메뉴명만 담으므로, 메뉴별 열량·단백질·나트륨·원가를 옆에 실어준다.
+    body["menu_nutrition"] = _load_menu_nutrition(menus)
+
+    # 프론트 확정 화면(Step3) 조리 지시서: 메뉴명 → 재료 투입량(총량)·조리순서.
+    # recipe_ingredient_map 미보강 메뉴는 note만 채워져 온다("연동 예정" 대신 실사유 표시 가능).
+    body["menu_recipes"] = _build_menu_recipes(cs, res.plan, payload.serving_count)
 
     if payload.with_alternatives and res.plan:
         body["alternatives"] = _derive_alternatives(
