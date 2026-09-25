@@ -715,6 +715,89 @@
         }
       }
     },
+    "/api/menu/candidates": {
+      "get": {
+        "tags": [
+          "menu"
+        ],
+        "summary": "메뉴 교체 후보 (같은 자리의 실메뉴)",
+        "description": "현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).\n\n카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해\n김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정\n(menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.\n자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.\n정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.\n\n⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체\n재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.\n\nRaises:\n    HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.",
+        "operationId": "swap_candidates_api_menu_candidates_get",
+        "parameters": [
+          {
+            "name": "nutrition_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "교체하려는 칸의 메뉴 id(응답 plan_ids 의 값)",
+              "title": "Nutrition Id"
+            },
+            "description": "교체하려는 칸의 메뉴 id(응답 plan_ids 의 값)"
+          },
+          {
+            "name": "exclude_ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "제외할 메뉴 id 들(쉼표 구분) — 보통 현재 식단에 이미 있는 메뉴",
+              "default": "",
+              "title": "Exclude Ids"
+            },
+            "description": "제외할 메뉴 id 들(쉼표 구분) — 보통 현재 식단에 이미 있는 메뉴"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 8,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "enforce_menu_structure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로",
+              "default": true,
+              "title": "Enforce Menu Structure"
+            },
+            "description": "generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Swap Candidates Api Menu Candidates Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/menu/profiles": {
       "get": {
         "tags": [
@@ -771,6 +854,178 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/menu/plans": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "식단 저장",
+        "description": "식단 뷰모델을 저장하고 새 id 를 돌려준다.",
+        "operationId": "save_plan_api_menu_plans_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Save Plan Api Menu Plans Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "저장된 식단 목록 (최신순)",
+        "description": "저장된 식단 요약을 최신순으로 돌려준다(plan 본문 제외).",
+        "operationId": "list_plans_api_menu_plans_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Plans Api Menu Plans Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/menu/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "저장된 식단 열람",
+        "description": "저장된 식단 한 건(plan 본문 포함).\n\nRaises:\n    HTTPException(404): 없는 id.",
+        "operationId": "get_plan_api_menu_plans__plan_id__get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Plan Api Menu Plans  Plan Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "저장된 식단 삭제",
+        "description": "저장된 식단을 삭제한다.\n\nRaises:\n    HTTPException(404): 없는 id.",
+        "operationId": "delete_plan_api_menu_plans__plan_id__delete",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1168,6 +1423,13 @@
             "title": "Solver Time Limit",
             "default": 30.0
           },
+          "serving_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Serving Count",
+            "description": "배식 인원수. 조리 지시서(재료 투입량 = 1인분×인원수) 스케일에만 쓰이며 해 탐색(결정변수)에는 영향 없다.",
+            "default": 320
+          },
           "with_alternatives": {
             "type": "boolean",
             "title": "With Alternatives",
@@ -1315,6 +1577,37 @@
         ],
         "title": "ObservationOut",
         "description": "보정 적재 결과 — 갱신된 셀 추정과 그 추정으로 재계산한 제안량."
+      },
+      "SavePlanRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "description": "식단 이름"
+          },
+          "plan": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Plan",
+            "description": "프론트 MealPlan 뷰모델 JSON(그대로 저장·반환)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "plan"
+        ],
+        "title": "SavePlanRequest",
+        "description": "식단 저장 요청.",
+        "example": {
+          "name": "9/28 · 초등학생 중식",
+          "plan": {
+            "conditionText": "…",
+            "weeks": []
+          }
+        }
       },
       "ScaledIngredient": {
         "properties": {
@@ -1669,13 +1962,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",

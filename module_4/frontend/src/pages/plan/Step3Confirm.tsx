@@ -34,18 +34,22 @@ function tableRows(plan: MealPlan): (string | number)[][] {
 // 조리 지시서: 메뉴별 재료 투입량(총량)·조리 순서.
 // menuRecipes(백엔드 recipe_ingredient_map 보강분)가 있으면 실데이터를, 없으면(mock/미보강 메뉴)
 // 골격 문구로 저하한다.
-function recipeRows(weeksSrc: MealPlan['weeks'], headcount: number, menuRecipes?: MealPlan['menuRecipes']): (string | number)[][] {
+function recipeRows(weeksSrc: MealPlan['weeks'], headcount: number, menuRecipes?: MealPlan['menuRecipes'],
+  menuRecipesById?: MealPlan['menuRecipesById']): (string | number)[][] {
   const rows: (string | number)[][] = [['날짜', '끼니', '메뉴', '재료명', '투입량(g, 총량)', '조리순서']];
   weeksSrc.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => {
     c.items.forEach((it) => {
-      const rec = menuRecipes?.[it.name];
+      // 솔버가 고른 행(nutritionId)의 레시피를 먼저, 없으면 이름으로(대체식·구버전 저장본).
+      const rec = (it.nutritionId != null ? menuRecipesById?.[String(it.nutritionId)] : undefined) ?? menuRecipes?.[it.name];
       if (rec && rec.ingredients.length) {
         rec.ingredients.forEach((ing) => rows.push([
           d.date, MEAL_TABLE[c.kind as MealKind], it.name,
           ing.name, ing.amount ?? '', ing.step ?? '',
         ]));
       } else {
-        rows.push([d.date, MEAL_TABLE[c.kind as MealKind], it.name, rec?.note || '(재료 연동 예정)', `1인분×${headcount}`, '(조리 순서 연동 예정)']);
+        // 검토에서 교체한 메뉴는 생성 응답에 레시피가 없다 — 사실대로 표기(재생성하면 반영).
+        const note = rec?.note || (it.orig ? '교체한 메뉴 — 레시피는 식단 재생성 후 반영' : '(재료 연동 예정)');
+        rows.push([d.date, MEAL_TABLE[c.kind as MealKind], it.name, note, `1인분×${headcount}`, '(조리 순서 연동 예정)']);
       }
     });
   })));
@@ -85,8 +89,8 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
     const base = (name.trim() || '식단') ;
     const jobs: (() => void)[] = [];
     if (files.table) jobs.push(() => saveCsv(`${base}_식단표.csv`, tableRows(plan)));
-    if (files.normal) jobs.push(() => saveCsv(`${base}_일반식_조리지시서.csv`, recipeRows(plan.weeks, plan.headcount, plan.menuRecipes)));
-    if (files.alt) jobs.push(() => saveCsv(`${base}_대체식_조리지시서.csv`, recipeRows(plan.alternatives.flatMap((t) => t.weeks), plan.headcount, plan.menuRecipes)));
+    if (files.normal) jobs.push(() => saveCsv(`${base}_일반식_조리지시서.csv`, recipeRows(plan.weeks, plan.headcount, plan.menuRecipes, plan.menuRecipesById)));
+    if (files.alt) jobs.push(() => saveCsv(`${base}_대체식_조리지시서.csv`, recipeRows(plan.alternatives.flatMap((t) => t.weeks), plan.headcount, plan.menuRecipes, plan.menuRecipesById)));
     if (!jobs.length) { message.warning('내려받을 파일을 하나 이상 선택해 주세요'); return; }
     // 브라우저가 연속 다운로드를 막지 않도록 약간 간격을 둠
     jobs.forEach((run, i) => setTimeout(run, i * 350));

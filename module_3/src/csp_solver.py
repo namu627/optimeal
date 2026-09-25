@@ -195,6 +195,10 @@ class MealPlanResult:
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
     affinity_breakdown: dict = None    # 어울림 지표(조리법 중복·주식×국) — 미주입 시 None
+    # {day: {meal: [menu_id, ...]}} — plan 과 같은 모양·같은 순서(같은 chosen 에서 만든다).
+    # plan 은 이름만 담아 동명 메뉴(같은 recipe_name·다른 nutrition_id)를 구분하지 못하므로,
+    # 솔버가 실제로 고른 행을 가리키는 id 를 병행으로 싣는다(추가 필드 — 기존 plan 은 그대로).
+    plan_ids: dict = None
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
@@ -300,12 +304,14 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     solver.parameters.max_time_in_seconds = max(1.0, req.solver_time_limit - hint_seconds)
     status = solver.Solve(model)
     plan, daily_kcal, total_cost = {}, {}, 0
+    plan_ids = {}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         # ⚠ 접시별 int() 절단 금지: Hard 제약은 int(kcal*SCALE)(소수 2자리)로 걸리는데
         #   리포트가 접시마다 int()로 버리면 하루 12접시에서 최대 ~12kcal 과소 집계되어
         #   제약을 만족한 식단이 "칼로리 위반"으로 표시된다. 합산을 float로 하고 마지막에 반올림.
         for d in D:
             plan[d + 1] = {}
+            plan_ids[d + 1] = {}
             day_c = 0.0
             for s, sname in enumerate(req.meals):
                 # 표기 순서 고정: 주식 → 국 → 주찬 → 부찬 → 김치 (영양사 확정 2026-08-12).
@@ -314,6 +320,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                     (m for m in M if solver.Value(x[m, d, s])),
                     key=lambda m: (mt.category_sort_key(menus[m].category), menus[m].name))
                 plan[d + 1][sname] = [menus[m].name for m in chosen]
+                plan_ids[d + 1][sname] = [menus[m].menu_id for m in chosen]
                 day_c += sum(menus[m].calories for m in chosen)
             daily_kcal[d + 1] = round(day_c, 1)
         total_cost = round(sum(menus[m].cost_won for m in M for d in D for s in S
@@ -353,6 +360,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         soft_breakdown=soft_breakdown,
         diversity_breakdown=diversity_breakdown,
         affinity_breakdown=affinity_breakdown,
+        plan_ids=plan_ids,
     )
 # ===========================================================================
 # (4) 출력

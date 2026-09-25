@@ -33,8 +33,18 @@ export interface MenuGenerateRaw { status?: string; plan?: unknown; [k: string]:
 export async function listProfiles(): Promise<MenuProfile[]> {
   const { data } = await api.get<MenuProfile[]>('/api/menu/profiles'); return data;
 }
+// 예산 단위: 화면·요청 객체(MenuGenerateRequest)의 budget_limit_per_person 은 "1인 1식"(한 끼) 값이다.
+// 백엔드 /generate 는 이 값을 **하루 상한**(budget_period='day')으로 해석하므로, 실제로 보내는 본문에서만
+// 한 끼 예산 × 끼니 수로 바꾼다. 끼니 1개(점심만)면 ×1 이라 기존과 같다.
+// 셀 원가(한 끼)·경고는 toMealPlan 이 요청 객체의 한 끼 값과 비교한다(변환 전 값).
+export function toWireRequest(body: MenuGenerateRequest): MenuGenerateRequest {
+  const perMeal = body.budget_limit_per_person;
+  if (perMeal == null) return body;
+  const nMeals = Math.max(1, body.meals?.length ?? 1);
+  return { ...body, budget_limit_per_person: perMeal * nMeals };
+}
 export async function generateMenu(body: MenuGenerateRequest): Promise<MenuGenerateRaw> {
-  const { data } = await api.post<MenuGenerateRaw>('/api/menu/generate', body); return data;
+  const { data } = await api.post<MenuGenerateRaw>('/api/menu/generate', toWireRequest(body)); return data;
 }
 export function isUnavailable(err: unknown): boolean {
   return (err as { response?: { status?: number } })?.response?.status === 503;
@@ -84,7 +94,16 @@ export const MEAL_TABLE: Record<MealKind, string> = { breakfast: '조식', lunch
 export const MEAL_TIME: Record<MealKind, string> = { breakfast: '08:00', lunch: '12:20', dinner: '17:40' };
 
 export type CellFlag = '나트륨' | '원가';
-export interface MealItem { menuId?: number; name: string; flag?: CellFlag; alt?: boolean; orig?: string }
+// menuId: 칸별 편집 식별용 순번(같은 메뉴가 여러 날 나와도 칸마다 다름) — 교체·삭제는 이걸로 찾는다.
+// nutritionId: 솔버가 실제로 고른 행(nutrition_recipe.nutrition_id, 응답 plan_ids). 동명 메뉴 구분·
+//   id 기반 영양/레시피 조회용. 대체식 칸·구버전 저장본·목업에는 없을 수 있다(optional).
+// nutri: 이 칸 메뉴의 1인분 영양·원가 — 교체·삭제 후 셀·총합을 로컬에서 다시 계산할 때 쓴다(recomputePlan).
+// orig*: 교체 전 원래 메뉴(되돌리기용). 목업·구버전 저장본에는 nutri 가 없다 → 그 셀은 재계산하지 않는다.
+export interface ItemNutri { kcal: number; protein: number | null; sodium: number | null; cost: number | null }
+export interface MealItem {
+  menuId?: number; nutritionId?: number; name: string; flag?: CellFlag; alt?: boolean;
+  nutri?: ItemNutri; orig?: string; origNutritionId?: number; origNutri?: ItemNutri;
+}
 export interface MealCell { kind: MealKind; items: MealItem[]; kcal: number; protein: number; warn?: boolean; }
 export interface MealDay { date: string; dow: string; cells: MealCell[] }
 export interface WeekBlock { label: string; days: MealDay[] }
@@ -104,14 +123,20 @@ export interface MealPlan {
   meals: MealKind[]; weeks: WeekBlock[]; alternatives: AltTrack[];
   achievement: Achievement; costPerPerson: number; budgetPerPerson: number;
   totalDays: number; totalCost: number;
+  /** 1일 나트륨 상한(mg, 백엔드 적용값). 셀 나트륨 경고(상한÷끼니 수) 재계산용. 없으면 경고 안 함. */
+  sodiumCapPerDay?: number | null;
   checks: PlanCheck[]; rationale: string[]; source: 'live' | 'mock';
   menuRecipes?: Record<string, MenuRecipe>;
+  /** nutrition_id(문자열 키) → 레시피. 있으면 MealItem.nutritionId 로 먼저 찾는다(동명 메뉴 정확). */
+  menuRecipesById?: Record<string, MenuRecipe>;
 }
 
 /* ────────────── 실제 /api/menu/generate 응답 → 뷰모델 매핑 ──────────────
    plan 은 {일: {끼니(한글): [메뉴명,...]}}, 열량은 daily_kcal(하루 총합)만 온다.
-   메뉴별 열량·단백질·나트륨·원가는 menu_nutrition({메뉴명: {...}})으로 채운다. */
+   plan_ids 는 같은 모양의 {일: {끼니: [nutrition_id,...]}}(솔버가 고른 행). 있으면 메뉴별
+   열량·단백질·나트륨·원가를 menu_nutrition_by_id 에서, 없으면(구버전 백엔드) menu_nutrition(이름)에서 채운다. */
 interface MenuNutri { kcal?: number; protein?: number | null; sodium?: number | null; cost?: number | null }
+type PlanIds = Record<string, Record<string, number[]>>;
 interface GenerateResponse {
   status?: string;
   applied_targets?: {
@@ -123,6 +148,9 @@ interface GenerateResponse {
   total_cost_won?: number;
   menu_nutrition?: Record<string, MenuNutri>;
   menu_recipes?: Record<string, MenuRecipe>;
+  plan_ids?: PlanIds | null;
+  menu_nutrition_by_id?: Record<string, MenuNutri & { name?: string }>;
+  menu_recipes_by_id?: Record<string, MenuRecipe>;
   alternatives?: Array<{
     group?: { label?: string; allergens?: string[]; count?: number };
     plan?: Record<string, Record<string, string[]>>;
@@ -137,6 +165,11 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   if (!plan || !Object.keys(plan).length) throw new Error('toMealPlan: 응답에 plan 이 없음(503/INFEASIBLE)');
 
   const nutri = r.menu_nutrition ?? {};
+  const nutriById = r.menu_nutrition_by_id ?? {};
+  const planIds = r.plan_ids ?? null;
+  // 한 자리의 영양값: 솔버가 고른 행(id)이 있으면 그것, 없으면 이름으로(대체식 칸·구버전 응답).
+  const nutriOf = (name: string, id?: number): MenuNutri =>
+    (id != null ? nutriById[String(id)] : undefined) ?? nutri[name] ?? {};
   const budget = req.budget_limit_per_person ?? 4500;
   const headcount = req.serving_count ?? 320;
 
@@ -146,27 +179,21 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   const meals: MealKind[] = MEAL_ORDER.filter((m) => mealKr.includes(m)).map((m) => MEAL_FROM_KR[m]);
 
   const sodiumTarget = r.applied_targets?.sodium_max_mg_per_day ?? req.sodium_max_mg_per_day ?? null;
-  const perMealSodiumCap = sodiumTarget ? sodiumTarget / Math.max(1, meals.length) : null;
 
-  const buildCell = (kind: MealKind, names: string[], alt: boolean): MealCell => {
-    let kcal = 0, protein = 0, cost = 0, sodium = 0;
-    const items: MealItem[] = names.map((name) => {
-      const n = nutri[name] ?? {};
-      kcal += n.kcal ?? 0; protein += n.protein ?? 0; cost += n.cost ?? 0; sodium += n.sodium ?? 0;
-      return { menuId: ++_mid, name, alt: alt || undefined };
+  // 칸마다 1인분 영양·원가(nutri)만 싣는다. 셀 합계·경고·달성률·원가는 recomputePlan 이 계산한다
+  // (생성 직후와 교체·삭제 후가 같은 계산을 쓰도록).
+  const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: number[]): MealCell => {
+    const items: MealItem[] = names.map((name, i) => {
+      const nutritionId = ids?.[i]; // plan_ids 는 plan 과 같은 위치
+      const n = nutriOf(name, nutritionId);
+      const itemNutri: ItemNutri = { kcal: n.kcal ?? 0, protein: n.protein ?? null, sodium: n.sodium ?? null, cost: n.cost ?? null };
+      return { menuId: ++_mid, nutritionId, name, alt: alt || undefined, nutri: itemNutri };
     });
-    // 셀 경고: 원가가 1식 예산 초과 또는 나트륨이 1식 상한 초과면 대표 메뉴에 태그.
-    let flag: CellFlag | undefined;
-    if (cost > budget) flag = '원가';
-    else if (perMealSodiumCap && sodium > perMealSodiumCap) flag = '나트륨';
-    if (flag && items.length) {
-      const idx = Math.min(2, items.length - 1);
-      items[idx] = { ...items[idx], flag };
-    }
-    return { kind, items, kcal: Math.round(kcal), protein: Math.round(protein * 10) / 10, warn: !!flag };
+    return { kind, items, kcal: 0, protein: 0 };
   };
 
-  const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean): WeekBlock[] => {
+  // idsObj: plan_ids(본식단만). 대체식 plan 은 아직 이름만 온다(alternative_menu id화는 별도 단계).
+  const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean, idsObj?: PlanIds | null): WeekBlock[] => {
     const keys = Object.keys(planObj).sort((a, b) => Number(a) - Number(b));
     const blocks: WeekBlock[] = [];
     keys.forEach((dayKey, i) => {
@@ -175,7 +202,7 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
       const dayPlan = planObj[dayKey] ?? {};
       const cells = meals.map((k) => {
         const kr = MEAL_ORDER.find((o) => MEAL_FROM_KR[o] === k)!;
-        return buildCell(k, dayPlan[kr] ?? [], alt);
+        return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr]);
       });
       blocks[week].days.push({ date: label, dow, cells });
     });
@@ -184,55 +211,100 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
 
   _mid = 0;
   _start = firstWeekday(new Date());
-  const weeks = weeksFrom(plan, false);
+  const weeks = weeksFrom(plan, false, planIds);
   const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => ({
     label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, weeks: weeksFrom(a.plan ?? {}, true),
   }));
 
-  // 달성률: 열량은 daily_kcal 평균/목표, 단백질·나트륨은 plan 전체 합의 하루 평균/목표.
-  const dayKeys = Object.keys(plan).sort((a, b) => Number(a) - Number(b));
-  const days = dayKeys.length;
+  // 목표값만 여기서 정한다(값은 recomputePlan 이 칸 영양으로 채움).
+  // 칸 영양 합 = 솔버 daily_kcal·total_cost_won 이다(plan_ids 로 솔버가 고른 행을 쓰므로).
+  const days = Object.keys(plan).length;
   const kcalTarget = r.applied_targets?.target_kcal_per_day ?? req.target_kcal_per_day ?? 1;
-  const dkv = Object.values(r.daily_kcal ?? {});
-  const avgKcal = dkv.length ? dkv.reduce((s, v) => s + v, 0) / dkv.length : 0;
-  let protSum = 0, sodSum = 0;
-  dayKeys.forEach((dk) => Object.values(plan[dk] ?? {}).forEach((names) => names.forEach((name) => {
-    const n = nutri[name] ?? {}; protSum += n.protein ?? 0; sodSum += n.sodium ?? 0;
-  })));
   // 단백질 목표: 백엔드가 프로파일에서 산출한 값. 프로파일 없이 요청한 경우에만 열량의 15%(4kcal/g)로 근사.
   const proteinTarget = r.applied_targets?.protein_g ?? Math.max(1, Math.round((kcalTarget * 0.15) / 4));
   const achievement: Achievement = {
-    calories: { value: Math.round(avgKcal), target: Math.round(kcalTarget), unit: 'kcal' },
-    protein: { value: days ? Math.round((protSum / days) * 10) / 10 : 0, target: proteinTarget, unit: 'g' },
-    sodium: { value: days ? Math.round(sodSum / days) : 0, target: Math.round(sodiumTarget ?? (days ? sodSum / days : 0)), unit: 'mg' },
+    calories: { value: 0, target: Math.round(kcalTarget), unit: 'kcal' },
+    protein: { value: 0, target: proteinTarget, unit: 'g' },
+    sodium: { value: 0, target: Math.round(sodiumTarget ?? 0), unit: 'mg' },
   };
-
-  // 1인 원가: total_cost_won 은 1인 지평 총액 → 1식 기준으로 환산해 예산과 비교.
-  const totalPerPerson = r.total_cost_won ?? 0;
-  const perMealCost = days && meals.length ? Math.round(totalPerPerson / (days * meals.length)) : totalPerPerson;
 
   const profileLabel = PROFILE_LABEL[req.profile_key ?? ''] ?? (req.profile_key ?? '대상');
   const mealsText = meals.map((m) => MEAL_TABLE[m]).join('·');
   const groups = req.allergy_groups?.length ?? 0;
+  const checks: PlanCheck[] = alternatives.map((t) => ({ label: `대체식 '${t.label}' 검토`, done: false, view: true }));
 
-  const overCost = weeks.reduce((s, w) => s + w.days.filter((d) => d.cells.some((c) => c.items.some((it) => it.flag === '원가'))).length, 0);
-  const overSod = weeks.reduce((s, w) => s + w.days.filter((d) => d.cells.some((c) => c.items.some((it) => it.flag === '나트륨'))).length, 0);
-  const checks: PlanCheck[] = [];
-  if (overCost) checks.push({ label: `원가 초과 ${overCost}일 확인`, done: false });
-  if (overSod) checks.push({ label: `나트륨 초과 ${overSod}일 확인`, done: false });
-  alternatives.forEach((t) => checks.push({ label: `대체식 '${t.label}' 검토`, done: false, view: true }));
-  if (!checks.length) checks.push({ label: '검토할 경고 없음', done: true });
-
-  return {
+  return recomputePlan({
     conditionText: `${profileLabel} · ${headcount}명 · 평일 ${days}일 · ${mealsText} · 알레르기 ${groups}그룹 · 예산 ${budget.toLocaleString()}원/식`,
     periodText: `평일 ${days}일`, headcount, meals, weeks, alternatives,
-    achievement, costPerPerson: perMealCost, budgetPerPerson: budget,
-    totalDays: days, totalCost: totalPerPerson * headcount,
+    achievement, costPerPerson: 0, budgetPerPerson: budget,
+    totalDays: days, totalCost: 0, sodiumCapPerDay: sodiumTarget,
     checks,
     rationale: [r.status ? `solver: ${r.status}` : '', '열량 목표 대비 산출', groups ? `대체식 ${groups}그룹 파생` : ''].filter(Boolean),
     source: 'live',
     menuRecipes: r.menu_recipes,
+    menuRecipesById: r.menu_recipes_by_id,
+  });
+}
+
+/* ────────────── 칸 영양 → 셀·총합 재계산 (생성 직후 + 교체·삭제 후) ──────────────
+   ⚠ 로컬 재계산일 뿐 제약 재검증이 아니다(열량 밴드·3일 중복·국 궁합 등). 교체 결과를 솔버로
+   다시 검증하는 '재생성'(include/exclude_menu_ids 재풀이)은 후속 과제. */
+const WARN_CHECK = /^(원가|나트륨) 초과 \d+일 확인$|^검토할 경고 없음$/;
+
+export function recomputePlan(plan: MealPlan): MealPlan {
+  const perMealSodiumCap = plan.sodiumCapPerDay ? plan.sodiumCapPerDay / Math.max(1, plan.meals.length) : null;
+  const known = (c: MealCell) => c.items.every((it) => it.nutri);
+
+  // 셀: 합계 + 경고(원가가 1식 예산 초과 또는 나트륨이 1식 상한 초과면 대표 메뉴에 태그).
+  const cellOf = (c: MealCell): MealCell => {
+    if (!known(c)) return c; // 목업·구버전 저장본 — 계산 근거가 없으면 기존 값 유지
+    let kcal = 0, protein = 0, cost = 0, sodium = 0;
+    c.items.forEach(({ nutri: n }) => { kcal += n!.kcal; protein += n!.protein ?? 0; cost += n!.cost ?? 0; sodium += n!.sodium ?? 0; });
+    let flag: CellFlag | undefined;
+    if (cost > plan.budgetPerPerson) flag = '원가';
+    else if (perMealSodiumCap && sodium > perMealSodiumCap) flag = '나트륨';
+    const items = c.items.map((it) => ({ ...it, flag: undefined as CellFlag | undefined }));
+    if (flag && items.length) items[Math.min(2, items.length - 1)].flag = flag;
+    return { ...c, items, kcal: Math.round(kcal), protein: Math.round(protein * 10) / 10, warn: !!flag };
   };
+  const mapWeeks = (ws: WeekBlock[]) => ws.map((w) => ({ ...w, days: w.days.map((d) => ({ ...d, cells: d.cells.map(cellOf) })) }));
+  const weeks = mapWeeks(plan.weeks);
+  const alternatives = plan.alternatives.map((t) => ({ ...t, weeks: mapWeeks(t.weeks) }));
+
+  const allDays = weeks.flatMap((w) => w.days);
+  const allCells = allDays.flatMap((d) => d.cells);
+  if (!allCells.every(known)) return { ...plan, weeks, alternatives };
+
+  // 달성률(하루 평균)·1인 원가(1식 환산)·총 식재료비 — 본식단 칸 기준.
+  const days = allDays.length;
+  let kcal = 0, protein = 0, sodium = 0, cost = 0;
+  allCells.forEach((c) => c.items.forEach(({ nutri: n }) => {
+    kcal += n!.kcal; protein += n!.protein ?? 0; sodium += n!.sodium ?? 0; cost += n!.cost ?? 0;
+  }));
+  const a = plan.achievement;
+  const achievement: Achievement = {
+    calories: { ...a.calories, value: days ? Math.round(kcal / days) : 0 },
+    protein: { ...a.protein, value: days ? Math.round((protein / days) * 10) / 10 : 0 },
+    sodium: {
+      ...a.sodium, value: days ? Math.round(sodium / days) : 0,
+      target: plan.sodiumCapPerDay ? Math.round(plan.sodiumCapPerDay) : (days ? Math.round(sodium / days) : 0),
+    },
+  };
+  const totalPerPerson = Math.round(cost);
+  const costPerPerson = days && plan.meals.length ? Math.round(totalPerPerson / (days * plan.meals.length)) : totalPerPerson;
+
+  // 확인 항목: 경고성 항목만 다시 만들고(같은 라벨이면 완료 체크 유지), 대체식 검토 등은 그대로 둔다.
+  const dayCount = (f: CellFlag) => allDays.filter((d) => d.cells.some((c) => c.items.some((it) => it.flag === f))).length;
+  const doneOf = new Map(plan.checks.map((c) => [c.label, c.done]));
+  const warnChecks: PlanCheck[] = [];
+  const overCost = dayCount('원가'), overSod = dayCount('나트륨');
+  if (overCost) warnChecks.push({ label: `원가 초과 ${overCost}일 확인`, done: false });
+  if (overSod) warnChecks.push({ label: `나트륨 초과 ${overSod}일 확인`, done: false });
+  const rest = plan.checks.filter((c) => !WARN_CHECK.test(c.label));
+  let checks = [...warnChecks.map((c) => ({ ...c, done: doneOf.get(c.label) ?? c.done })), ...rest];
+  if (!checks.length) checks = [{ label: '검토할 경고 없음', done: true }];
+
+  return { ...plan, weeks, alternatives, achievement, costPerPerson, totalCost: totalPerPerson * plan.headcount, checks };
 }
 
 /* ────────────── 시안과 동일한 목업 데이터 ────────────── */
@@ -387,44 +459,45 @@ export function mockPlan(req: MenuGenerateRequest): MealPlan {
   };
 }
 
-/* 교체 후보 (팝오버) — 같은 자리(밥/국/주요리/반찬/김치)에서만 대안 제시.
-   실제로는 모듈3 CSP 가 예산·나트륨 제약 안에서 후보를 반환할 자리(현재 503 → 카테고리별 목업). */
-export interface SwapCandidate { name: string; kcal: number; cost: number; sodium: number }
-type MenuCat = '밥' | '국' | '주요리' | '반찬' | '김치';
-const CAT_POOL: Record<MenuCat, string[]> = {
-  밥: ['잡곡밥', '기장밥', '흑미밥', '보리밥', '백미밥', '현미밥', '귀리밥', '수수밥'],
-  국: ['미역국', '된장국', '북엇국', '콩나물국', '무국', '감자국', '유부장국', '시금치된장국'],
-  주요리: ['제육볶음', '불고기', '돼지고기 장조림', '닭갈비', '고등어조림', '너비아니', '돈까스', '코다리조림', '두부조림', '생선구이'],
-  반찬: ['시금치나물', '콩나물무침', '숙주나물', '오이무침', '가지볶음', '연근조림', '감자조림', '두부구이', '도라지무침'],
-  김치: ['배추김치', '깍두기', '총각김치', '열무김치', '겉절이'],
-};
-function categoryOf(name: string): MenuCat {
-  if (name.endsWith('밥')) return '밥';
-  if (/(국|찌개|탕|개장)$/.test(name)) return '국';
-  if (/(김치|깍두기|겉절이|단무지)/.test(name)) return '김치';
-  if (/(나물|무침|샐러드|장아찌)/.test(name) || name === '두부구이') return '반찬';
-  return '주요리';
+/* 교체 후보 (팝오버) — GET /api/menu/candidates: 같은 자리(주식/국/주찬/부찬/김치)의 실메뉴.
+   예전에는 프론트 하드코딩 목록 + 가짜 수치였다. 후보는 제약 재검증 없이 제시된다(재생성은 후속). */
+export interface SwapCandidate {
+  menu_id: number; name: string; kcal: number; protein: number | null; sodium: number | null; cost: number;
 }
-export function swapCandidates(name: string): { sub: string; list: SwapCandidate[] } {
-  if (name === '불고기') {
-    return {
-      sub: '예산 -410원 이내 · 나트륨 유지 대안',
-      list: [
-        { name: '돼지고기 장조림', kcal: 268, cost: 3980, sodium: 720 },
-        { name: '닭갈비', kcal: 302, cost: 4120, sodium: 880 },
-        { name: '두부조림', kcal: 184, cost: 3240, sodium: 640 },
-      ],
-    };
-  }
-  const cat = categoryOf(name);
-  const others = CAT_POOL[cat].filter((n) => n !== name);
-  const h = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const base = cat === '밥' ? 300 : cat === '국' ? 60 : cat === '김치' ? 15 : cat === '반찬' ? 90 : 220;
-  const list = [0, 1, 2].map((k) => {
-    const n = others[(h + k * 3) % others.length];
-    return { name: n, kcal: base + ((h + k) % 6) * 12, cost: 2600 + ((h + k) % 6) * 180, sodium: 300 + ((h + k) % 6) * 70 };
+export interface SwapCandidatesResponse {
+  category: string; current: SwapCandidate; candidates: SwapCandidate[]; total_in_category: number;
+}
+export async function fetchSwapCandidates(nutritionId: number, excludeIds: number[], limit = 8): Promise<SwapCandidatesResponse> {
+  const { data } = await api.get<SwapCandidatesResponse>('/api/menu/candidates', {
+    params: { nutrition_id: nutritionId, exclude_ids: excludeIds.join(','), limit },
   });
-  return { sub: `같은 자리(${cat}) 안에서 예산·나트륨 유지 대안`, list };
+  return data;
+}
+export const candidateNutri = (c: SwapCandidate): ItemNutri => ({ kcal: c.kcal, protein: c.protein, sodium: c.sodium, cost: c.cost });
+
+/* 교체 가능 여부 — 그 후보로 바꿨을 때의 셀(한 끼) 원가·나트륨을 이미 정의된 상한과 비교한다.
+   · 원가: 한 끼 예산(plan.budgetPerPerson). 셀 경고(recomputePlan)와 같은 기준.
+   · 나트륨: 한 끼 상한 = 하루 상한 ÷ 끼니 수(recomputePlan 의 perMealSodiumCap 과 같은 기준).
+     후보 나트륨을 모르면(null) 막는다 — 솔버 H-2e 의 '결측=배제' 정책과 같다.
+   ⚠ 3일 반복·반상 구성 등 얽힌 제약까지의 재검증은 아니다(재생성/솔버 자리고정은 후속). */
+export interface SwapCheck {
+  costAfter: number; sodiumAfter: number | null;
+  budget: number; sodiumCap: number | null;
+  overBudget: boolean; overSodium: boolean; sodiumUnknown: boolean; allowed: boolean;
+}
+export function checkSwap(plan: Pick<MealPlan, 'budgetPerPerson' | 'sodiumCapPerDay' | 'meals'>, cell: MealCell,
+  item: MealItem, cand: SwapCandidate): SwapCheck {
+  const sum = (k: 'cost' | 'sodium') => cell.items.reduce((s, it) => s + (it.nutri?.[k] ?? 0), 0);
+  const costAfter = sum('cost') - (item.nutri?.cost ?? 0) + (cand.cost ?? 0);
+  const sodiumCap = plan.sodiumCapPerDay ? plan.sodiumCapPerDay / Math.max(1, plan.meals.length) : null;
+  const sodiumUnknown = sodiumCap != null && cand.sodium == null;
+  const sodiumAfter = cand.sodium == null ? null : sum('sodium') - (item.nutri?.sodium ?? 0) + cand.sodium;
+  const overBudget = costAfter > plan.budgetPerPerson;
+  const overSodium = sodiumCap != null && sodiumAfter != null && sodiumAfter > sodiumCap;
+  return {
+    costAfter, sodiumAfter, budget: plan.budgetPerPerson, sodiumCap,
+    overBudget, overSodium, sodiumUnknown, allowed: !overBudget && !overSodium && !sodiumUnknown,
+  };
 }
 
 export const PROFILE_OPTIONS = [
