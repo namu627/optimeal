@@ -5,10 +5,13 @@
 import { api } from './client';
 
 /* ────────────── 백엔드 계약 (Swagger) ────────────── */
+// 백엔드 schemas.UserProfileOut 과 동일. 영양 수치는 전부 **1일** 기준(legal_meal_* 만 1식).
 export interface MenuProfile {
-  profile_key: string; label?: string;
-  target_kcal_per_day?: number; sodium_max_mg_per_day?: number;
-  source?: string; note?: string; [k: string]: unknown;
+  profile_key: string; group_name: string; group_type: string; sex: string; age_band: string;
+  daily_kcal: number; protein_g?: number | null;
+  sodium_cdrr_mg?: number | null; sodium_ai_mg?: number | null;
+  legal_meal_kcal?: number | null; default_meals: number;
+  source: string; note?: string;
 }
 export interface AllergyGroup { label: string; allergens: string[]; count: number; }
 export interface MenuGenerateRequest {
@@ -35,6 +38,14 @@ export async function generateMenu(body: MenuGenerateRequest): Promise<MenuGener
 }
 export function isUnavailable(err: unknown): boolean {
   return (err as { response?: { status?: number } })?.response?.status === 503;
+}
+// 서버가 조건을 실제로 풀었으나 해가 없는 응답(INFEASIBLE 등)인지 — 목업으로 감추지 말고
+// 조건 충돌 화면으로 보내야 하는 경우. status 가 OPTIMAL/FEASIBLE 이 아니거나 plan 이 비면 true.
+export function isInfeasibleResponse(raw: MenuGenerateRaw | null | undefined): boolean {
+  if (!raw) return true;
+  if (raw.status && raw.status !== 'OPTIMAL' && raw.status !== 'FEASIBLE') return true;
+  const plan = raw.plan as Record<string, unknown> | null | undefined;
+  return !plan || !Object.keys(plan).length;
 }
 
 /* ────────────── 뷰모델 ────────────── */
@@ -74,7 +85,10 @@ export interface MealPlan {
 interface MenuNutri { kcal?: number; protein?: number | null; sodium?: number | null; cost?: number | null }
 interface GenerateResponse {
   status?: string;
-  applied_targets?: { meals?: string[]; target_kcal_per_day?: number; sodium_max_mg_per_day?: number | null };
+  applied_targets?: {
+    meals?: string[]; target_kcal_per_day?: number; sodium_max_mg_per_day?: number | null;
+    protein_g?: number | null; // 프로파일 기준 단백질 목표(끼니 수 반영). 프로파일 미지정 시 null
+  };
   plan?: Record<string, Record<string, string[]>>;
   daily_kcal?: Record<string, number>;
   total_cost_won?: number;
@@ -140,6 +154,7 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   };
 
   _mid = 0;
+  _start = firstWeekday(new Date());
   const weeks = weeksFrom(plan, false);
   const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => ({
     label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, weeks: weeksFrom(a.plan ?? {}, true),
@@ -155,7 +170,8 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   dayKeys.forEach((dk) => Object.values(plan[dk] ?? {}).forEach((names) => names.forEach((name) => {
     const n = nutri[name] ?? {}; protSum += n.protein ?? 0; sodSum += n.sodium ?? 0;
   })));
-  const proteinTarget = Math.max(1, Math.round((kcalTarget * 0.15) / 4)); // 열량의 15%를 단백질(4kcal/g)로
+  // 단백질 목표: 백엔드가 프로파일에서 산출한 값. 프로파일 없이 요청한 경우에만 열량의 15%(4kcal/g)로 근사.
+  const proteinTarget = r.applied_targets?.protein_g ?? Math.max(1, Math.round((kcalTarget * 0.15) / 4));
   const achievement: Achievement = {
     calories: { value: Math.round(avgKcal), target: Math.round(kcalTarget), unit: 'kcal' },
     protein: { value: days ? Math.round((protSum / days) * 10) / 10 : 0, target: proteinTarget, unit: 'g' },
@@ -220,12 +236,39 @@ const DINNER: Row[] = [
   { m: ['백미밥', '김치찜', '코다리조림'], kcal: 705, protein: 28.8 },
 ];
 const ALT_MAIN = ['두부조림', '메추리알장조림', '채소볶음', '감자조림', '어묵볶음', '연근조림'];
-const DOW5 = ['월', '화', '수', '목', '금'];
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const DAY_MS = 86400000;
 
 let _mid = 0;
+let _start = firstWeekday(new Date()); // 식단 1일차 날짜 — 생성 시점에 다시 잡는다
+// 오늘이 평일이면 오늘, 주말이면 다음 월요일(시각은 자정으로 맞춤).
+function firstWeekday(from: Date): Date {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d;
+}
+// i번째(0부터) 평일의 날짜 라벨·요일·주차. 주차는 1일차가 속한 주(월요일 시작)를 1주차로 센다.
 function dateFor(i: number) {
-  const w = Math.floor(i / 5), p = i % 5, dd = 14 + w * 7 + p;
-  return { label: dd <= 30 ? `9/${dd}` : `10/${dd - 30}`, dow: DOW5[p], week: w };
+  const d = new Date(_start);
+  for (let n = 0; n < i;) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) n++;
+  }
+  const monday0 = new Date(_start);
+  monday0.setDate(monday0.getDate() - (monday0.getDay() - 1));
+  const week = Math.floor(Math.round((d.getTime() - monday0.getTime()) / DAY_MS) / 7);
+  return { label: `${d.getMonth() + 1}/${d.getDate()}`, dow: DOW[d.getDay()], week };
+}
+// 식단의 첫날–마지막날 라벨(예: '9/25–10/1'). 화면·파일명 표기용.
+export function planDateRange(plan: Pick<MealPlan, 'weeks'>): string {
+  const days = plan.weeks.flatMap((w) => w.days);
+  if (!days.length) return '';
+  const first = days[0].date, last = days[days.length - 1].date;
+  return first === last ? first : `${first}–${last}`;
+}
+// conditionText 맨 앞의 대상 라벨(예: '초등학생').
+export function planTargetLabel(plan: Pick<MealPlan, 'conditionText'>): string {
+  return plan.conditionText.split(' · ')[0];
 }
 function rowsFor(kind: MealKind): Row[] { return kind === 'breakfast' ? BREAKFAST : kind === 'dinner' ? DINNER : LUNCH; }
 function toCell(kind: MealKind, i: number, alt: boolean): MealCell {
@@ -265,6 +308,7 @@ function seedFrac(...nums: number[]): number {
 
 export function mockPlan(req: MenuGenerateRequest): MealPlan {
   _mid = 0;
+  _start = firstWeekday(new Date());
   const meals: MealKind[] = (req.meals?.length
     ? req.meals.map((m) => (m === '아침' ? 'breakfast' : m === '저녁' ? 'dinner' : 'lunch'))
     : ['lunch']) as MealKind[];

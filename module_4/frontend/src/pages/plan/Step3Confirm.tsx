@@ -1,11 +1,11 @@
 // src/pages/plan/Step3Confirm.tsx
 // 식단 생성 3단계 · 확정 (시안 화면 6). 요약 + 다운로드 파일 선택 + CSV 내려받기.
 import { useState } from 'react';
-import { Card, Button, Input, Checkbox, message } from 'antd';
+import { Card, Button, Input, Checkbox, App } from 'antd';
 import { CheckCircleFilled, DownloadOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import KpiRow from '../../components/KpiRow';
-import { MEAL_TABLE, type MealPlan, type MealKind } from '../../api/menu';
+import { MEAL_TABLE, planDateRange, planTargetLabel, type MealPlan, type MealKind } from '../../api/menu';
 
 const C = {
   text: '#16211C', sub: '#5D6B64', muted: '#98A5A0', border: '#E5EAE7', line: '#EEF2F0',
@@ -70,13 +70,12 @@ const FileRow = ({ checked, onToggle, title, badge, desc, disabled }: { checked:
 export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
   plan: MealPlan; onPrev: () => void; onSaveDraft: () => void;
 }) {
+  const { message } = App.useApp();
   const [files, setFiles] = useState({ table: true, normal: true, alt: false });
-  const [name, setName] = useState('9월 2-3주차 · 초등학생 중식');
-
-  const first = plan.weeks[0]?.days[0]?.date ?? '';
-  const lastWk = plan.weeks[plan.weeks.length - 1];
-  const last = lastWk?.days[lastWk.days.length - 1]?.date ?? '';
+  const range = planDateRange(plan);
   const mealsText = plan.meals.map((m) => MEAL_TABLE[m]).join('·');
+  // 기본 식단 이름은 실제 조건(기간·대상·끼니)에서 만든다. 예: '9/25–10/1 · 초등학생 중식'
+  const [name, setName] = useState(() => `${range} · ${planTargetLabel(plan)} ${mealsText}`);
   const allergyN = plan.alternatives.reduce((s, t) => s + t.count, 0);
 
   const confirm = () => {
@@ -106,7 +105,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
       {/* 요약 */}
       <Card size="small" styles={{ body: { padding: 24 } }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-          {[['대상', `${plan.conditionText.split(' · ')[0]} · ${plan.headcount}명`], ['기간 · 끼니', `${first}–${last} 평일 · ${mealsText}`], ['알레르기 그룹', `${plan.alternatives.length}그룹 · ${allergyN}명`]].map(([k, v]) => (
+          {[['대상', `${planTargetLabel(plan)} · ${plan.headcount}명`], ['기간 · 끼니', `${range} 평일 · ${mealsText}`],['알레르기 그룹', `${plan.alternatives.length}그룹 · ${allergyN}명`]].map(([k, v]) => (
             <div key={k}><div style={{ fontSize: 12, color: C.sub }}>{k}</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 600, color: C.text }}>{v}</div></div>
           ))}
         </div>

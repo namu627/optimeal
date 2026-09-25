@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   PlusOutlined,
   DownOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { colors, layout } from '../theme';
@@ -27,6 +28,11 @@ const items = [
   { key: '/calibration', icon: <SlidersOutlined />, label: '캘리브레이션' },
   { key: '/settings', icon: <SettingOutlined />, label: '설정' },
 ];
+
+// 로그인·계정 API가 아직 없어 사용자·소속 정보가 없다. 예전 시안의 가짜 이름·학교 대신 중립 표기.
+// TODO: 로그인 연동 시 실제 사용자명·소속 업장으로 교체
+const USER_NAME = '영양사';
+const USER_ORG = '소속 업장 미설정';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: '홈', subtitle: '오늘 확인할 일과 진행 중인 식단' },
@@ -51,8 +57,8 @@ export default function AppLayout() {
       key: 'me',
       label: (
         <div style={{ padding: '4px 0' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>김영양</div>
-          <div style={{ marginTop: 2, fontSize: 12, color: colors.textTertiary }}>서울초등학교 · 영양교사</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{USER_NAME}</div>
+          <div style={{ marginTop: 2, fontSize: 12, color: colors.textTertiary }}>{USER_ORG}</div>
         </div>
       ),
       disabled: true,
@@ -118,12 +124,10 @@ export default function AppLayout() {
                 borderTop: `1px solid ${colors.borderSubtle}`,
               }}
             >
-              <Avatar size={30} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }}>
-                영
-              </Avatar>
+              <Avatar size={30} icon={<UserOutlined />} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }} />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>김영양</div>
-                <div style={{ fontSize: 11, color: colors.textTertiary }}>서울초등학교</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{USER_NAME}</div>
+                <div style={{ fontSize: 11, color: colors.textTertiary }}>{USER_ORG}</div>
               </div>
             </div>
           )}
@@ -185,9 +189,7 @@ export default function AppLayout() {
 
           <Dropdown menu={{ items: profileItems }} trigger={['click']} placement="bottomRight">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <Avatar size={30} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }}>
-                영
-              </Avatar>
+              <Avatar size={30} icon={<UserOutlined />} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }} />
               <DownOutlined style={{ fontSize: 11, color: colors.textTertiary }} />
             </div>
           </Dropdown>

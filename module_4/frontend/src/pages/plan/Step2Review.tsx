@@ -1,12 +1,12 @@
 // src/pages/plan/Step2Review.tsx
 // 식단 생성 2단계 · 검토 (시안 화면 5 / 5-a 3끼 / 5-b 대체식 / 5-c 교체 팝오버)
 import { useMemo, useState } from 'react';
-import { Card, Button, Popover, Progress, message } from 'antd';
+import { Card, Button, Popover, Progress, App } from 'antd';
 import { PrinterOutlined, CloseOutlined, CheckOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import KpiRow from '../../components/KpiRow';
 import {
-  MEAL_TABLE, MEAL_TIME, swapCandidates,
+  MEAL_TABLE, MEAL_TIME, swapCandidates, planDateRange, planTargetLabel,
   type MealPlan, type WeekBlock, type MealItem, type MealKind, type MealCell,
 } from '../../api/menu';
 
@@ -25,6 +25,7 @@ function editItems(plan: MealPlan, fn: (items: MealItem[]) => MealItem[]): MealP
 export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditConditions }: {
   plan: MealPlan; setPlan: (p: MealPlan) => void; onPrev: () => void; onNext: () => void; onEditConditions: () => void;
 }) {
+  const { message } = App.useApp();
   const [view, setView] = useState<'normal' | 'alt'>('normal');
   const [track, setTrack] = useState(0);
 
@@ -101,7 +102,7 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
         {cell.items.map((it) => <MenuLine key={it.menuId ?? it.name} it={it} />)}
         <div style={{ marginTop: 8, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
           <span style={{ fontWeight: 700, color: cell.warn ? C.redText : C.text }}>{cell.kcal} kcal</span>
-          <span style={{ color: C.sub }}>　단백 {cell.protein.toFixed(1)}g</span>
+          <span style={{ color: C.sub, marginLeft: 12 }}>단백 {cell.protein.toFixed(1)}g</span>
         </div>
       </td>
     );
@@ -146,7 +147,7 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
             </span>
             <Button size="small" icon={<PrinterOutlined />} onClick={() => window.print()}>인쇄</Button>
           </div>
-          <div style={{ marginTop: 4, fontSize: 12, color: C.sub }}>서울초등학교 · 2026학년도 9월 · {plan.headcount}명 · 단위 1인 기준</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: C.sub }}>{planTargetLabel(plan)} · {planDateRange(plan)} · {plan.headcount}명 · 단위 1인 기준</div>
 
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14, tableLayout: 'fixed' }}>
             {weeks.map((wk) => (

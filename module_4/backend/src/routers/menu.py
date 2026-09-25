@@ -159,7 +159,10 @@ def _load_profiles() -> dict:
 
 
 def _resolve_targets(payload):
-    """프로파일 + 끼니 수 → (끼니 이름들, 목표 kcal, 나트륨 상한, 끼니 비율, 근거).
+    """프로파일 + 끼니 수 → (끼니 이름들, 목표 kcal, 나트륨 상한, 끼니 비율, 근거, 단백질 목표 g).
+
+    단백질 목표는 제약에 쓰지 않고 응답(applied_targets.protein_g)에만 싣는다 —
+    프론트 달성률 게이지가 임의 계산 대신 프로파일 기준값을 쓰게 하기 위함이다.
 
     프로파일을 주면 payload 의 target_kcal_per_day·sodium_max_mg_per_day 를 **덮는다**.
     끼니를 줄이면 목표도 함께 줄어야 하기 때문이다 — 안 그러면 한 끼에 하루치가 몰린다.
@@ -181,14 +184,15 @@ def _resolve_targets(payload):
     else:
         meals = ("아침", "점심", "저녁")
     if profile is None:
-        return meals, payload.target_kcal_per_day, payload.sodium_max_mg_per_day, None, None
+        return meals, payload.target_kcal_per_day, payload.sodium_max_mg_per_day, None, None, None
     import user_profiles as up
 
     tg = up.targets_for(profile, meals)
     return (meals, tg["target_kcal_per_day"], tg["sodium_max_mg_per_day"],
             tg["meal_energy_ratios"], {"profile": profile.group_name,
                                        "basis": tg["basis"], "source": profile.source,
-                                       "note": profile.note})
+                                       "note": profile.note},
+            tg["protein_min_g"])
 
 
 def _load_affinity_table() -> list | None:
@@ -341,7 +345,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     """
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
-    meals, kcal, sodium_max, ratios, basis = _resolve_targets(payload)
+    meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
     sodium_by_idx = _load_sodium(menus) if sodium_max else None
     cfg = hc.HardConstraintConfig(
@@ -373,6 +377,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             "meals": list(meals),
             "target_kcal_per_day": kcal,
             "sodium_max_mg_per_day": sodium_max,
+            "protein_g": protein_g,  # 프로파일 기준 단백질 목표(제약 아님, 표시용). 프로파일 없으면 None
             "profile": basis,
         },
         "plan": _to_jsonable(res.plan),
