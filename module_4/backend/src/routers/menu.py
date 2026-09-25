@@ -226,11 +226,46 @@ def _load_sodium(menus) -> dict | None:
         return None
 
 
-def _load_menu_nutrition(menus) -> dict:
+def _canonical_by_name(menus) -> dict:
+    """메뉴명 -> 대표 후보(MenuItem). 동명 메뉴(같은 recipe_name, 다른 nutrition_id)를 한 행으로 정규화한다.
+
+    응답의 plan 은 메뉴 **이름**만 담으므로, 이름으로 행을 다시 찾는 곳(menu_nutrition·menu_recipes·
+    대체식)이 각자 다른 행을 집으면 같은 메뉴의 원가·영양이 서로 어긋난다(예: 가지볶음 303234=0원 /
+    303292=132원 → 본식단 259원 vs 대체식 127원). 세 곳 모두 이 대표행을 쓰게 해서 값을 맞춘다.
+
+    선택 규칙(앞에서부터): 원가(cost_won)>0 → 재료(레시피 연결) 보유 → menu_id 오름차순.
+    두 번째 기준은 둘 다 원가 0원인 동명(깻잎장아찌롤)에서 레시피 없는 행이 뽑혀 조리 지시서가
+    '레시피 없음'이 되는 것을 막는다. 현재 동명 6쌍은 모두 한쪽만 레시피·가격이 연결돼 있다.
+
+    ⚠ Level 1(표시 정규화)이다. 솔버는 여전히 두 행을 별개 후보로 풀기 때문에, 솔버가 대표행이 아닌
+    쪽(0원 행)을 고르면 total_cost_won(솔버가 실제 고른 행 기준)과 여기 값이 다를 수 있다.
+    완전히 정확하려면 plan 에 menu_id 가 실려 솔버가 고른 행을 그대로 써야 하며, 이는 module_3
+    (csp_solver·alternative_menu) 소관의 Level 2 수정이다.
+    """
+    best: dict = {}
+    for m in menus:
+        cur = best.get(m.name)
+        if cur is None or _canonical_rank(m) < _canonical_rank(cur):
+            best[m.name] = m
+    return best
+
+
+def _canonical_rank(m) -> tuple:
+    """_canonical_by_name 정렬 키 — 작을수록 대표행으로 우선."""
+    return (not (getattr(m, "cost_won", 0) or 0) > 0,
+            not getattr(m, "ingredients", None),
+            getattr(m, "menu_id", 0) or 0)
+
+
+def _load_menu_nutrition(canon: dict) -> dict:
     """메뉴명 -> {kcal, protein, sodium, cost}. 프론트 검토 화면의 셀별 표기용(FR-검토).
     calories·cost 는 후보(MenuItem)에 이미 있고, protein·sodium 은 nutrition_recipe 에서 보강한다.
     조회에 실패해도 kcal·cost 는 채우고 protein·sodium 만 None 으로 둔다 — 응답은 항상 나간다.
+
+    Args:
+        canon: _canonical_by_name 결과(메뉴명 -> 대표행). 동명 메뉴는 대표행 값만 싣는다.
     """
+    menus = list(canon.values())
     prot: dict = {}
     sod: dict = {}
     try:
@@ -260,12 +295,59 @@ def _load_menu_nutrition(menus) -> dict:
     return out
 
 
-def _build_menu_recipes(cs, plan: dict, servings: int) -> dict:
+def _make_recipe_of_by_id(engine, canon: dict):
+    """메뉴명 -> 대표행(menu_id)의 레시피를 조회하는 recipe_of (cooking_sheet 주입용).
+
+    module_3 의 cooking_sheet.make_db_recipe_of 는 `WHERE nr.recipe_name = :menu` 로 조회해
+    동명 행이 여럿이면 모든 행의 재료를 섞을 수 있다. 여기서는 대표행 nutrition_id 로만 조회해
+    menu_nutrition·대체식과 같은 행을 쓴다. 반환 형식은 make_db_recipe_of 와 동일하다.
+    대표행이 없는 이름(후보 밖 메뉴)은 None → 조리 지시서에 '레시피 없음'으로 남는다.
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT cm.method_name AS cooking_method,
+               ing.ingredient_name AS name,
+               rim.per_serving_grams AS base_amount_g,
+               rim.unit AS unit,
+               rim.ingredient_role AS role,
+               rim.cooking_step_order AS step
+        FROM recipe r
+        JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
+        JOIN ingredient ing          ON ing.ingredient_id = rim.ingredient_id
+        LEFT JOIN cooking_method cm   ON cm.method_id = r.primary_method_id
+        WHERE r.nutrition_recipe_id = :nid
+        ORDER BY rim.cooking_step_order NULLS LAST
+    """)
+
+    def recipe_of(menu_name):
+        m = canon.get(menu_name)
+        if m is None:
+            return None
+        with engine.connect() as conn:
+            rows = conn.execute(query, {"nid": m.menu_id}).mappings().all()
+        if not rows:
+            return None
+        return {
+            "cooking_method": rows[0]["cooking_method"],
+            "ingredients": [{
+                "name": r["name"],
+                "base_amount_g": float(r["base_amount_g"]) if r["base_amount_g"] is not None else None,
+                "unit": r["unit"] or "g",
+                "role": r["role"],
+                "step": r["step"],
+            } for r in rows],
+        }
+    return recipe_of
+
+
+def _build_menu_recipes(cs, plan: dict, servings: int, canon: dict) -> dict:
     """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서용).
 
     module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
     재료 구성은 메뉴명에만 의존하므로 여기서 메뉴명 키로 한 번만 접어 돌려준다
     (프론트가 날짜와 무관하게 메뉴명으로 조회할 수 있게).
+    레시피는 동명 정규화된 대표행(canon) 기준으로 조회한다(_make_recipe_of_by_id).
     레시피(recipe_ingredient_map)가 없는 메뉴는 note만 채운 항목으로 남긴다.
     실패해도(DB 미구성 등) 조리 지시서 없이 응답은 나가야 하므로 빈 dict로 저하한다.
     """
@@ -274,7 +356,7 @@ def _build_menu_recipes(cs, plan: dict, servings: int) -> dict:
     try:
         import cooking_sheet as csheet
 
-        recipe_of = csheet.make_db_recipe_of(cs.get_engine())
+        recipe_of = _make_recipe_of_by_id(cs.get_engine(), canon)
         rows = csheet.build_cooking_sheet(plan, recipe_of, servings)
     except Exception:
         return {}
@@ -289,8 +371,14 @@ def _build_menu_recipes(cs, plan: dict, servings: int) -> dict:
 
 
 def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
-                         sodium_by_idx: dict | None = None) -> list[dict]:
-    """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11)."""
+                         sodium_by_idx: dict | None = None, canon: dict | None = None) -> list[dict]:
+    """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11).
+
+    alternative_menu 는 메뉴명으로 행을 찾는데(by_name, 첫 행 우선) 동명이면 0원 행을 집어
+    대체식 총원가가 본식단과 어긋났다. 그래서 후보를 이름당 대표행 하나(canon)로 줄여 넘긴다.
+    sodium_by_idx 는 원래 후보(menus) 인덱스 기준이라 menu_id 키로 바꾼 뒤 그대로 쓴다
+    (대표행의 menu_id 도 그 안에 있다).
+    """
     groups = [
         am.AllergyGroup(
             label=g.get("label", ""),
@@ -302,7 +390,8 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     # 대체식도 공통식과 같은 나트륨 상한을 지켜야 한다 → menu_id 키로 변환해 주입.
     sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
                      if i < len(menus)} if sodium_by_idx else None)
-    alts = am.derive_alternative_menus(plan, menus, groups, hard_config=cfg,
+    alt_menus = list(canon.values()) if canon else menus
+    alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
                                        sodium_by_id=sodium_by_id)
     return [_to_jsonable(a) for a in alts]
 
@@ -389,15 +478,18 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
     }
 
+    # plan 은 메뉴명만 담는다 → 이름으로 행을 다시 찾는 아래 세 곳이 같은 행(대표행)을 쓰도록 정규화.
+    canon = _canonical_by_name(menus)
+
     # 프론트 검토 화면: plan 은 메뉴명만 담으므로, 메뉴별 열량·단백질·나트륨·원가를 옆에 실어준다.
-    body["menu_nutrition"] = _load_menu_nutrition(menus)
+    body["menu_nutrition"] = _load_menu_nutrition(canon)
 
     # 프론트 확정 화면(Step3) 조리 지시서: 메뉴명 → 재료 투입량(총량)·조리순서.
     # recipe_ingredient_map 미보강 메뉴는 note만 채워져 온다("연동 예정" 대신 실사유 표시 가능).
-    body["menu_recipes"] = _build_menu_recipes(cs, res.plan, payload.serving_count)
+    body["menu_recipes"] = _build_menu_recipes(cs, res.plan, payload.serving_count, canon)
 
     if payload.with_alternatives and res.plan:
         body["alternatives"] = _derive_alternatives(
-            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx
+            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
         )
     return body

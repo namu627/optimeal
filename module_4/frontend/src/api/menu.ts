@@ -48,6 +48,35 @@ export function isInfeasibleResponse(raw: MenuGenerateRaw | null | undefined): b
   return !plan || !Object.keys(plan).length;
 }
 
+/* ────────────── 저장된 식단 (/api/menu/plans) ──────────────
+   MealPlan 뷰모델을 그대로 저장·반환한다. 로그인 체계가 없어 소유자 없는 전역 목록(MVP). */
+export interface SavedPlanSummary {
+  id: number; name: string; created_at: string;
+  headcount: number | null; total_days: number | null;
+  cost_per_person: number | null; budget_per_person: number | null;
+  condition_text: string | null; period_text: string | null; start_date: string | null;
+}
+export interface SavedPlan { id: number; name: string; created_at: string; plan: MealPlan }
+
+export async function savePlan(name: string, plan: MealPlan): Promise<{ id: number }> {
+  const { data } = await api.post<{ id: number }>('/api/menu/plans', { name, plan }); return data;
+}
+export async function listSavedPlans(limit = 50): Promise<SavedPlanSummary[]> {
+  const { data } = await api.get<SavedPlanSummary[]>('/api/menu/plans', { params: { limit } }); return data;
+}
+export async function getSavedPlan(id: number): Promise<SavedPlan> {
+  const { data } = await api.get<SavedPlan>(`/api/menu/plans/${id}`); return data;
+}
+export async function deleteSavedPlan(id: number): Promise<void> {
+  await api.delete(`/api/menu/plans/${id}`);
+}
+// 저장 시각(ISO, UTC) → 로컬 표기. 예: '9월 26일 오전 01:03'
+export function formatSavedAt(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso
+    : d.toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 /* ────────────── 뷰모델 ────────────── */
 export type MealKind = 'breakfast' | 'lunch' | 'dinner';
 export const MEAL_KR: Record<MealKind, string> = { breakfast: '아침', lunch: '점심', dinner: '저녁' };

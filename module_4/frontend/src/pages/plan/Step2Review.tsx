@@ -22,8 +22,13 @@ function editItems(plan: MealPlan, fn: (items: MealItem[]) => MealItem[]): MealP
   return { ...plan, weeks: mapW(plan.weeks), alternatives: plan.alternatives.map((t) => ({ ...t, weeks: mapW(t.weeks) })) };
 }
 
-export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditConditions }: {
-  plan: MealPlan; setPlan: (p: MealPlan) => void; onPrev: () => void; onNext: () => void; onEditConditions: () => void;
+const noop = () => {};
+
+// readOnly: 저장된 식단 열람(/plans/:id)용. 교체·삭제·조건 수정·체크 토글·이전/다음을 숨기고
+// 일반식/대체식 보기 전환만 남긴다. 편집 콜백은 readOnly 일 때 생략할 수 있다.
+export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNext = noop, onEditConditions = noop, readOnly = false }: {
+  plan: MealPlan; setPlan?: (p: MealPlan) => void; onPrev?: () => void; onNext?: () => void; onEditConditions?: () => void;
+  readOnly?: boolean;
 }) {
   const { message } = App.useApp();
   const [view, setView] = useState<'normal' | 'alt'>('normal');
@@ -47,10 +52,21 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
     })));
     message.success(`'${it.name}' → '${to}' 교체`);
   };
-  const toggleCheck = (label: string) =>
+  const toggleCheck = (label: string) => {
+    if (readOnly) return;
     setPlan({ ...plan, checks: plan.checks.map((c) => (c.label === label ? { ...c, done: !c.done } : c)) });
+  };
 
   const MenuLine = ({ it }: { it: MealItem }) => {
+    if (readOnly) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, lineHeight: '20px' }}>
+          <span style={{ fontSize: 13, color: it.flag ? C.redText : it.alt ? C.greenText : C.text }}>{it.name}</span>
+          {it.alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+          {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
+        </div>
+      );
+    }
     const cand = swapCandidates(it.name);
     const canRevert = !!it.orig && it.orig !== it.name;
     return (
@@ -112,7 +128,7 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 스텝 + 토글 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <StepIndicator current={2} />
+        {!readOnly && <StepIndicator current={2} />}
         <div style={{ flex: 1 }} />
         {view === 'alt' && plan.alternatives.map((t, i) => (
           <span key={i} onClick={() => setTrack(i)} style={{ fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 8, padding: '5px 11px', color: track === i ? C.greenText : C.sub, background: track === i ? C.tint : '#fff', border: `1px solid ${track === i ? C.tint : C.border}` }}>{t.label} {t.count}명</span>
@@ -132,7 +148,7 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 14, color: C.text, fontVariantNumeric: 'tabular-nums' }}>{plan.conditionText}</span>
           <div style={{ flex: 1 }} />
-          <Button size="small" onClick={onEditConditions}>조건 수정</Button>
+          {!readOnly && <Button size="small" onClick={onEditConditions}>조건 수정</Button>}
         </div>
       </Card>
 
@@ -173,7 +189,9 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
               </tbody>
             ))}
           </table>
-          <div style={{ marginTop: 12, fontSize: 12, color: C.muted }}>메뉴에 마우스를 올리면 교체·삭제할 수 있어요 · 1인 기준 열량(kcal)과 단백질(g)</div>
+          <div style={{ marginTop: 12, fontSize: 12, color: C.muted }}>
+            {readOnly ? '저장된 식단(읽기 전용)' : '메뉴에 마우스를 올리면 교체·삭제할 수 있어요'} · 1인 기준 열량(kcal)과 단백질(g)
+          </div>
         </Card>
 
         {/* 사이드바 */}
@@ -189,7 +207,7 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
             <Progress percent={Math.round((doneChecks / plan.checks.length) * 100)} showInfo={false} strokeColor={C.green} style={{ marginTop: 8 }} />
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column' }}>
               {plan.checks.map((c) => (
-                <div key={c.label} onClick={() => toggleCheck(c.label)} style={{ display: 'flex', alignItems: 'center', gap: 11, height: 40, cursor: 'pointer' }}>
+                <div key={c.label} onClick={() => toggleCheck(c.label)} style={{ display: 'flex', alignItems: 'center', gap: 11, height: 40, cursor: readOnly ? 'default' : 'pointer' }}>
                   <span style={{ width: 17, height: 17, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: c.done ? C.green : '#fff', border: c.done ? 'none' : `1px solid #C4CEC9` }}>
                     {c.done && <CheckOutlined style={{ fontSize: 10, color: '#fff' }} />}
                   </span>
@@ -202,11 +220,13 @@ export default function Step2Review({ plan, setPlan, onPrev, onNext, onEditCondi
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <Button onClick={onPrev}>이전</Button>
-        <div style={{ flex: 1 }} />
-        <Button type="primary" onClick={onNext}>다음: 확정</Button>
-      </div>
+      {!readOnly && (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Button onClick={onPrev}>이전</Button>
+          <div style={{ flex: 1 }} />
+          <Button type="primary" onClick={onNext}>다음: 확정</Button>
+        </div>
+      )}
 
       <style>{`.menuline:hover .del{opacity:1 !important}`}</style>
     </div>

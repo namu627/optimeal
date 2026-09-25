@@ -68,10 +68,13 @@ const FileRow = ({ checked, onToggle, title, badge, desc, disabled }: { checked:
 );
 
 export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
-  plan: MealPlan; onPrev: () => void; onSaveDraft: () => void;
+  plan: MealPlan; onPrev: () => void;
+  /** 초안 저장 — 입력한 식단 이름을 넘긴다. 실패 시 reject(버튼 로딩 해제용). */
+  onSaveDraft: (name: string) => Promise<void>;
 }) {
   const { message } = App.useApp();
   const [files, setFiles] = useState({ table: true, normal: true, alt: false });
+  const [saving, setSaving] = useState(false);
   const range = planDateRange(plan);
   const mealsText = plan.meals.map((m) => MEAL_TABLE[m]).join('·');
   // 기본 식단 이름은 실제 조건(기간·대상·끼니)에서 만든다. 예: '9/25–10/1 · 초등학생 중식'
@@ -88,6 +91,12 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
     // 브라우저가 연속 다운로드를 막지 않도록 약간 간격을 둠
     jobs.forEach((run, i) => setTimeout(run, i * 350));
     message.success(`식단이 확정되고 CSV ${jobs.length}개를 내려받았어요`);
+  };
+  const saveDraft = async () => {
+    const n = name.trim();
+    if (!n) { message.warning('식단 이름을 입력해 주세요'); return; }
+    setSaving(true);
+    try { await onSaveDraft(n); } catch { setSaving(false); }
   };
 
   return (
@@ -133,7 +142,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Button onClick={onPrev}>이전</Button>
         <div style={{ flex: 1 }} />
-        <Button onClick={onSaveDraft}>초안으로 저장</Button>
+        <Button onClick={saveDraft} loading={saving}>초안으로 저장</Button>
         <Button type="primary" icon={<DownloadOutlined />} onClick={confirm}>확정하고 CSV 내려받기</Button>
       </div>
     </div>

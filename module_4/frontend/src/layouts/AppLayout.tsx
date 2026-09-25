@@ -36,7 +36,7 @@ const USER_ORG = '소속 업장 미설정';
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: '홈', subtitle: '오늘 확인할 일과 진행 중인 식단' },
-  '/plans': { title: '식단 목록', subtitle: '지난 식단을 찾아보고 복제할 수 있어요' },
+  '/plans': { title: '식단 목록', subtitle: '저장한 식단을 열어 보거나 삭제할 수 있어요' },
   '/plans/new': { title: '식단 생성', subtitle: '조건을 입력하면 식단을 만들어 드려요' },
   '/nutrition': { title: '영양성분 검색', subtitle: '메뉴명으로 영양성분을 조회해요' },
   '/scaling': { title: '레시피 스케일링', subtitle: '1인분 레시피를 대량 조리량으로 변환해요' },
@@ -50,7 +50,12 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const ready = useHealth();
 
-  const meta = pageMeta[pathname] ?? { title: '', subtitle: '' };
+  // 저장된 식단 상세(/plans/:id)는 메뉴상 '식단 목록' 아래로 본다.
+  const isPlanDetail = /^\/plans\/\d+$/.test(pathname);
+  const menuKey = isPlanDetail ? '/plans' : pathname;
+  const meta = isPlanDetail
+    ? { title: '식단 상세', subtitle: '저장된 식단을 읽기 전용으로 보여줘요' }
+    : pageMeta[pathname] ?? { title: '', subtitle: '' };
 
   const profileItems: MenuProps['items'] = [
     {
@@ -107,7 +112,7 @@ export default function AppLayout() {
         <Menu
           mode="inline"
           inlineCollapsed={collapsed}
-          selectedKeys={[pathname]}
+          selectedKeys={[menuKey]}
           items={items}
           onClick={(e) => navigate(e.key)}
           style={{ background: 'transparent', borderInlineEnd: 'none' }}

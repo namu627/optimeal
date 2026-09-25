@@ -9,7 +9,7 @@ import Step1Conditions, { type Step1Form } from './plan/Step1Conditions';
 import Step2Review from './plan/Step2Review';
 import Step3Confirm from './plan/Step3Confirm';
 import {
-  generateMenu, toMealPlan, mockPlan, isInfeasibleResponse, isUnavailable,
+  generateMenu, toMealPlan, mockPlan, isInfeasibleResponse, isUnavailable, savePlan,
   type MenuGenerateRequest, type MenuGenerateRaw, type MealPlan,
 } from '../api/menu';
 
@@ -73,6 +73,19 @@ function PlanWizard() {
     setGenState('idle');
     setStep(2);
   };
+  // 검토에서 교체·삭제한 결과까지 포함한 현재 뷰모델을 그대로 저장한다. 실패하면 머물러 다시 시도할 수 있게 한다.
+  const saveDraft = async (name: string) => {
+    if (!plan) return;
+    try {
+      await savePlan(name, plan);
+    } catch (e) {
+      console.error('[식단저장] 저장 실패:', e);
+      message.error('식단을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      throw e;
+    }
+    message.success(`'${name}' 식단을 저장했어요`);
+    navigate('/plans');
+  };
 
   return (
     <div>
@@ -92,9 +105,7 @@ function PlanWizard() {
         <Step3Confirm
           plan={plan}
           onPrev={() => setStep(2)}
-          // 식단 저장 API가 아직 없다 — 저장된 척하고 목록으로 이동하면 방금 만든 식단을 잃으므로 사실대로 안내하고 머문다.
-          // TODO: 식단 저장 API 연동 후 실제 저장 → /plans 이동
-          onSaveDraft={() => message.info('식단 저장 기능은 준비 중이에요. 지금은 CSV로 내려받아 보관해 주세요.')}
+          onSaveDraft={saveDraft}
         />
       )}
     </div>
