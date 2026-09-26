@@ -24,6 +24,29 @@ from .. import config, schemas
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
+# ── 실서버 풀이 속도 설정 (module_3 MealPlanRequest 의 opt-in 필드) ─────────────
+#   module_3 라이브러리 기본값은 그대로(조기 종료 OFF)이고, **API 경로에서만** 켠다.
+#   2026-09-26 계측: 7일은 첫 가능해를 수 초 안에 찾고 나머지를 목적값 개선에 써서 한도까지
+#   돌았다(최적성 미증명). 아래 기준에서 멈춰도 반환 해는 Hard 제약을 모두 지키는 가능해다.
+#   · gap 5%: 증명된 상한 대비 5% 이내면 종료.
+#   · 정체: 최근 8초 개선폭이 0.5% 미만이면 종료(3식·31일은 상한이 느슨해 gap 이 안 걸리고,
+#     7일은 +0.1%씩 찔끔 오르는 해가 계속 나와 "개선 0" 기준으로는 한도까지 돈다).
+#   · presolve 1회: 3식 모델은 presolve 3회(~15초) 뒤에야 첫 해가 나와서 1회로 줄인다.
+#   · 시간 상한(요청에 없을 때): 7일 이하 30초 · 그 이상 60초. 7일은 30초 시점 목적값이
+#     120초 풀이 최종값의 97~99%였다.
+#   종료 사유는 응답 stop_reason 으로 남는다.
+SOLVER_GAP_LIMIT = 0.05
+SOLVER_STALL_SECONDS = 8.0
+SOLVER_STALL_MIN_IMPROVEMENT = 0.005
+SOLVER_PARAMS = {"max_presolve_iterations": 1}
+
+
+def _solver_time_limit(payload) -> float:
+    """요청의 풀이 시간 상한. 명시값이 있으면 그대로, 없으면 일수 기준 기본값."""
+    if payload.solver_time_limit is not None:
+        return payload.solver_time_limit
+    return 30.0 if payload.days <= 7 else 60.0
+
 
 def _load_module3():
     """모듈 3 (csp_solver, csp_hard_constraints, alternative_menu) 를 로드한다.
@@ -556,7 +579,11 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         cfg.meal_energy_ratios = ratios
     req = cs.MealPlanRequest(
         days=payload.days, meals=meals, hard=cfg,
-        solver_time_limit=payload.solver_time_limit,
+        solver_time_limit=_solver_time_limit(payload),
+        relative_gap_limit=SOLVER_GAP_LIMIT,
+        stall_seconds=SOLVER_STALL_SECONDS,
+        stall_min_improvement=SOLVER_STALL_MIN_IMPROVEMENT,
+        solver_params=dict(SOLVER_PARAMS),
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
@@ -565,6 +592,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
+        # 풀이 종료 사유(optimal·gap·stall·time_limit…). 구버전 module_3 는 필드가 없어 None.
+        "stop_reason": getattr(res, "stop_reason", None),
         # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
         "applied_targets": {
             "meals": list(meals),
