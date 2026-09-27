@@ -245,6 +245,17 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
           <div style={{ flex: 1 }} />
           {!readOnly && <Button size="small" onClick={onEditConditions}>조건 수정</Button>}
         </div>
+        {/* 생성 근거 — 솔버 응답(hard_breakdown)에서 실제 충족된 제약만 담긴다(toMealPlan). */}
+        {plan.rationale?.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+            <span style={{ fontSize: 12, color: C.sub, marginRight: 2 }}>생성 근거</span>
+            {plan.rationale.map((r) => (
+              <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 500, color: C.greenText, background: C.tintBg, border: `1px solid ${C.tint}`, borderRadius: 999, padding: '2px 10px', fontVariantNumeric: 'tabular-nums' }}>
+                <CheckOutlined style={{ fontSize: 10, color: C.green }} />{r}
+              </span>
+            ))}
+          </div>
+        )}
       </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 316px', gap: 16, alignItems: 'start' }}>

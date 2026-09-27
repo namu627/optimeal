@@ -151,11 +151,52 @@ interface GenerateResponse {
   plan_ids?: PlanIds | null;
   menu_nutrition_by_id?: Record<string, MenuNutri & { name?: string }>;
   menu_recipes_by_id?: Record<string, MenuRecipe>;
+  hard_breakdown?: HardBreakdown | null;
   alternatives?: Array<{
     group?: { label?: string; allergens?: string[]; count?: number };
     plan?: Record<string, Record<string, string[]>>;
   }>;
 }
+// module_3 evaluate_hard_breakdown 의 리포트(풀린 해를 실측한 제약 충족 여부). 미적용 항목은 null·빈 값.
+interface HardBreakdown {
+  per_day?: Array<{ day: number; kcal: number; kcal_ok: boolean | null; cost: number; budget_ok: boolean | null }>;
+  kcal_bounds?: [number, number] | null;
+  excluded_menu_count?: number;
+  excluded_clean?: boolean;
+  menu_repeat?: { window_days: number; violations: unknown[] };
+  nutrient_max?: Record<string, { limit: number; max_day: number; all_ok: boolean }>;
+  pairing?: { all_ok?: boolean };
+  manual?: { all_ok?: boolean };
+}
+
+/* 생성 근거(검토 화면 칩) — hard_breakdown 에서 **실제로 충족된** 제약만 문장으로 만든다.
+   미적용(null)·위반 항목은 넣지 않는다(위반은 셀 경고·확인 필요 목록이 다룬다).
+   예산은 백엔드가 하루 상한(한 끼 × 끼니 수)으로 검사하므로 끼니가 여럿이면 1일 값으로 적는다. */
+function buildRationale(hb: HardBreakdown, kcalTarget: number, budgetPerMeal: number, nMeals: number): string[] {
+  const out: string[] = [];
+  const days = hb.per_day ?? [];
+  const allTrue = (vals: (boolean | null)[]) => vals.length > 0 && vals.every((v) => v === true);
+  if (allTrue(days.map((d) => d.kcal_ok))) {
+    const b = hb.kcal_bounds;
+    out.push(`열량 ${Math.round(kcalTarget).toLocaleString()}kcal 목표 충족${b ? ` (${Math.round(b[0]).toLocaleString()}~${Math.round(b[1]).toLocaleString()})` : ''}`);
+  }
+  if (allTrue(days.map((d) => d.budget_ok))) {
+    out.push(nMeals > 1
+      ? `예산 1일 ${(budgetPerMeal * nMeals).toLocaleString()}원 이내 (${budgetPerMeal.toLocaleString()}원/식 × ${nMeals}끼)`
+      : `예산 ${budgetPerMeal.toLocaleString()}원/식 이내`);
+  }
+  const sodium = hb.nutrient_max?.sodium;
+  if (sodium?.all_ok) out.push(`나트륨 ${Math.round(sodium.limit).toLocaleString()}mg/일 이하`);
+  const rep = hb.menu_repeat;
+  if (rep && rep.window_days > 0 && rep.violations.length === 0) {
+    out.push(rep.window_days > 1 ? `${rep.window_days}일 내 동일 메뉴 없음` : '같은 날 동일 메뉴 없음');
+  }
+  if ((hb.excluded_menu_count ?? 0) > 0 && hb.excluded_clean) out.push(`배제 메뉴 ${hb.excluded_menu_count}종 미편성`);
+  if (hb.pairing?.all_ok) out.push('주식·국 궁합 적합');
+  if (hb.manual?.all_ok) out.push('수동 지정 메뉴 반영');
+  return out;
+}
+
 const MEAL_FROM_KR: Record<string, MealKind> = { 아침: 'breakfast', 점심: 'lunch', 저녁: 'dinner' };
 const MEAL_ORDER = ['아침', '점심', '저녁'];
 
@@ -239,7 +280,10 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
     achievement, costPerPerson: 0, budgetPerPerson: budget,
     totalDays: days, totalCost: 0, sodiumCapPerDay: sodiumTarget,
     checks,
-    rationale: [r.status ? `solver: ${r.status}` : '', '열량 목표 대비 산출', groups ? `대체식 ${groups}그룹 파생` : ''].filter(Boolean),
+    // 구버전 백엔드(hard_breakdown 없음)만 예전 일반 문구로 폴백.
+    rationale: r.hard_breakdown
+      ? buildRationale(r.hard_breakdown, kcalTarget, budget, meals.length)
+      : [r.status ? `solver: ${r.status}` : '', '열량 목표 대비 산출', groups ? `대체식 ${groups}그룹 파생` : ''].filter(Boolean),
     source: 'live',
     menuRecipes: r.menu_recipes,
     menuRecipesById: r.menu_recipes_by_id,
