@@ -75,6 +75,12 @@ COOKING_METHOD_MAP = {
     "튀기기": "튀김",
     "조리기": "조림",
     "무치기": "무침",
+    # '기타'는 COOKRCP01 에서 가열 5종(찌기·끓이기·굽기·볶기·튀기기) 외 전부 — 김치·무침·
+    # 샐러드·후식 등 **비가열**이 대부분이다(1,156건 중 310건, 2026-09-26 조회).
+    # 매핑이 없으면 통째로 skip 되어 김치 후보가 1종만 남고 다중일 식단이 INFEASIBLE 이 된다.
+    # cooking_method '무침'(group_type=no_heat, "비가열")으로 보낸다 — load_recipe_data.py 가
+    # 같은 레시피의 xlsx '비가열'을 '무침'으로 매핑하는 규칙과 동일.
+    "기타":   "무침",
 }
 
 # ── menu_category 매핑표 (RCP_PAT2 → nutrition_recipe.menu_category CHECK 7종) ──
@@ -209,6 +215,21 @@ def load_existing_rcp_seqs(engine):
     return seen
 
 
+def load_xlsx_loaded_names(engine):
+    """
+    `load_nutrition_from_recipe_db.py`(로컬 xlsx)가 먼저 적재한 식품안전나라 메뉴명 집합.
+    같은 원본(COOKRCP01)을 xlsx 로 옮긴 행이라 RCP_SEQ 가 없어 위 중복 판별에 안 걸린다
+    → 이름으로 건너뛰지 않으면 두 로더를 모두 돌린 DB 에 같은 메뉴가 두 행씩 생긴다.
+    이 스크립트가 넣은 행(original_data 에 RCP_SEQ 있음)끼리의 동명은 기존대로 허용한다.
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT recipe_name FROM nutrition_recipe
+            WHERE data_source = :s AND original_data->>'RCP_SEQ' IS NULL
+        """), {"s": NUTRITION_DATA_SOURCE}).fetchall()
+    return {r.recipe_name for r in rows}
+
+
 # ─────────────────────────────────────────────────────────────────
 # API 호출 (재시도 포함)
 # ─────────────────────────────────────────────────────────────────
@@ -267,16 +288,22 @@ def fetch_batch(session, service_key, start, end, max_retries=MAX_RETRIES):
 # ─────────────────────────────────────────────────────────────────
 # 응답 item 1건 → (nutrition INSERT용 dict, recipe INSERT용 dict) 변환
 # ─────────────────────────────────────────────────────────────────
-def process_item(item, method_lookup, seen_rcp_seqs, skip_log, overflow_log, way2_fail_counts):
+def process_item(item, method_lookup, seen_rcp_seqs, skip_log, overflow_log, way2_fail_counts,
+                 xlsx_names=frozenset()):
     """
     API item 1건을 검증·변환해 (nutrition_params, recipe_params) 튜플로 반환.
     실패(스킵) 시 (None, None)을 반환하고 skip_log/way2_fail_counts에 사유를 남긴다.
+    xlsx_names: xlsx 로더가 이미 넣은 메뉴명(`load_xlsx_loaded_names`) — 동명이면 skip.
     """
     rcp_seq = str(item.get("RCP_SEQ") or "").strip()
     rcp_nm = str(item.get("RCP_NM") or "").strip()
 
     if rcp_seq and rcp_seq in seen_rcp_seqs:
         skip_log.append({"rcp_seq": rcp_seq, "rcp_nm": rcp_nm, "reason": "중복 RCP_SEQ"})
+        return None, None
+
+    if rcp_nm[:200] in xlsx_names:
+        skip_log.append({"rcp_seq": rcp_seq, "rcp_nm": rcp_nm, "reason": "xlsx적재분과 동명"})
         return None, None
 
     if not rcp_nm:
@@ -443,6 +470,8 @@ def main():
 
     seen_rcp_seqs = load_existing_rcp_seqs(engine)
     print(f"  기존 적재된 RCP_SEQ 수: {len(seen_rcp_seqs):,}건")
+    xlsx_names = load_xlsx_loaded_names(engine)
+    print(f"  xlsx 로더 적재 메뉴명(동명 skip 대상): {len(xlsx_names):,}건")
     print(f"  시작 인덱스: {args.start}" + (f" / 최대 {args.limit}건(테스트)" if args.limit else ""))
 
     skip_log = []
@@ -488,7 +517,8 @@ def main():
         for item in items:
             total_attempted += 1
             nutrition_params, recipe_params = process_item(
-                item, method_lookup, seen_rcp_seqs, skip_log, overflow_log, way2_fail_counts
+                item, method_lookup, seen_rcp_seqs, skip_log, overflow_log, way2_fail_counts,
+                xlsx_names,
             )
             if nutrition_params is None:
                 continue

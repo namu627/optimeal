@@ -1,19 +1,13 @@
 import { colors } from '../theme';
+import { gaugeColor, gaugeStatus, type GaugeMode } from './gaugeStatus';
 
 /** 12시 100% 목표선 두께 (시안 00a) */
 const TICK_WIDTH = 1.2;
 
-/** 색은 항목이 아니라 상태가 결정한다 — 90% 미만 부족 / 90~110% 적정 / 110% 초과 초과 */
-export function gaugeColor(value: number, tolerance = 10) {
-  if (value < 100 - tolerance) return colors.warning;
-  if (value > 100 + tolerance) return colors.error;
-  return colors.primary;
-}
-
-export function gaugeStatus(value: number, tolerance = 10) {
-  if (value < 100 - tolerance) return '부족';
-  if (value > 100 + tolerance) return '초과';
-  return '적정';
+/** 가운데 숫자. 최소 기준을 넘긴 값(예: 250%)은 퍼센트 대신 '달성'으로 보여준다 — 실제값은 캡션에 있다. */
+function gaugeLabel(value: number, mode: GaugeMode): { text: string; percent: boolean } {
+  if (mode === 'min' && value > 100) return { text: '달성', percent: false };
+  return { text: String(Math.round(value)), percent: true };
 }
 
 type Props = {
@@ -27,24 +21,27 @@ type Props = {
   variant?: 'ring' | 'bar';
   /** bar 아래 보조 문구. 예: '757 / 780 kcal' */
   caption?: string;
+  /** 지표 성격(기본 'band' = 기존 동작). 채움은 어느 모드든 100%에서 멈춘다. */
+  mode?: GaugeMode;
 };
 
 export default function Gauge(props: Props) {
   return props.variant === 'bar' ? <GaugeBar {...props} /> : <GaugeRing {...props} />;
 }
 
-function GaugeRing({ value, label, size = 112, thickness = 7.5, tolerance = 10 }: Props) {
+function GaugeRing({ value, label, size = 112, thickness = 7.5, tolerance = 10, mode = 'band' }: Props) {
   const c = size / 2;
   const radius = (size - thickness) / 2;
   const circumference = 2 * Math.PI * radius;
   const ratio = Math.max(0, Math.min(value, 100)) / 100;
-  const color = gaugeColor(value, tolerance);
+  const color = gaugeColor(value, tolerance, mode);
+  const center = gaugeLabel(value, mode);
 
   return (
     <div
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
       role="img"
-      aria-label={`${label} ${Math.round(value)}퍼센트 · ${gaugeStatus(value, tolerance)}`}
+      aria-label={`${label} ${Math.round(value)}퍼센트 · ${gaugeStatus(value, tolerance, mode)}`}
     >
       <div style={{ position: 'relative', width: size, height: size }}>
         <svg width={size} height={size} aria-hidden="true">
@@ -79,8 +76,8 @@ function GaugeRing({ value, label, size = 112, thickness = 7.5, tolerance = 10 }
             strokeWidth={TICK_WIDTH}
             opacity={0.75}
           />
-          {/* 100% 를 넘으면 링을 다 채운 뒤 끝에 점 */}
-          {value > 100 && (
+          {/* 100% 를 넘으면 링을 다 채운 뒤 끝에 점 — 최소 기준(min)은 넘는 게 정상이라 표시하지 않음 */}
+          {value > 100 && mode !== 'min' && (
             <circle
               cx={c}
               cy={c - radius}
@@ -105,8 +102,14 @@ function GaugeRing({ value, label, size = 112, thickness = 7.5, tolerance = 10 }
             color: colors.text,
           }}
         >
-          {Math.round(value)}
-          <span style={{ fontSize: size * 0.16, marginLeft: 1 }}>%</span>
+          {center.percent ? (
+            <>
+              {center.text}
+              <span style={{ fontSize: size * 0.16, marginLeft: 1 }}>%</span>
+            </>
+          ) : (
+            <span style={{ fontFamily: 'Pretendard, sans-serif', fontSize: size * 0.2, color }}>{center.text}</span>
+          )}
         </div>
       </div>
       <span style={{ fontSize: 12, color: colors.textSecondary }}>{label}</span>
@@ -114,15 +117,16 @@ function GaugeRing({ value, label, size = 112, thickness = 7.5, tolerance = 10 }
   );
 }
 
-function GaugeBar({ value, label, thickness = 8, tolerance = 10, caption }: Props) {
+function GaugeBar({ value, label, thickness = 8, tolerance = 10, caption, mode = 'band' }: Props) {
   const ratio = Math.max(0, Math.min(value, 100)) / 100;
-  const color = gaugeColor(value, tolerance);
+  const color = gaugeColor(value, tolerance, mode);
+  const center = gaugeLabel(value, mode);
 
   return (
     <div
       style={{ width: '100%' }}
       role="img"
-      aria-label={`${label} ${Math.round(value)}퍼센트 · ${gaugeStatus(value, tolerance)}`}
+      aria-label={`${label} ${Math.round(value)}퍼센트 · ${gaugeStatus(value, tolerance, mode)}`}
     >
       <div
         style={{
@@ -140,10 +144,10 @@ function GaugeBar({ value, label, thickness = 8, tolerance = 10, caption }: Prop
             fontFamily: 'Quicksand, Pretendard, sans-serif',
             fontSize: 14,
             fontWeight: 600,
-            color: colors.text,
+            color: center.percent ? colors.text : color,
           }}
         >
-          {Math.round(value)}%
+          {center.percent ? `${center.text}%` : center.text}
         </span>
       </div>
 
@@ -177,7 +181,7 @@ function GaugeBar({ value, label, thickness = 8, tolerance = 10, caption }: Prop
             opacity: 0.75,
           }}
         />
-        {value > 100 && (
+        {value > 100 && mode !== 'min' && (
           <div
             style={{
               position: 'absolute',

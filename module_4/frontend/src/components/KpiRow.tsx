@@ -1,6 +1,7 @@
 import { Skeleton } from 'antd';
 import type { CSSProperties, ReactNode } from 'react';
-import Gauge, { gaugeColor, gaugeStatus } from './Gauge';
+import Gauge from './Gauge';
+import { gaugeColor, gaugeStatus, type GaugeMode } from './gaugeStatus';
 import { colors, radius } from '../theme';
 
 /** 목표 대비 실제값 한 쌍 */
@@ -39,11 +40,12 @@ export interface KpiRowProps {
   style?: CSSProperties;
 }
 
-const ITEMS = [
-  { key: 'calories', label: '열량' },
-  { key: 'protein', label: '단백질' },
-  { key: 'sodium', label: '나트륨' },
-] as const;
+// 지표별 목표 성격: 열량=목표 ±10% 적정, 단백질=최소 기준(넘으면 달성), 나트륨=상한(넘으면 초과)
+const ITEMS: readonly { key: keyof NutritionAchievement; label: string; barLabel: string; mode: GaugeMode }[] = [
+  { key: 'calories', label: '열량', barLabel: '열량', mode: 'band' },
+  { key: 'protein', label: '단백질', barLabel: '단백질 (최소 기준)', mode: 'min' },
+  { key: 'sodium', label: '나트륨', barLabel: '나트륨 (상한 대비)', mode: 'max' },
+];
 
 const card: CSSProperties = {
   background: colors.bgContainer,
@@ -89,7 +91,8 @@ function Dash({ label }: { label: string }) {
   );
 }
 
-function StatusText({ percent }: { percent: number }) {
+function StatusText({ percent, mode = 'band' }: { percent: number; mode?: GaugeMode }) {
+  const color = gaugeColor(percent, 10, mode);
   return (
     <span
       style={{
@@ -98,7 +101,7 @@ function StatusText({ percent }: { percent: number }) {
         gap: 5,
         fontSize: 11,
         fontWeight: 600,
-        color: gaugeColor(percent),
+        color,
       }}
     >
       <span
@@ -107,11 +110,11 @@ function StatusText({ percent }: { percent: number }) {
           width: 6,
           height: 6,
           borderRadius: '50%',
-          background: gaugeColor(percent),
+          background: color,
           display: 'inline-block',
         }}
       />
-      {gaugeStatus(percent)}
+      {gaugeStatus(percent, 10, mode)}
     </span>
   );
 }
@@ -192,16 +195,17 @@ export default function KpiRow({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {ITEMS.map(({ key, label }) => {
+          {ITEMS.map(({ key, label, barLabel, mode }) => {
             const m = achievement?.[key];
             if (!m) return <Dash key={key} label={label} />;
             return (
               <Gauge
                 key={key}
                 variant="bar"
-                label={key === 'sodium' ? '나트륨 (목표 대비)' : label}
+                label={barLabel}
                 value={toPercent(m)}
                 caption={amount(m)}
+                mode={mode}
               />
             );
           })}
@@ -217,7 +221,7 @@ export default function KpiRow({
   /* 확정 화면 */
   return (
     <div style={{ ...grid, ...style }}>
-      {ITEMS.map(({ key, label }) => {
+      {ITEMS.map(({ key, label, mode }) => {
         const m = achievement?.[key];
         return (
           <Card
@@ -233,7 +237,7 @@ export default function KpiRow({
           >
             {m ? (
               <>
-                <Gauge label={label} value={toPercent(m)} />
+                <Gauge label={label} value={toPercent(m)} mode={mode} />
                 <div
                   style={{
                     display: 'flex',
@@ -244,7 +248,7 @@ export default function KpiRow({
                   }}
                 >
                   <span>{amount(m)}</span>
-                  <StatusText percent={toPercent(m)} />
+                  <StatusText percent={toPercent(m)} mode={mode} />
                 </div>
               </>
             ) : (

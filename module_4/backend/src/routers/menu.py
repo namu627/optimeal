@@ -14,13 +14,38 @@ routers/menu.py
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from dataclasses import asdict, is_dataclass
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from .. import config, schemas
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
+
+# ── 실서버 풀이 속도 설정 (module_3 MealPlanRequest 의 opt-in 필드) ─────────────
+#   module_3 라이브러리 기본값은 그대로(조기 종료 OFF)이고, **API 경로에서만** 켠다.
+#   2026-09-26 계측: 7일은 첫 가능해를 수 초 안에 찾고 나머지를 목적값 개선에 써서 한도까지
+#   돌았다(최적성 미증명). 아래 기준에서 멈춰도 반환 해는 Hard 제약을 모두 지키는 가능해다.
+#   · gap 5%: 증명된 상한 대비 5% 이내면 종료.
+#   · 정체: 최근 8초 개선폭이 0.5% 미만이면 종료(3식·31일은 상한이 느슨해 gap 이 안 걸리고,
+#     7일은 +0.1%씩 찔끔 오르는 해가 계속 나와 "개선 0" 기준으로는 한도까지 돈다).
+#   · presolve 1회: 3식 모델은 presolve 3회(~15초) 뒤에야 첫 해가 나와서 1회로 줄인다.
+#   · 시간 상한(요청에 없을 때): 7일 이하 30초 · 그 이상 60초. 7일은 30초 시점 목적값이
+#     120초 풀이 최종값의 97~99%였다.
+#   종료 사유는 응답 stop_reason 으로 남는다.
+SOLVER_GAP_LIMIT = 0.05
+SOLVER_STALL_SECONDS = 8.0
+SOLVER_STALL_MIN_IMPROVEMENT = 0.005
+SOLVER_PARAMS = {"max_presolve_iterations": 1}
+
+
+def _solver_time_limit(payload) -> float:
+    """요청의 풀이 시간 상한. 명시값이 있으면 그대로, 없으면 일수 기준 기본값."""
+    if payload.solver_time_limit is not None:
+        return payload.solver_time_limit
+    return 30.0 if payload.days <= 7 else 60.0
 
 
 def _load_module3():
@@ -84,7 +109,7 @@ def _load_menu_candidates(cs, month):
         HTTPException(503): DB 미기동·미적재.
     """
     try:
-        return cs.load_menus(month=month)
+        menus = cs.load_menus(month=month)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -94,6 +119,33 @@ def _load_menu_candidates(cs, month):
                 "hint": "docker-compose 로 PostgreSQL 기동 + nutrition_recipe 적재가 필요합니다.",
             },
         ) from exc
+    _reclassify_sides(menus)
+    return menus
+
+
+def _reclassify_sides(menus) -> None:
+    """조회 직후 '반찬' 통합 카테고리를 메뉴명 기준으로 주찬/부찬/김치로 나눈다(런타임 한정).
+
+    DB(`nutrition_recipe.menu_category`)는 건드리지 않는다 — 원래는
+    `scripts/reclassify_menu_categories.py --apply` 가 할 일이지만, 그 스크립트는
+    `original_data.grouping_type` 이 있는 행만 이동 대상으로 삼는데 현재 적재된
+    303,369건 전부 이 값이 NULL이라(2026-09-20 확인) 실행해도 0건만 이동되어
+    무력화된다. 반상 구성(H-4, 주찬1·부찬2~3·김치1)이 요구하는 카테고리가 DB에
+    전혀 없으면 그 즉시 조건과 무관하게 항상 INFEASIBLE 이 되므로, 여기서 이름
+    기반 규칙(module_3의 menu_taxonomy.classify_side_kind — grouping_type 없이도
+    동작)으로 최소한의 후보를 만든다.
+    ⚠ 이걸로도 완전히 해결되진 않는다 — 재분류해도 '김치'로 분류되는 실제 후보가
+    DB 전체에 1건뿐이라(원본 데이터 자체의 편중), 메뉴 중복 회피 제약
+    (menu_repeat_window_days=3)과 구조적으로 충돌해 2일 이상 지평은 여전히
+    INFEASIBLE 이다. 데이터 보강 또는 module_3 팀의 정책 조정이 필요하다.
+    """
+    try:
+        import menu_taxonomy as mt
+    except Exception:
+        return
+    for m in menus:
+        if m.category == "반찬":
+            m.category = mt.classify_side_kind(m.name)
 
 
 def _load_main_ingredients(menus) -> dict | None:
@@ -132,7 +184,10 @@ def _load_profiles() -> dict:
 
 
 def _resolve_targets(payload):
-    """프로파일 + 끼니 수 → (끼니 이름들, 목표 kcal, 나트륨 상한, 끼니 비율, 근거).
+    """프로파일 + 끼니 수 → (끼니 이름들, 목표 kcal, 나트륨 상한, 끼니 비율, 근거, 단백질 목표 g).
+
+    단백질 목표는 제약에 쓰지 않고 응답(applied_targets.protein_g)에만 싣는다 —
+    프론트 달성률 게이지가 임의 계산 대신 프로파일 기준값을 쓰게 하기 위함이다.
 
     프로파일을 주면 payload 의 target_kcal_per_day·sodium_max_mg_per_day 를 **덮는다**.
     끼니를 줄이면 목표도 함께 줄어야 하기 때문이다 — 안 그러면 한 끼에 하루치가 몰린다.
@@ -154,14 +209,15 @@ def _resolve_targets(payload):
     else:
         meals = ("아침", "점심", "저녁")
     if profile is None:
-        return meals, payload.target_kcal_per_day, payload.sodium_max_mg_per_day, None, None
+        return meals, payload.target_kcal_per_day, payload.sodium_max_mg_per_day, None, None, None
     import user_profiles as up
 
     tg = up.targets_for(profile, meals)
     return (meals, tg["target_kcal_per_day"], tg["sodium_max_mg_per_day"],
             tg["meal_energy_ratios"], {"profile": profile.group_name,
                                        "basis": tg["basis"], "source": profile.source,
-                                       "note": profile.note})
+                                       "note": profile.note},
+            tg["protein_min_g"])
 
 
 def _load_affinity_table() -> list | None:
@@ -195,9 +251,185 @@ def _load_sodium(menus) -> dict | None:
         return None
 
 
+def _canonical_by_name(menus) -> dict:
+    """메뉴명 -> 대표 후보(MenuItem). 동명 메뉴(같은 recipe_name, 다른 nutrition_id)를 한 행으로 정규화한다.
+
+    응답의 plan 은 메뉴 **이름**만 담으므로, 이름으로 행을 다시 찾는 곳(menu_nutrition·menu_recipes·
+    대체식)이 각자 다른 행을 집으면 같은 메뉴의 원가·영양이 서로 어긋난다(예: 가지볶음 303234=0원 /
+    303292=132원 → 본식단 259원 vs 대체식 127원). 세 곳 모두 이 대표행을 쓰게 해서 값을 맞춘다.
+
+    선택 규칙(앞에서부터): 원가(cost_won)>0 → 재료(레시피 연결) 보유 → menu_id 오름차순.
+    두 번째 기준은 둘 다 원가 0원인 동명(깻잎장아찌롤)에서 레시피 없는 행이 뽑혀 조리 지시서가
+    '레시피 없음'이 되는 것을 막는다. 현재 동명 6쌍은 모두 한쪽만 레시피·가격이 연결돼 있다.
+
+    ⚠ Level 1(표시 정규화)이다. 솔버는 여전히 두 행을 별개 후보로 풀기 때문에, 솔버가 대표행이 아닌
+    쪽(0원 행)을 고르면 total_cost_won(솔버가 실제 고른 행 기준)과 여기 값이 다를 수 있다.
+    Level 2: module_3 가 res.plan_ids(솔버가 고른 menu_id)를 주면 본식단의 영양·레시피는 id 로
+    조회하고(generate 참고), 이 대표행은 ① plan_ids 가 없는 구버전 module_3 대비책 ② 이름 키
+    필드의 plan 밖 메뉴 ③ 대체식(alternative_menu 는 아직 이름 기반 — module_3 id화 전까지)에만 쓴다.
+    """
+    best: dict = {}
+    for m in menus:
+        cur = best.get(m.name)
+        if cur is None or _canonical_rank(m) < _canonical_rank(cur):
+            best[m.name] = m
+    return best
+
+
+def _canonical_rank(m) -> tuple:
+    """_canonical_by_name 정렬 키 — 작을수록 대표행으로 우선."""
+    return (not (getattr(m, "cost_won", 0) or 0) > 0,
+            not getattr(m, "ingredients", None),
+            getattr(m, "menu_id", 0) or 0)
+
+
+def _nutrition_by_id(menus) -> dict:
+    """menu_id -> {name, kcal, protein, sodium, cost}. 전 후보(동명 행 각각)를 id 로 구분해 싣는다.
+    calories·cost 는 후보(MenuItem)에 이미 있고, protein·sodium 은 nutrition_recipe 에서 보강한다.
+    조회에 실패해도 kcal·cost 는 채우고 protein·sodium 만 None 으로 둔다 — 응답은 항상 나간다.
+    """
+    prot: dict = {}
+    sod: dict = {}
+    try:
+        import csp_solver as cs
+        from sqlalchemy import text
+
+        ids = [m.menu_id for m in menus if getattr(m, "menu_id", None) is not None]
+        if ids:
+            q = text("SELECT nutrition_id, protein, sodium FROM nutrition_recipe "
+                     "WHERE nutrition_id = ANY(:ids)")
+            with cs.get_engine().connect() as conn:
+                for r in conn.execute(q, {"ids": ids}).mappings():
+                    if r["protein"] is not None:
+                        prot[r["nutrition_id"]] = float(r["protein"])
+                    if r["sodium"] is not None:
+                        sod[r["nutrition_id"]] = float(r["sodium"])
+    except Exception:
+        pass
+    out: dict = {}
+    for m in menus:
+        out[m.menu_id] = {
+            "name": m.name,
+            "kcal": round(float(getattr(m, "calories", 0) or 0), 1),
+            "protein": prot.get(m.menu_id),
+            "sodium": sod.get(m.menu_id),
+            "cost": round(float(getattr(m, "cost_won", 0) or 0)),
+        }
+    return out
+
+
+def _menu_nutrition_by_name(nut_by_id: dict, canon: dict, plan_ids: dict | None) -> dict:
+    """메뉴명 -> {kcal, protein, sodium, cost} (기존 응답 필드 menu_nutrition, 호환용).
+
+    기본은 동명 대표행(canon) 값이고, plan_ids 가 있으면 본식단에 실제로 오른 메뉴는 솔버가 고른
+    행 값으로 덮는다 — 이름 키만 보는 구버전 프론트도 본식단 칸에서는 솔버와 같은 값을 보게 된다.
+    (같은 이름의 두 행이 한 식단에 함께 오르면 이름 키로는 하나만 담긴다 → id 키 필드를 쓸 것.)
+    """
+    def strip(v: dict) -> dict:
+        return {k: v[k] for k in ("kcal", "protein", "sodium", "cost")}
+
+    out = {name: strip(nut_by_id[m.menu_id]) for name, m in canon.items() if m.menu_id in nut_by_id}
+    for mid in _iter_plan_ids(plan_ids):
+        if mid in nut_by_id:
+            out[nut_by_id[mid]["name"]] = strip(nut_by_id[mid])
+    return out
+
+
+def _iter_plan_ids(plan_ids: dict | None):
+    """plan_ids({day:{meal:[id,...]}})의 id 를 등장 순서대로 낸다."""
+    for meals in (plan_ids or {}).values():
+        for ids in meals.values():
+            yield from ids
+
+
+def _make_recipe_of_by_id(engine):
+    """menu_id(nutrition_id) -> 레시피를 조회하는 recipe_of (cooking_sheet 주입용).
+
+    module_3 의 cooking_sheet.make_db_recipe_of 는 `WHERE nr.recipe_name = :menu` 로 조회해
+    동명 행이 여럿이면 모든 행의 재료를 섞을 수 있다. 여기서는 nutrition_id 하나로만 조회한다.
+    cooking_sheet.build_cooking_sheet 는 plan 값을 해석하지 않고 recipe_of 에 그대로 넘기므로
+    plan_ids 를 plan 자리에 넣으면 솔버가 고른 행 기준 조리 지시서가 된다.
+    반환 형식은 make_db_recipe_of 와 동일하다. 레시피가 없으면 None → '레시피 없음'.
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT cm.method_name AS cooking_method,
+               ing.ingredient_name AS name,
+               rim.per_serving_grams AS base_amount_g,
+               rim.unit AS unit,
+               rim.ingredient_role AS role,
+               rim.cooking_step_order AS step
+        FROM recipe r
+        JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
+        JOIN ingredient ing          ON ing.ingredient_id = rim.ingredient_id
+        LEFT JOIN cooking_method cm   ON cm.method_id = r.primary_method_id
+        WHERE r.nutrition_recipe_id = :nid
+        ORDER BY rim.cooking_step_order NULLS LAST
+    """)
+
+    def recipe_of(menu_id):
+        if menu_id is None:
+            return None
+        with engine.connect() as conn:
+            rows = conn.execute(query, {"nid": menu_id}).mappings().all()
+        if not rows:
+            return None
+        return {
+            "cooking_method": rows[0]["cooking_method"],
+            "ingredients": [{
+                "name": r["name"],
+                "base_amount_g": float(r["base_amount_g"]) if r["base_amount_g"] is not None else None,
+                "unit": r["unit"] or "g",
+                "role": r["role"],
+                "step": r["step"],
+            } for r in rows],
+        }
+    return recipe_of
+
+
+def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
+    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서용).
+
+    module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
+    재료 구성은 메뉴(행)에만 의존하므로 여기서 plan 값(키) 기준으로 한 번만 접어 돌려준다
+    (프론트가 날짜와 무관하게 조회할 수 있게).
+
+    Args:
+        plan: plan_ids({day:{meal:[menu_id]}}) 또는 이름 plan. 반환 dict 의 키가 이 값이 된다.
+        key_to_id: plan 값 -> menu_id (plan_ids 면 항등, 이름 plan 이면 대표행 id 조회).
+
+    레시피(recipe_ingredient_map)가 없는 메뉴는 note만 채운 항목으로 남긴다.
+    실패해도(DB 미구성 등) 조리 지시서 없이 응답은 나가야 하므로 빈 dict로 저하한다.
+    """
+    if not plan or not servings:
+        return {}
+    try:
+        import cooking_sheet as csheet
+
+        recipe_of_id = _make_recipe_of_by_id(cs.get_engine())
+        rows = csheet.build_cooking_sheet(plan, lambda key: recipe_of_id(key_to_id(key)), servings)
+    except Exception:
+        return {}
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["menu"], {
+            "cooking_method": r["cooking_method"],
+            "ingredients": r["ingredients"],
+            "note": r["note"],
+        })
+    return out
+
+
 def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
-                         sodium_by_idx: dict | None = None) -> list[dict]:
-    """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11)."""
+                         sodium_by_idx: dict | None = None, canon: dict | None = None) -> list[dict]:
+    """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11).
+
+    alternative_menu 는 메뉴명으로 행을 찾는데(by_name, 첫 행 우선) 동명이면 0원 행을 집어
+    대체식 총원가가 본식단과 어긋났다. 그래서 후보를 이름당 대표행 하나(canon)로 줄여 넘긴다.
+    sodium_by_idx 는 원래 후보(menus) 인덱스 기준이라 menu_id 키로 바꾼 뒤 그대로 쓴다
+    (대표행의 menu_id 도 그 안에 있다).
+    """
     groups = [
         am.AllergyGroup(
             label=g.get("label", ""),
@@ -209,9 +441,86 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     # 대체식도 공통식과 같은 나트륨 상한을 지켜야 한다 → menu_id 키로 변환해 주입.
     sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
                      if i < len(menus)} if sodium_by_idx else None)
-    alts = am.derive_alternative_menus(plan, menus, groups, hard_config=cfg,
+    alt_menus = list(canon.values()) if canon else menus
+    alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
                                        sodium_by_id=sodium_by_id)
     return [_to_jsonable(a) for a in alts]
+
+
+# 교체 후보 풀 캐시 — 후보 조회(가격·재료 조인)가 무거워 팝오버를 열 때마다 다시 읽지 않는다.
+# 데이터 적재가 바뀌어도 최대 TTL 뒤에는 반영된다.
+_POOL_TTL_SEC = 300
+_pool_cache: dict = {"at": 0.0, "menus": None}
+_pool_lock = threading.Lock()
+
+
+def _candidate_pool(cs) -> list:
+    """generate 와 같은 후보(같은 카테고리 재분류 포함)를 캐시해 돌려준다."""
+    with _pool_lock:
+        if _pool_cache["menus"] is None or time.monotonic() - _pool_cache["at"] > _POOL_TTL_SEC:
+            _pool_cache["menus"] = _load_menu_candidates(cs, None)
+            _pool_cache["at"] = time.monotonic()
+        return _pool_cache["menus"]
+
+
+def _parse_ids(raw: str) -> set[int]:
+    """'1,2,3' → {1,2,3}. 숫자가 아니면 422."""
+    try:
+        return {int(x) for x in raw.split(",") if x.strip()}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "reason": "invalid_exclude_ids", "message": f"exclude_ids 는 쉼표로 구분한 정수여야 합니다: {raw}"}) from exc
+
+
+@router.get("/candidates", summary="메뉴 교체 후보 (같은 자리의 실메뉴)")
+def swap_candidates(
+    nutrition_id: int = Query(..., description="교체하려는 칸의 메뉴 id(응답 plan_ids 의 값)"),
+    exclude_ids: str = Query("", description="제외할 메뉴 id 들(쉼표 구분) — 보통 현재 식단에 이미 있는 메뉴"),
+    limit: int = Query(8, ge=1, le=30),
+    enforce_menu_structure: bool = Query(
+        True, description="generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"),
+) -> dict:
+    """현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).
+
+    카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해
+    김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정
+    (menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.
+    자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.
+    정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.
+
+    ⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체
+    재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.
+
+    Raises:
+        HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.
+    """
+    cs, _, _ = _load_module3()
+    menus = _candidate_pool(cs)
+    by_id = {m.menu_id: m for m in menus}
+    cur = by_id.get(nutrition_id)
+    if cur is None:
+        raise HTTPException(status_code=404, detail={
+            "reason": "menu_not_in_pool", "message": f"식단 후보에 없는 메뉴입니다: nutrition_id={nutrition_id}"})
+    excluded = _parse_ids(exclude_ids) | {cur.menu_id}
+    excluded_names = {by_id[i].name for i in excluded if i in by_id}
+    pool = [m for m in menus
+            if m.category == cur.category and m.menu_id not in excluded and m.name not in excluded_names]
+    if enforce_menu_structure and cur.category == "주식":
+        import menu_taxonomy as mt
+
+        pool = [m for m in pool if mt.is_staple(m.name)]
+    ranked = sorted(_canonical_by_name(pool).values(),
+                    key=lambda m: (not (m.cost_won or 0) > 0, abs((m.calories or 0) - (cur.calories or 0)), m.menu_id))
+    picked = ranked[:limit]
+    nut = _nutrition_by_id(picked + [cur])
+
+    def out(m) -> dict:
+        n = nut[m.menu_id]
+        return {"menu_id": m.menu_id, "name": n["name"], "kcal": n["kcal"],
+                "protein": n["protein"], "sodium": n["sodium"], "cost": n["cost"]}
+
+    return {"category": cur.category, "current": out(cur), "candidates": [out(m) for m in picked],
+            "total_in_category": len(ranked)}
 
 
 @router.get("/profiles", response_model=list[schemas.UserProfileOut],
@@ -252,7 +561,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     """
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
-    meals, kcal, sodium_max, ratios, basis = _resolve_targets(payload)
+    meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
     sodium_by_idx = _load_sodium(menus) if sodium_max else None
     cfg = hc.HardConstraintConfig(
@@ -270,7 +579,11 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         cfg.meal_energy_ratios = ratios
     req = cs.MealPlanRequest(
         days=payload.days, meals=meals, hard=cfg,
-        solver_time_limit=payload.solver_time_limit,
+        solver_time_limit=_solver_time_limit(payload),
+        relative_gap_limit=SOLVER_GAP_LIMIT,
+        stall_seconds=SOLVER_STALL_SECONDS,
+        stall_min_improvement=SOLVER_STALL_MIN_IMPROVEMENT,
+        solver_params=dict(SOLVER_PARAMS),
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
@@ -279,11 +592,14 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
+        # 풀이 종료 사유(optimal·gap·stall·time_limit…). 구버전 module_3 는 필드가 없어 None.
+        "stop_reason": getattr(res, "stop_reason", None),
         # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
         "applied_targets": {
             "meals": list(meals),
             "target_kcal_per_day": kcal,
             "sodium_max_mg_per_day": sodium_max,
+            "protein_g": protein_g,  # 프로파일 기준 단백질 목표(제약 아님, 표시용). 프로파일 없으면 None
             "profile": basis,
         },
         "plan": _to_jsonable(res.plan),
@@ -295,8 +611,35 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
     }
 
+    # Level 2: module_3 가 plan 과 같은 모양의 plan_ids(솔버가 고른 menu_id)를 주면 본식단은 id 로
+    # 조회해 솔버·원가·영양·조리지시서가 같은 행을 쓴다. 구버전 module_3(plan_ids 없음)는 대표행(Level 1).
+    plan_ids = getattr(res, "plan_ids", None)
+    canon = _canonical_by_name(menus)
+    nut_by_id = _nutrition_by_id(menus)
+    body["plan_ids"] = _to_jsonable(plan_ids) if plan_ids is not None else None
+
+    # 프론트 검토 화면: 메뉴별 열량·단백질·나트륨·원가. id 키(전 후보, 동명 구분)와 이름 키(호환).
+    body["menu_nutrition_by_id"] = _to_jsonable(nut_by_id)
+    body["menu_nutrition"] = _menu_nutrition_by_name(nut_by_id, canon, plan_ids)
+
+    # 프론트 확정 화면(Step3) 조리 지시서: 재료 투입량(총량)·조리순서.
+    # recipe_ingredient_map 미보강 메뉴는 note만 채워져 온다("연동 예정" 대신 실사유 표시 가능).
+    if plan_ids is not None:
+        recipes_by_id = _build_menu_recipes(cs, plan_ids, payload.serving_count, lambda mid: mid)
+        body["menu_recipes_by_id"] = _to_jsonable(recipes_by_id)
+        # 이름 키(호환): 본식단에 오른 행의 레시피. 같은 이름 두 행이 함께 오르면 먼저 나온 행.
+        by_name: dict = {}
+        for mid, rec in recipes_by_id.items():
+            by_name.setdefault(nut_by_id[mid]["name"] if mid in nut_by_id else str(mid), rec)
+        body["menu_recipes"] = by_name
+    else:
+        body["menu_recipes_by_id"] = None
+        body["menu_recipes"] = _build_menu_recipes(
+            cs, res.plan, payload.serving_count,
+            lambda name: canon[name].menu_id if name in canon else None)
+
     if payload.with_alternatives and res.plan:
         body["alternatives"] = _derive_alternatives(
-            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx
+            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
         )
     return body

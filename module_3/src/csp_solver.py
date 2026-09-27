@@ -152,6 +152,23 @@ class MealPlanRequest:
     #   힌트는 탐색 출발점일 뿐이라 **가능영역·최적성의 의미를 바꾸지 않는다**(틀린 힌트는 폐기됨).
     #   끄고 싶을 때(예: 힌트 효과 비교 측정) False. 상세: `csp_warm_start` 모듈 docstring.
     warm_start: bool = True
+    # ── 조기 종료 (opt-in · 기본 OFF → 지금까지와 같은 동작) ─────────────────
+    #   2026-09-26 계측: 7일(1식)은 첫 가능해를 4~6초에 찾고 **나머지 전 시간을 목적값 개선**에
+    #   쓴다(최적성 증명이 안 돼 한도까지 돈다). 24초에 최종값의 98%, 이후 90초는 +2%.
+    #   3식·31일은 상한(bound)이 느슨해 gap 기준이 안 걸리므로 정체 기준을 함께 쓴다.
+    #   둘 다 **해의 가능성(Hard 준수)을 바꾸지 않는다** — 언제 멈추든 반환되는 해는 가능해다.
+    #   relative_gap_limit: (상한-현재)/현재 가 이 값 이하면 종료. 0 이면 미적용(CP-SAT 기본).
+    #   stall_seconds: 가능해를 찾은 뒤 최근 이 시간 동안의 개선폭이 stall_min_improvement
+    #     (현재 최선값 대비 비율) 이하면 종료. None 이면 미적용. 비율 0 = "개선이 전혀 없음".
+    relative_gap_limit: float = 0.0
+    stall_seconds: float = None
+    stall_min_improvement: float = 0.0
+    # CP-SAT 파라미터 덮어쓰기 {이름: 값} (opt-in · None=CP-SAT 기본). 본 모델 풀이에만 적용.
+    #   예: {"max_presolve_iterations": 1}  (module_4 API 경로가 쓰는 값)
+    #   2026-09-26 계측: 3식 7일은 presolve(3회 반복, 회당 ~4.5초)에 15초를 쓰고 나서야 첫 해가
+    #   나온다. 1회로 줄이면 첫 해 15.5→6.1초, 31일(1식) 23.8→10.3초. 가능영역은 그대로다.
+    #   ⚠ num_workers 는 넣지 않아도 된다 — CP-SAT 기본(0)이 이미 코어 수만큼 병렬이다.
+    solver_params: dict = None
     # ── Hard 제약(②알레르기·③칼로리·④예산) ─────────────────────────────
     #   opt-in: None이면 미적용(Soft 로직만). 운영/CLI는 HardConstraintConfig를
     #   주입해 켠다. 기준값(2000kcal·3500원 등)은 운영데이터로 확정 예정(명세서 §6).
@@ -195,9 +212,101 @@ class MealPlanResult:
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
     affinity_breakdown: dict = None    # 어울림 지표(조리법 중복·주식×국) — 미주입 시 None
+    # {day: {meal: [menu_id, ...]}} — plan 과 같은 모양·같은 순서(같은 chosen 에서 만든다).
+    # plan 은 이름만 담아 동명 메뉴(같은 recipe_name·다른 nutrition_id)를 구분하지 못하므로,
+    # 솔버가 실제로 고른 행을 가리키는 id 를 병행으로 싣는다(추가 필드 — 기존 plan 은 그대로).
+    plan_ids: dict = None
+    # 풀이가 끝난 이유: 'optimal' | 'infeasible' | 'gap'(relative_gap_limit 도달)
+    #   | 'stall'(stall_seconds 동안 개선 없음) | 'time_limit' | 'unknown'.
+    #   조기 종료를 켠 호출에서 "왜 이 시간에 끝났나"를 응답에 남기기 위한 필드(추가 필드).
+    stop_reason: str = None
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
+class _StallWatch(cp_model.CpSolverSolutionCallback):
+    """최근 `stall_seconds` 동안의 목적값 개선이 작으면 탐색을 멈추는 감시자(Maximize 전제).
+
+    '작다' = 개선폭 ≤ min_improvement × |현재 최선값|. 0 이면 "개선이 전혀 없음"과 같다.
+    0 보다 크게 두는 이유: 7일 풀이는 수 초마다 +0.1%씩 찔끔 오르는 해가 계속 나와서
+    "개선 없음" 기준으로는 한도까지 멈추지 않는다(2026-09-26 실측).
+
+    해 발견 콜백만으로는 "개선이 없다"를 알 수 없다(콜백은 새 해가 나올 때만 불린다) →
+    별도 스레드가 주기적으로 시계를 보고 `CpSolver.StopSearch()`(비동기 중단용 API)를 부른다.
+    가능해를 하나도 못 찾은 동안은 멈추지 않는다 — 조기 종료가 INFEASIBLE/UNKNOWN 을 만들지 않게.
+    """
+
+    def __init__(self, solver, stall_seconds: float, *, min_improvement: float = 0.0,
+                 poll: float = 0.2, clock=time.monotonic):
+        super().__init__()
+        self._solver = solver
+        self._stall = float(stall_seconds)
+        self._tol = float(min_improvement or 0.0)
+        self._poll = poll
+        self._clock = clock
+        self._done = None
+        self._history = []          # [(시각, 그 시점 최선값)] — 개선될 때만 추가
+        self.stopped = False
+
+    @property
+    def best(self):
+        return self._history[-1][1] if self._history else None
+
+    def on_solution_callback(self):
+        self.record(self.ObjectiveValue())
+
+    def record(self, objective: float) -> None:
+        """새 해의 목적값을 기록한다. 더 좋아졌을 때만 이력에 남긴다."""
+        if self.best is None or objective > self.best + 1e-9:
+            self._history.append((self._clock(), objective))
+
+    def should_stop(self, now: float) -> bool:
+        """첫 해 이후 stall_seconds 가 지났고, 그 창 동안의 개선폭이 기준 이하면 True."""
+        if not self._history or now - self._history[0][0] < self._stall:
+            return False
+        cutoff = now - self._stall
+        then = max((b for t, b in self._history if t <= cutoff), default=self._history[0][1])
+        return self.best - then <= self._tol * max(1.0, abs(self.best))
+
+    def _watch(self):
+        while not self._done.wait(self._poll):
+            if self.should_stop(self._clock()):
+                self.stopped = True
+                self._solver.StopSearch()
+                return
+
+    def __enter__(self):
+        import threading
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._watch, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._done.set()
+        self._thread.join()
+        return False
+
+
+def _stop_reason(status, watch, gap_limit: float, solver) -> str:
+    """풀이 종료 사유를 사람이 읽을 이름으로.
+
+    ⚠ CP-SAT 는 relative_gap_limit 에 도달해 멈춘 경우도 status 를 OPTIMAL 로 보고한다
+      → 상한과 목적값이 실제로 같은지로 '증명된 최적'과 'gap 도달'을 구분한다.
+    """
+    if status == cp_model.INFEASIBLE:
+        return "infeasible"
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return "unknown"
+    obj, bound = solver.ObjectiveValue(), solver.BestObjectiveBound()
+    if abs(bound - obj) < 1e-6:
+        return "optimal"
+    if watch is not None and watch.stopped:
+        return "stall"
+    if gap_limit and abs(bound - obj) <= gap_limit * max(1.0, abs(obj)) + 1e-9:
+        return "gap"
+    return "time_limit"
+
+
 def _count_bounds(spec) -> tuple:
     """구성 값(int 또는 (lo, hi))을 (하한, 상한)으로 정규화한다.
 
@@ -298,14 +407,26 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     # ---------------------- 풀이 및 결과 추출 -----------------------------
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(1.0, req.solver_time_limit - hint_seconds)
-    status = solver.Solve(model)
+    for name, value in (req.solver_params or {}).items():
+        setattr(solver.parameters, name, value)
+    if req.relative_gap_limit:
+        solver.parameters.relative_gap_limit = req.relative_gap_limit
+    watch = (_StallWatch(solver, req.stall_seconds, min_improvement=req.stall_min_improvement)
+             if req.stall_seconds else None)
+    if watch is None:
+        status = solver.Solve(model)
+    else:
+        with watch:
+            status = solver.Solve(model, watch)
     plan, daily_kcal, total_cost = {}, {}, 0
+    plan_ids = {}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         # ⚠ 접시별 int() 절단 금지: Hard 제약은 int(kcal*SCALE)(소수 2자리)로 걸리는데
         #   리포트가 접시마다 int()로 버리면 하루 12접시에서 최대 ~12kcal 과소 집계되어
         #   제약을 만족한 식단이 "칼로리 위반"으로 표시된다. 합산을 float로 하고 마지막에 반올림.
         for d in D:
             plan[d + 1] = {}
+            plan_ids[d + 1] = {}
             day_c = 0.0
             for s, sname in enumerate(req.meals):
                 # 표기 순서 고정: 주식 → 국 → 주찬 → 부찬 → 김치 (영양사 확정 2026-08-12).
@@ -314,6 +435,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                     (m for m in M if solver.Value(x[m, d, s])),
                     key=lambda m: (mt.category_sort_key(menus[m].category), menus[m].name))
                 plan[d + 1][sname] = [menus[m].name for m in chosen]
+                plan_ids[d + 1][sname] = [menus[m].menu_id for m in chosen]
                 day_c += sum(menus[m].calories for m in chosen)
             daily_kcal[d + 1] = round(day_c, 1)
         total_cost = round(sum(menus[m].cost_won for m in M for d in D for s in S
@@ -353,6 +475,8 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         soft_breakdown=soft_breakdown,
         diversity_breakdown=diversity_breakdown,
         affinity_breakdown=affinity_breakdown,
+        plan_ids=plan_ids,
+        stop_reason=_stop_reason(status, watch, req.relative_gap_limit, solver),
     )
 # ===========================================================================
 # (4) 출력
