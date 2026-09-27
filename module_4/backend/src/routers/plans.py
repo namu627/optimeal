@@ -45,7 +45,12 @@ _SUMMARY_SQL = """
     (plan->>'budgetPerPerson')::numeric    AS budget_per_person,
     plan->>'conditionText'                 AS condition_text,
     plan->>'periodText'                    AS period_text,
-    plan->'weeks'->0->'days'->0->>'date'   AS start_date
+    plan->'weeks'->0->'days'->0->>'date'   AS start_date,
+    COALESCE(plan->>'status', '초안')      AS status,
+    CASE WHEN (plan->'achievement'->'calories'->>'target')::numeric > 0
+         THEN round((plan->'achievement'->'calories'->>'value')::numeric * 100
+                    / (plan->'achievement'->'calories'->>'target')::numeric)
+    END                                    AS kcal_rate
 """
 
 _engine = None
@@ -109,7 +114,7 @@ def _conn():
 
 def _summary(row) -> dict:
     d = dict(row)
-    for k in ("cost_per_person", "budget_per_person"):
+    for k in ("cost_per_person", "budget_per_person", "kcal_rate"):
         if d[k] is not None:
             d[k] = float(d[k])
     d["created_at"] = _iso(d["created_at"])

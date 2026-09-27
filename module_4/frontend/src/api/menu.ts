@@ -65,7 +65,12 @@ export interface SavedPlanSummary {
   headcount: number | null; total_days: number | null;
   cost_per_person: number | null; budget_per_person: number | null;
   condition_text: string | null; period_text: string | null; start_date: string | null;
+  /** 초안/확정 — plan.status 에서 뽑는다(없으면 서버가 '초안'). 구버전 서버면 undefined */
+  status?: PlanStatus | null;
+  /** 열량 달성률(%) — plan.achievement.calories value/target. 없으면 null */
+  kcal_rate?: number | null;
 }
+export type PlanStatus = '초안' | '확정';
 export interface SavedPlan { id: number; name: string; created_at: string; plan: MealPlan }
 
 export async function savePlan(name: string, plan: MealPlan): Promise<{ id: number }> {
@@ -126,6 +131,8 @@ export interface MealPlan {
   /** 1일 나트륨 상한(mg, 백엔드 적용값). 셀 나트륨 경고(상한÷끼니 수) 재계산용. 없으면 경고 안 함. */
   sodiumCapPerDay?: number | null;
   checks: PlanCheck[]; rationale: string[]; source: 'live' | 'mock';
+  /** 저장 상태. 확정 화면에서 '확정'으로 저장한다. 없으면 초안으로 본다. */
+  status?: PlanStatus;
   menuRecipes?: Record<string, MenuRecipe>;
   /** nutrition_id(문자열 키) → 레시피. 있으면 MealItem.nutritionId 로 먼저 찾는다(동명 메뉴 정확). */
   menuRecipesById?: Record<string, MenuRecipe>;
