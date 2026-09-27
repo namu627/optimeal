@@ -218,7 +218,13 @@ class MenuGenerateRequest(BaseModel):
                     "날짜·끼니 지정은 아직 지원하지 않는다 — 열량 밴드·중복 창과 충돌해 "
                     "INFEASIBLE 이 되기 쉬워서다. 같은 id 를 배제와 함께 주면 배제가 이긴다.",
     )
-    solver_time_limit: float = Field(30.0, gt=0, le=120)
+    solver_time_limit: Optional[float] = Field(
+        None, gt=0, le=120,
+        description="풀이 시간 **상한**(초). 미지정 시 일수로 정한다: 7일 이하 30초 · 그 이상 60초. "
+                    "상한 전에 조기 종료(상한 대비 gap 5% · 최근 8초 개선 0.5% 미만)로 먼저 끝나는 "
+                    "경우가 많다. 어느 쪽으로 끝나든 반환 식단은 Hard 제약을 지키는 가능해이며, 종료 "
+                    "사유는 응답 stop_reason. 프론트 axios 타임아웃(90초)보다 작게 둘 것.",
+    )
     serving_count: int = Field(
         320, ge=1,
         description="배식 인원수. 조리 지시서(재료 투입량 = 1인분×인원수) 스케일에만 쓰이며 "

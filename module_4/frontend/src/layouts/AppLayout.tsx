@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   PlusOutlined,
   DownOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { colors, layout } from '../theme';
@@ -28,9 +29,14 @@ const items = [
   { key: '/settings', icon: <SettingOutlined />, label: '설정' },
 ];
 
+// 로그인·계정 API가 아직 없어 사용자·소속 정보가 없다. 예전 시안의 가짜 이름·학교 대신 중립 표기.
+// TODO: 로그인 연동 시 실제 사용자명·소속 업장으로 교체
+const USER_NAME = '영양사';
+const USER_ORG = '소속 업장 미설정';
+
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: '홈', subtitle: '오늘 확인할 일과 진행 중인 식단' },
-  '/plans': { title: '식단 목록', subtitle: '지난 식단을 찾아보고 복제할 수 있어요' },
+  '/plans': { title: '식단 목록', subtitle: '저장한 식단을 열어 보거나 삭제할 수 있어요' },
   '/plans/new': { title: '식단 생성', subtitle: '조건을 입력하면 식단을 만들어 드려요' },
   '/nutrition': { title: '영양성분 검색', subtitle: '메뉴명으로 영양성분을 조회해요' },
   '/scaling': { title: '레시피 스케일링', subtitle: '1인분 레시피를 대량 조리량으로 변환해요' },
@@ -44,15 +50,20 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const ready = useHealth();
 
-  const meta = pageMeta[pathname] ?? { title: '', subtitle: '' };
+  // 저장된 식단 상세(/plans/:id)는 메뉴상 '식단 목록' 아래로 본다.
+  const isPlanDetail = /^\/plans\/\d+$/.test(pathname);
+  const menuKey = isPlanDetail ? '/plans' : pathname;
+  const meta = isPlanDetail
+    ? { title: '식단 상세', subtitle: '저장된 식단을 읽기 전용으로 보여줘요' }
+    : pageMeta[pathname] ?? { title: '', subtitle: '' };
 
   const profileItems: MenuProps['items'] = [
     {
       key: 'me',
       label: (
         <div style={{ padding: '4px 0' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>김영양</div>
-          <div style={{ marginTop: 2, fontSize: 12, color: colors.textTertiary }}>서울초등학교 · 영양교사</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{USER_NAME}</div>
+          <div style={{ marginTop: 2, fontSize: 12, color: colors.textTertiary }}>{USER_ORG}</div>
         </div>
       ),
       disabled: true,
@@ -101,7 +112,7 @@ export default function AppLayout() {
         <Menu
           mode="inline"
           inlineCollapsed={collapsed}
-          selectedKeys={[pathname]}
+          selectedKeys={[menuKey]}
           items={items}
           onClick={(e) => navigate(e.key)}
           style={{ background: 'transparent', borderInlineEnd: 'none' }}
@@ -118,12 +129,10 @@ export default function AppLayout() {
                 borderTop: `1px solid ${colors.borderSubtle}`,
               }}
             >
-              <Avatar size={30} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }}>
-                영
-              </Avatar>
+              <Avatar size={30} icon={<UserOutlined />} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }} />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>김영양</div>
-                <div style={{ fontSize: 11, color: colors.textTertiary }}>서울초등학교</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{USER_NAME}</div>
+                <div style={{ fontSize: 11, color: colors.textTertiary }}>{USER_ORG}</div>
               </div>
             </div>
           )}
@@ -185,9 +194,7 @@ export default function AppLayout() {
 
           <Dropdown menu={{ items: profileItems }} trigger={['click']} placement="bottomRight">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              <Avatar size={30} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }}>
-                영
-              </Avatar>
+              <Avatar size={30} icon={<UserOutlined />} style={{ background: colors.primaryTintSoft, color: colors.primaryActive }} />
               <DownOutlined style={{ fontSize: 11, color: colors.textTertiary }} />
             </div>
           </Dropdown>

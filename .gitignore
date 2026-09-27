@@ -49,3 +49,4 @@ reports/**/*.pdf
 
 # 로그 파일들
 data/external/*.csv
+data/processed/calibration.db

@@ -1,10 +1,13 @@
 // src/pages/plan/Step1Conditions.tsx
 // 식단 생성 1단계 · 조건 입력 (시안 화면 4 / 4-a 생성중 / 4-b INFEASIBLE)
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Select, InputNumber, Button, Checkbox, Alert } from 'antd';
 import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
-import { PROFILE_OPTIONS, ALLERGEN_POOL, type MenuGenerateRequest, type AllergyGroup } from '../../api/menu';
+import {
+  PROFILE_OPTIONS, ALLERGEN_POOL, listProfiles,
+  type MenuGenerateRequest, type AllergyGroup, type MenuProfile,
+} from '../../api/menu';
 
 const C = {
   text: '#16211C', sub: '#5D6B64', muted: '#98A5A0', border: '#E5EAE7', line: '#EEF2F0',
@@ -30,7 +33,9 @@ const DEFAULT_FORM: Step1Form = {
   profile: 'elem_low_mix',
   count: 320,
   conds: { 고혈압: 18, 당뇨: 6 },
-  days: 7,
+  // 현재 데이터(김치 후보 1건)로는 2일 이상이 항상 INFEASIBLE 이라 1일을 기본으로 둔다.
+  // TODO: 김치 데이터 보강되면 7일 기본으로 복귀
+  days: 1,
   meals: ['점심'],
   kcal: 1750,
   sodium: 1300,
@@ -44,6 +49,22 @@ const DEFAULT_FORM: Step1Form = {
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div><div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>{label}</div>{children}</div>
 );
+
+// 기저질환 한 줄(체크 + 인원수). 렌더마다 새로 만들어지지 않도록 컴포넌트 밖에 둔다.
+function CondRow({ name, on, count, onToggle, onCount }: {
+  name: string; on: boolean; count: number | null | undefined;
+  onToggle: (name: string) => void; onCount: (name: string, n: number) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 44, padding: '0 12px', borderRadius: 10, border: `1px solid ${on ? C.green : C.border}`, background: on ? C.tint : '#fff', cursor: 'pointer' }} onClick={() => onToggle(name)}>
+      <Checkbox checked={on} />
+      <span style={{ flex: 1, fontSize: 13, color: on ? C.text : C.sub }}>{name}</span>
+      <div onClick={(e) => e.stopPropagation()}>
+        <InputNumber size="small" disabled={!on} value={count ?? undefined} min={0} onChange={(v) => onCount(name, Number(v) || 0)} style={{ width: 78 }} suffix="명" />
+      </div>
+    </div>
+  );
+}
 
 export default function Step1Conditions({ genState, onGenerate, onCancel, initial, onFormChange }: {
   genState: GenState; onGenerate: (req: MenuGenerateRequest) => void; onCancel: () => void;
@@ -59,8 +80,30 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
   const [sodium, setSodium] = useState(init.sodium);
   const [budget, setBudget] = useState(init.budget);
   const [groups, setGroups] = useState<AllergyGroup[]>(init.groups);
+  // GET /api/menu/profiles — 프로파일별 영양 기준. null=불러오는 중, 'failed'=실패(수동 입력 허용)
+  const [profiles, setProfiles] = useState<Record<string, MenuProfile> | null | 'failed'>(null);
 
-  const age = useMemo(() => PROFILE_OPTIONS.find((p) => p.value === profile)?.age ?? '', [profile]);
+  useEffect(() => {
+    let alive = true;
+    listProfiles()
+      .then((list) => { if (alive) setProfiles(Object.fromEntries(list.map((p) => [p.profile_key, p]))); })
+      .catch((e) => { console.warn('[식단생성] 프로파일 기준값 조회 실패 → 수동 입력:', e); if (alive) setProfiles('failed'); });
+    return () => { alive = false; };
+  }, []);
+
+  // 프로파일을 불러왔으면 열량·나트륨은 프로파일 1일 기준값으로 고정(입력칸 잠금).
+  // 백엔드는 profile_key 를 받으면 이 값을 끼니 수에 맞게 다시 산출하므로, 실제 적용값은 결과 화면 달성률에 나온다.
+  const prof = profiles && profiles !== 'failed' ? profiles[profile] : undefined;
+  const locked = !!prof;
+  const kcalValue = prof ? prof.daily_kcal : kcal;
+  const sodiumValue = prof?.sodium_cdrr_mg ?? sodium;
+
+  const age = prof
+    ? `${prof.group_name} · ${prof.age_band} · ${prof.source}`
+    : PROFILE_OPTIONS.find((p) => p.value === profile)?.age ?? '';
+  const targetHint = locked
+    ? '프로파일 기준(자동) · 1일 기준값 — 실제 적용값은 끼니 수에 맞춰 조정되어 결과 화면 달성률에 표시돼요'
+    : profiles === null ? '프로파일 기준값을 불러오는 중…' : '프로파일 기준값을 불러오지 못했어요 — 직접 입력';
   const totalAllergy = groups.reduce((s, g) => s + (g.count || 0), 0);
 
   const toggleCond = (k: string) =>
@@ -71,27 +114,16 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
     setMeals((p) => (p.includes(m) ? p.filter((x) => x !== m) : MEAL_ORDER.filter((x) => p.includes(x) || x === m)));
 
   const submit = () => {
-    onFormChange?.({ profile, count, conds, days, meals, kcal, sodium, budget, groups });
+    onFormChange?.({ profile, count, conds, days, meals, kcal: kcalValue, sodium: sodiumValue, budget, groups });
     onGenerate({
       profile_key: profile, serving_count: count, days, meals,
-      target_kcal_per_day: kcal, sodium_max_mg_per_day: sodium, budget_limit_per_person: budget,
+      target_kcal_per_day: kcalValue, sodium_max_mg_per_day: sodiumValue, budget_limit_per_person: budget,
       conditions: Object.keys(conds), with_alternatives: true,
       allergy_groups: groups.filter((g) => g.allergens.length),
     });
   };
 
-  const CondRow = ({ name }: { name: string }) => {
-    const on = name in conds;
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 44, padding: '0 12px', borderRadius: 10, border: `1px solid ${on ? C.green : C.border}`, background: on ? C.tint : '#fff', cursor: 'pointer' }} onClick={() => toggleCond(name)}>
-        <Checkbox checked={on} />
-        <span style={{ flex: 1, fontSize: 13, color: on ? C.text : C.sub }}>{name}</span>
-        <div onClick={(e) => e.stopPropagation()}>
-          <InputNumber size="small" disabled={!on} value={conds[name] ?? undefined} min={0} onChange={(v) => setConds((p) => ({ ...p, [name]: Number(v) || 0 }))} style={{ width: 78 }} suffix="명" />
-        </div>
-      </div>
-    );
-  };
+  const setCondCount = (name: string, n: number) => setConds((p) => ({ ...p, [name]: n }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'relative' }}>
@@ -120,7 +152,9 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
           <Field label="연령대 (자동)"><div style={{ height: 40, border: `1px solid ${C.line}`, background: C.head, borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 13, color: C.sub, marginTop: 14 }}>{age}</div></Field>
           <div style={{ marginTop: 14, fontSize: 12, color: C.sub, marginBottom: 8 }}>기저질환 (다중 선택)</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <CondRow name="고혈압" /><CondRow name="당뇨" /><CondRow name="신장질환" />
+            {['고혈압', '당뇨', '신장질환'].map((name) => (
+              <CondRow key={name} name={name} on={name in conds} count={conds[name]} onToggle={toggleCond} onCount={setCondCount} />
+            ))}
           </div>
         </Card>
 
@@ -128,7 +162,7 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
         <Card size="small" title="생성 조건">
           <Field label="기간">
             <div style={{ display: 'flex', gap: 10 }}>
-              {[7, 31].map((d) => (
+              {[1, 7, 31].map((d) => (
                 <div key={d} onClick={() => setDays(d)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${days === d ? C.green : C.border}`, background: days === d ? C.tint : '#fff', color: days === d ? C.greenText : C.sub, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', fontWeight: days === d ? 600 : 400 }}>
                   <span style={{ width: 14, height: 14, borderRadius: 7, border: `${days === d ? 4 : 1}px solid ${days === d ? C.green : C.border}`, background: '#fff' }} />{d}일
                 </div>
@@ -149,10 +183,10 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
             </div>
           </div>
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <Field label="1일 열량 목표"><InputNumber value={kcal} onChange={(v) => setKcal(Number(v) || 0)} suffix="kcal" style={{ width: '100%' }} /></Field>
-            <Field label="나트륨 상한"><InputNumber value={sodium} onChange={(v) => setSodium(Number(v) || 0)} suffix="mg" style={{ width: '100%' }} /></Field>
+            <Field label="1일 열량 목표"><InputNumber value={kcalValue} disabled={locked} onChange={(v) => setKcal(Number(v) || 0)} suffix="kcal" style={{ width: '100%' }} /></Field>
+            <Field label="1일 나트륨 상한"><InputNumber value={sodiumValue} disabled={locked} onChange={(v) => setSodium(Number(v) || 0)} suffix="mg" style={{ width: '100%' }} /></Field>
           </div>
-          <div style={{ marginTop: 6, marginBottom: 14, fontSize: 12, color: C.muted }}>프로파일 기준 자동 채움</div>
+          <div style={{ marginTop: 6, marginBottom: 14, fontSize: 12, color: C.muted }}>{targetHint}</div>
           <Field label="1인 1식 예산"><InputNumber value={budget} onChange={(v) => setBudget(Number(v) || 0)} suffix="원" style={{ width: 200 }} /></Field>
         </Card>
       </div>

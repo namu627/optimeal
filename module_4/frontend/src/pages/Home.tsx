@@ -1,40 +1,68 @@
-import { useState } from 'react';
-import { Card, Button, Tag, Space, message } from 'antd';
-import { EditOutlined, FileTextOutlined, PlusOutlined, CalendarOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { Card, Button, Tag, Skeleton } from 'antd';
+import { FileTextOutlined, PlusOutlined, CalendarOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { colors } from '../theme';
 import Gauge from '../components/Gauge';
+import {
+  MEAL_TABLE, formatSavedAt, getSavedPlan, listSavedPlans, planTargetLabel,
+  type MetricValue, type SavedPlan,
+} from '../api/menu';
 
-const plan = {
-  name: '9월 2주차 · 초등학생 중식',
-  status: '초안' as '초안' | '확정',
-  target: '초등학생',
-  people: 320,
-  days: '평일 10일',
-  meal: '중식',
-  allergyGroups: 2,
-  budget: 4500,
-  cost: 4320,
-  calorie: 97,
-  protein: 104,
-  sodium: 112,
-  updatedAt: '오늘 09:42',
-  week: [
-    { day: '월', date: '9/14', menus: ['잡곡밥', '미역국', '제육볶음'], kcal: 742, flag: null },
-    { day: '화', date: '9/15', menus: ['기장밥', '김치찌개', '계란말이'], kcal: 768, flag: '나트륨 1,480mg' },
-    { day: '수', date: '9/16', menus: ['흑미밥', '된장국', '불고기'], kcal: 803, flag: '4,910원 · 예산 초과' },
-    { day: '목', date: '9/17', menus: ['보리밥', '시금치된장국', '생선까스'], kcal: 726, flag: null },
-    { day: '금', date: '9/18', menus: ['잡곡밥', '유부장국', '돼지갈비찜'], kcal: 791, flag: null },
-  ],
-};
+// 진행 중인 식단 요약(홈 카드). 달성률은 목표 대비 %.
+interface HomeCheck { level: 'error' | 'warning'; text: string; sub: string }
+interface HomePlan {
+  id: number; name: string; status: '초안' | '확정';
+  target: string; people: number; days: string; meal: string; allergyGroups: number;
+  budget: number; cost: number;
+  calorie: number; protein: number; sodium: number;
+  updatedAt: string;
+  week: { day: string; date: string; menus: string[]; kcal: number; flag: string | null }[];
+  checks: HomeCheck[];
+}
 
-const checks = [
-  { level: 'error', text: '9/16 중식 예산 초과', sub: '4,910원 · 예산 4,500원' },
-  { level: 'error', text: '나트륨 목표 초과 3일', sub: '9/15 · 9/21 · 9/23' },
-  { level: 'warning', text: "대체식 그룹 '난류·우유' 검토 대기", sub: '대상 3명' },
-];
+const pct = (m: MetricValue) => (m.target > 0 ? (m.value / m.target) * 100 : 0);
 
-const today = '2026년 9월 11일 금요일';
+// 저장된 식단(MealPlan 뷰모델) → 홈 카드. 확정 개념이 아직 없어 저장본은 모두 '초안'이다.
+function toHomePlan({ id, name, created_at, plan }: SavedPlan): HomePlan {
+  const firstWeek = plan.weeks[0]?.days ?? [];
+  return {
+    id, name, status: '초안',
+    target: planTargetLabel(plan), people: plan.headcount, days: plan.periodText,
+    meal: plan.meals.map((m) => MEAL_TABLE[m]).join('·'), allergyGroups: plan.alternatives.length,
+    budget: plan.budgetPerPerson, cost: plan.costPerPerson,
+    calorie: pct(plan.achievement.calories), protein: pct(plan.achievement.protein), sodium: pct(plan.achievement.sodium),
+    updatedAt: formatSavedAt(created_at),
+    week: firstWeek.map((d) => {
+      const flag = d.cells.flatMap((c) => c.items).find((it) => it.flag)?.flag;
+      return {
+        day: d.dow, date: d.date,
+        menus: d.cells.flatMap((c) => c.items.map((it) => it.name)),
+        kcal: d.cells.reduce((s, c) => s + c.kcal, 0),
+        flag: flag ? `${flag} 초과` : null,
+      };
+    }),
+    checks: plan.checks.filter((c) => !c.done).map((c) => ({
+      level: c.label.includes('초과') ? 'error' : 'warning', text: c.label, sub: name,
+    })),
+  };
+}
+
+// 최근 저장 식단 1건. 없으면 null(빈 상태), 조회 실패는 'failed'.
+function useRecentPlan(): HomePlan | null | 'loading' | 'failed' {
+  const [state, setState] = useState<HomePlan | null | 'loading' | 'failed'>('loading');
+  useEffect(() => {
+    let alive = true;
+    listSavedPlans(1)
+      .then(async (list) => (list.length ? toHomePlan(await getSavedPlan(list[0].id)) : null))
+      .then((p) => { if (alive) setState(p); })
+      .catch((e) => { console.error('[홈] 최근 식단 조회 실패:', e); if (alive) setState('failed'); });
+    return () => { alive = false; };
+  }, []);
+  return state;
+}
+
+const todayText = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 const linkStyle = { fontSize: 12, color: colors.textSecondary, cursor: 'pointer' };
 
 function TrayIllust({ size = 96 }: { size?: number }) {
@@ -71,34 +99,36 @@ function PersonTrayIllust() {
   );
 }
 
-type HomeState = 'default' | 'empty' | 'confirmed';
-
 export default function Home() {
   const navigate = useNavigate();
-  const [state] = useState<HomeState>('default');
+  const recent = useRecentPlan();
+  const loading = recent === 'loading';
+  const plan = recent === 'loading' || recent === 'failed' ? null : recent;
 
-  const hasPlan = state !== 'empty';
-  const confirmed = state === 'confirmed';
+  const confirmed = plan?.status === '확정';
+  const checks = plan?.checks ?? [];
 
-  const greetingSub = confirmed
-    ? '9월 2주차 식단이 확정되었어요'
-    : hasPlan
+  const greetingSub = loading
+    ? '최근 식단을 불러오는 중이에요'
+    : recent === 'failed'
+    ? '최근 식단을 불러오지 못했어요. 식단 목록에서 다시 확인해 주세요'
+    : !plan
+    ? '진행 중인 식단이 없어요. 새 식단을 만들어 보세요'
+    : confirmed
+    ? `${plan.name} 식단이 확정되었어요`
+    : checks.length
     ? `확인이 필요한 항목이 ${checks.length}건 있어요`
-    : '진행 중인 식단이 없어요. 새로 만들거나 지난 식단을 복제해 보세요';
+    : `'${plan.name}' 식단을 저장해 두었어요`;
 
   const goPlans = () => navigate('/plans');
-
-  const copyPlan = () => {
-    message.info('지난 식단 복제는 식단 목록에서 할 수 있어요');
-    navigate('/plans');
-  };
+  const goPlan = () => plan && navigate(`/plans/${plan.id}`);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '20px 28px', borderRadius: 16, background: 'linear-gradient(90deg, #E9F7EF 0%, #EFF9F3 55%, #F4FBF7 100%)', border: `1px solid ${colors.border}` }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: colors.primaryActive }}>{today}</div>
-          <div style={{ marginTop: 6, fontSize: 24, fontWeight: 700, color: colors.text }}>안녕하세요, 김영양님</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: colors.primaryActive }}>{todayText}</div>
+          <div style={{ marginTop: 6, fontSize: 24, fontWeight: 700, color: colors.text }}>안녕하세요</div>
           <div style={{ marginTop: 6, fontSize: 13, color: colors.textSecondary }}>{greetingSub}</div>
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -107,7 +137,9 @@ export default function Home() {
       </div>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        {hasPlan ? (
+        {loading ? (
+          <Card style={{ flex: 2, minWidth: 0 }}><Skeleton active paragraph={{ rows: 6 }} /></Card>
+        ) : plan ? (
           <Card style={{ flex: 2, minWidth: 0 }} styles={{ body: { padding: 0 } }}>
             <div style={{ padding: '16px 20px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -128,36 +160,42 @@ export default function Home() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 20, padding: '18px 20px', marginTop: 16, borderTop: `1px solid ${colors.borderSubtle}` }}>
-              <Gauge value={plan.calorie} label="열량" size={86} />
-              <Gauge value={plan.protein} label="단백질" size={86} />
-              <Gauge value={plan.sodium} label="나트륨" size={86} />
+              <Gauge value={plan.calorie} label="열량" size={86} mode="band" />
+              <Gauge value={plan.protein} label="단백질" size={86} mode="min" />
+              <Gauge value={plan.sodium} label="나트륨" size={86} mode="max" />
               <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>1인 원가</div>
                 <div className="tabular" style={{ fontSize: 28, fontWeight: 700, color: colors.text, lineHeight: 1.2 }}>
                   {plan.cost.toLocaleString()}
                   <span style={{ fontSize: 14, fontWeight: 600, marginLeft: 2 }}>원</span>
                 </div>
-                <div style={{ marginTop: 6, display: 'inline-block', padding: '3px 10px', borderRadius: 8, background: colors.primaryTintSoft, color: colors.primaryActive, fontSize: 12, fontWeight: 600 }}>
-                  예산 {plan.budget.toLocaleString()}원 내 · −{(plan.budget - plan.cost).toLocaleString()}원
-                </div>
+                {plan.cost <= plan.budget ? (
+                  <div style={{ marginTop: 6, display: 'inline-block', padding: '3px 10px', borderRadius: 8, background: colors.primaryTintSoft, color: colors.primaryActive, fontSize: 12, fontWeight: 600 }}>
+                    예산 {plan.budget.toLocaleString()}원 내 · −{(plan.budget - plan.cost).toLocaleString()}원
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, display: 'inline-block', padding: '3px 10px', borderRadius: 8, background: colors.errorTint, color: colors.errorText, fontSize: 12, fontWeight: 600 }}>
+                    예산 {plan.budget.toLocaleString()}원 초과 · +{(plan.cost - plan.budget).toLocaleString()}원
+                  </div>
+                )}
               </div>
             </div>
 
             <div style={{ padding: '16px 20px', borderTop: `1px solid ${colors.borderSubtle}` }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>이번 주 메뉴</span>
-                <span style={{ ...linkStyle, marginLeft: 'auto' }}>식단표 전체 →</span>
+                <span style={{ ...linkStyle, marginLeft: 'auto' }} onClick={goPlan}>식단표 전체 →</span>
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>
                 {plan.week.map((d) => (
-                  <div key={d.day} style={{ flex: 1, minWidth: 0, border: `1px solid ${d.flag ? '#F6D2C2' : colors.borderSubtle}`, background: d.flag ? colors.errorTint : '#fff', borderRadius: 10, padding: '10px 12px' }}>
+                  <div key={d.date} style={{ flex: 1, minWidth: 0, border: `1px solid ${d.flag ? '#F6D2C2' : colors.borderSubtle}`, background: d.flag ? colors.errorTint : '#fff', borderRadius: 10, padding: '10px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: colors.text }}>{d.day}</span>
                       <span style={{ fontSize: 11, color: colors.textTertiary }}>{d.date}</span>
                     </div>
-                    {d.menus.map((m) => (
-                      <div key={m} style={{ fontSize: 12, color: colors.text, lineHeight: 1.75 }}>{m}</div>
+                    {d.menus.map((m, i) => (
+                      <div key={`${i}-${m}`} style={{ fontSize: 12, color: colors.text, lineHeight: 1.75 }}>{m}</div>
                     ))}
                     <div className="tabular" style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: colors.textTertiary }}>{d.kcal} kcal</div>
                     {d.flag && <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: colors.errorText }}>{d.flag}</div>}
@@ -167,12 +205,10 @@ export default function Home() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', padding: '14px 20px 18px', borderTop: `1px solid ${colors.borderSubtle}` }}>
-              <Space>
-                <Button type="primary" icon={<EditOutlined />}>이어서 편집하기</Button>
-                <Button icon={<FileTextOutlined />}>식단표 보기</Button>
-              </Space>
+              {/* 저장본 편집은 아직 지원하지 않아 열람만 연결한다(편집 버튼 없음) */}
+              <Button type="primary" icon={<FileTextOutlined />} onClick={goPlan}>식단표 보기</Button>
               <span style={{ marginLeft: 'auto', fontSize: 12, color: colors.textTertiary }}>
-                {confirmed ? '확정 오늘 10:07' : `마지막 수정 ${plan.updatedAt}`}
+                {confirmed ? `확정 ${plan.updatedAt}` : `${plan.updatedAt} 저장`}
               </span>
             </div>
           </Card>
@@ -181,7 +217,7 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
               <TrayIllust size={130} />
               <div style={{ fontSize: 18, fontWeight: 700, color: colors.text }}>아직 진행 중인 식단이 없어요</div>
-              <div style={{ fontSize: 13, color: colors.textSecondary }}>새로 만들거나, 지난 식단을 복제해 조건만 바꿔 보세요</div>
+              <div style={{ fontSize: 13, color: colors.textSecondary }}>대상·기간·예산을 입력하면 조건을 만족하는 식단을 만들어 드려요</div>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/plans/new')}>첫 식단 만들기</Button>
             </div>
           </Card>
@@ -194,11 +230,13 @@ export default function Home() {
                 <ExclamationCircleOutlined />
               </span>
               <span style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>확인 필요</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: colors.error }}>{hasPlan ? checks.length : 0}</span>
-              <span style={{ ...linkStyle, marginLeft: 'auto' }}>검토 →</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: checks.length ? colors.error : colors.textTertiary }}>{checks.length}</span>
             </div>
 
             <div style={{ marginTop: 6 }}>
+              {!checks.length && (
+                <div style={{ padding: '12px 0 4px', fontSize: 13, color: colors.textTertiary }}>확인할 항목이 없어요</div>
+              )}
               {checks.map((c) => (
                 <div key={c.text} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '12px 0', borderBottom: `1px solid ${colors.borderSubtle}` }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', marginTop: 6, background: c.level === 'error' ? colors.error : colors.warning, flex: 'none' }} />
@@ -206,7 +244,7 @@ export default function Home() {
                     <div style={{ fontSize: 13, color: colors.text }}>{c.text}</div>
                     <div style={{ marginTop: 3, fontSize: 12, color: colors.textTertiary }}>{c.sub}</div>
                   </div>
-                  <span style={{ ...linkStyle, marginLeft: 'auto', whiteSpace: 'nowrap' }}>보기 →</span>
+                  <span style={{ ...linkStyle, marginLeft: 'auto', whiteSpace: 'nowrap' }} onClick={goPlan}>보기 →</span>
                 </div>
               ))}
             </div>
@@ -223,9 +261,6 @@ export default function Home() {
             <Button type="primary" icon={<PlusOutlined />} style={{ marginTop: 16, width: '100%', height: 40 }} onClick={() => navigate('/plans/new')}>
               식단 생성 시작
             </Button>
-            <div style={{ marginTop: 12, textAlign: 'center' }}>
-              <span style={{ fontSize: 13, color: colors.textSecondary, cursor: 'pointer' }} onClick={copyPlan}>지난 식단 복제해서 만들기 →</span>
-            </div>
           </Card>
         </div>
       </div>

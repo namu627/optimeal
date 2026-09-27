@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Select, InputNumber, Button, Table, Tag, Space, Typography, Empty,
-  Tooltip, message, type TableProps,
+  Tooltip, App, type TableProps,
 } from 'antd';
 import { ThunderboltOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import {
@@ -74,8 +74,9 @@ function downloadCsv(res: ScalingResponse) {
 }
 
 export default function Scaling() {
+  const { message } = App.useApp();
   const [recipes, setRecipes] = useState<RecipeListItem[]>([]);
-  const [recipeLoading, setRecipeLoading] = useState(false);
+  const [recipeLoading, setRecipeLoading] = useState(true); // 마운트 즉시 목록을 불러오므로 true 로 시작
   const [recipeKey, setRecipeKey] = useState<string | undefined>(undefined);
   const [preview, setPreview] = useState<RecipeBaseIngredient[] | null>(null);
 
@@ -88,7 +89,6 @@ export default function Scaling() {
   const [recents, setRecents] = useState<ScalingResponse[]>([]);
 
   useEffect(() => {
-    setRecipeLoading(true);
     // 205개뿐이라 한 번에 전부 로드 → 이름 기반 검색/표시는 프론트에서 처리
     listRecipes('', 500).then(setRecipes).catch(() => undefined).finally(() => setRecipeLoading(false));
     listSites().then(setSites).catch(() => undefined);

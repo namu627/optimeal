@@ -3,7 +3,9 @@ import { message } from 'antd';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE ?? 'http://localhost:8000',
-  timeout: 70000,
+  // 식단 생성은 솔버 상한(백엔드 기본: 7일 이하 30초 · 31일 60초) + 후보 조회·대체식 계산이 붙는다.
+  // 31일은 그 부가 시간이 10~16초라 70초면 끝난 식단을 받기 전에 끊길 수 있다.
+  timeout: 90000,
 });
 
 api.interceptors.response.use(
