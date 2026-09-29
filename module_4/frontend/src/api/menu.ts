@@ -65,7 +65,12 @@ export interface SavedPlanSummary {
   headcount: number | null; total_days: number | null;
   cost_per_person: number | null; budget_per_person: number | null;
   condition_text: string | null; period_text: string | null; start_date: string | null;
+  /** 초안/확정 — plan.status 에서 뽑는다(없으면 서버가 '초안'). 구버전 서버면 undefined */
+  status?: PlanStatus | null;
+  /** 열량 달성률(%) — plan.achievement.calories value/target. 없으면 null */
+  kcal_rate?: number | null;
 }
+export type PlanStatus = '초안' | '확정';
 export interface SavedPlan { id: number; name: string; created_at: string; plan: MealPlan }
 
 export async function savePlan(name: string, plan: MealPlan): Promise<{ id: number }> {
@@ -107,7 +112,8 @@ export interface MealItem {
 export interface MealCell { kind: MealKind; items: MealItem[]; kcal: number; protein: number; warn?: boolean; }
 export interface MealDay { date: string; dow: string; cells: MealCell[] }
 export interface WeekBlock { label: string; days: MealDay[] }
-export interface AltTrack { label: string; count: number; weeks: WeekBlock[] }
+// allergens: 이 그룹이 피해야 할 알레르겐(교체 후보에서 거르는 기준). 구버전 저장본에는 없을 수 있다.
+export interface AltTrack { label: string; count: number; weeks: WeekBlock[]; allergens?: string[] }
 // 박미연 KpiRow 계약: 퍼센트가 아니라 목표 대비 실제값 쌍
 export interface MetricValue { value: number; target: number; unit?: string }
 export interface Achievement { calories: MetricValue; protein: MetricValue; sodium: MetricValue }
@@ -126,6 +132,8 @@ export interface MealPlan {
   /** 1일 나트륨 상한(mg, 백엔드 적용값). 셀 나트륨 경고(상한÷끼니 수) 재계산용. 없으면 경고 안 함. */
   sodiumCapPerDay?: number | null;
   checks: PlanCheck[]; rationale: string[]; source: 'live' | 'mock';
+  /** 저장 상태. 확정 화면에서 '확정'으로 저장한다. 없으면 초안으로 본다. */
+  status?: PlanStatus;
   menuRecipes?: Record<string, MenuRecipe>;
   /** nutrition_id(문자열 키) → 레시피. 있으면 MealItem.nutritionId 로 먼저 찾는다(동명 메뉴 정확). */
   menuRecipesById?: Record<string, MenuRecipe>;
@@ -136,7 +144,7 @@ export interface MealPlan {
    plan_ids 는 같은 모양의 {일: {끼니: [nutrition_id,...]}}(솔버가 고른 행). 있으면 메뉴별
    열량·단백질·나트륨·원가를 menu_nutrition_by_id 에서, 없으면(구버전 백엔드) menu_nutrition(이름)에서 채운다. */
 interface MenuNutri { kcal?: number; protein?: number | null; sodium?: number | null; cost?: number | null }
-type PlanIds = Record<string, Record<string, number[]>>;
+type PlanIds = Record<string, Record<string, (number | null)[]>>; // 대체식은 못 찾은 칸이 null
 interface GenerateResponse {
   status?: string;
   applied_targets?: {
@@ -155,6 +163,8 @@ interface GenerateResponse {
   alternatives?: Array<{
     group?: { label?: string; allergens?: string[]; count?: number };
     plan?: Record<string, Record<string, string[]>>;
+    /** plan 과 같은 모양의 메뉴 id(백엔드가 본식단 id·대표행으로 붙임). 구버전 백엔드는 없음 */
+    plan_ids?: PlanIds | null;
   }>;
 }
 // module_3 evaluate_hard_breakdown 의 리포트(풀린 해를 실측한 제약 충족 여부). 미적용 항목은 null·빈 값.
@@ -223,17 +233,19 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
 
   // 칸마다 1인분 영양·원가(nutri)만 싣는다. 셀 합계·경고·달성률·원가는 recomputePlan 이 계산한다
   // (생성 직후와 교체·삭제 후가 같은 계산을 쓰도록).
-  const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: number[]): MealCell => {
+  // baseNames: 대체식 칸일 때 본식단 같은 자리의 메뉴명 — 실제로 바뀐 메뉴에만 '대체' 배지를 단다.
+  const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: (number | null)[], baseNames?: string[]): MealCell => {
     const items: MealItem[] = names.map((name, i) => {
-      const nutritionId = ids?.[i]; // plan_ids 는 plan 과 같은 위치
+      const nutritionId = ids?.[i] ?? undefined; // plan_ids 는 plan 과 같은 위치
       const n = nutriOf(name, nutritionId);
       const itemNutri: ItemNutri = { kcal: n.kcal ?? 0, protein: n.protein ?? null, sodium: n.sodium ?? null, cost: n.cost ?? null };
-      return { menuId: ++_mid, nutritionId, name, alt: alt || undefined, nutri: itemNutri };
+      const changed = alt && baseNames?.[i] !== name;
+      return { menuId: ++_mid, nutritionId, name, alt: changed || undefined, nutri: itemNutri };
     });
     return { kind, items, kcal: 0, protein: 0 };
   };
 
-  // idsObj: plan_ids(본식단만). 대체식 plan 은 아직 이름만 온다(alternative_menu id화는 별도 단계).
+  // idsObj: 본식단은 plan_ids, 대체식은 alternatives[].plan_ids(백엔드가 붙임 — 없으면 교체 불가 칸).
   const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean, idsObj?: PlanIds | null): WeekBlock[] => {
     const keys = Object.keys(planObj).sort((a, b) => Number(a) - Number(b));
     const blocks: WeekBlock[] = [];
@@ -243,7 +255,7 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
       const dayPlan = planObj[dayKey] ?? {};
       const cells = meals.map((k) => {
         const kr = MEAL_ORDER.find((o) => MEAL_FROM_KR[o] === k)!;
-        return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr]);
+        return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr], alt ? plan[dayKey]?.[kr] : undefined);
       });
       blocks[week].days.push({ date: label, dow, cells });
     });
@@ -254,7 +266,8 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   _start = firstWeekday(new Date());
   const weeks = weeksFrom(plan, false, planIds);
   const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => ({
-    label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, weeks: weeksFrom(a.plan ?? {}, true),
+    label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, allergens: a.group?.allergens ?? [],
+    weeks: weeksFrom(a.plan ?? {}, true, a.plan_ids),
   }));
 
   // 목표값만 여기서 정한다(값은 recomputePlan 이 칸 영양으로 채움).
@@ -475,7 +488,7 @@ export function mockPlan(req: MenuGenerateRequest): MealPlan {
 
   const weeks = buildWeeks(meals, days, false);
   const alternatives: AltTrack[] = (req.allergy_groups ?? []).map((g) => ({
-    label: g.label, count: g.count, weeks: buildWeeks(meals, days, true),
+    label: g.label, count: g.count, allergens: g.allergens, weeks: buildWeeks(meals, days, true),
   }));
 
   const profileLabel = PROFILE_LABEL[req.profile_key ?? ''] ?? (req.profile_key ?? '대상');
@@ -511,9 +524,10 @@ export interface SwapCandidate {
 export interface SwapCandidatesResponse {
   category: string; current: SwapCandidate; candidates: SwapCandidate[]; total_in_category: number;
 }
-export async function fetchSwapCandidates(nutritionId: number, excludeIds: number[], limit = 8): Promise<SwapCandidatesResponse> {
+// allergens: 대체식 칸이면 그 그룹의 알레르겐 — 서버가 교차반응까지 넓혀 후보에서 뺀다.
+export async function fetchSwapCandidates(nutritionId: number, excludeIds: number[], limit = 8, allergens: string[] = []): Promise<SwapCandidatesResponse> {
   const { data } = await api.get<SwapCandidatesResponse>('/api/menu/candidates', {
-    params: { nutrition_id: nutritionId, exclude_ids: excludeIds.join(','), limit },
+    params: { nutrition_id: nutritionId, exclude_ids: excludeIds.join(','), limit, exclude_allergens: allergens.join(',') },
   });
   return data;
 }

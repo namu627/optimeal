@@ -447,6 +447,35 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     return [_to_jsonable(a) for a in alts]
 
 
+def _alt_plan_ids(alt_plan: dict | None, common_plan: dict | None, common_ids: dict | None,
+                  canon: dict) -> dict:
+    """대체식 plan(메뉴명만)과 같은 모양의 plan_ids 를 만든다 — 검토 화면 교체 팝오버·영양 조회용.
+
+    alternative_menu 는 메뉴명만 돌려준다. 이름만으로는 교체 후보(/candidates, id 기반)를 부를 수 없어
+    대체식 칸은 '교체 후보를 불러올 수 없어요'가 떴다. 칸마다 id 를 이렇게 붙인다.
+      ① 본식단 같은 자리와 이름이 같으면(바뀌지 않은 메뉴) 솔버가 고른 행 id 그대로
+      ② 재료 치환 접시 '메뉴(대체: …)' 는 원래 메뉴의 id(같은 메뉴·같은 자리)
+      ③ 다른 메뉴로 대체된 칸은 이름당 대표행(canon) id
+    못 찾으면 None(프론트는 그 칸만 교체 불가로 표시).
+    """
+    out: dict = {}
+    for day, meals in (alt_plan or {}).items():
+        out[day] = {}
+        for meal, names in (meals or {}).items():
+            base = ((common_plan or {}).get(day) or {}).get(meal) or []
+            bids = ((common_ids or {}).get(day) or {}).get(meal) or []
+            ids = []
+            for i, name in enumerate(names):
+                key = name.split("(대체:")[0].strip()
+                if i < len(base) and i < len(bids) and base[i] in (name, key):
+                    ids.append(bids[i])
+                    continue
+                m = canon.get(name) or canon.get(key)
+                ids.append(m.menu_id if m is not None else None)
+            out[day][meal] = ids
+    return out
+
+
 # 교체 후보 풀 캐시 — 후보 조회(가격·재료 조인)가 무거워 팝오버를 열 때마다 다시 읽지 않는다.
 # 데이터 적재가 바뀌어도 최대 TTL 뒤에는 반영된다.
 _POOL_TTL_SEC = 300
@@ -477,6 +506,8 @@ def swap_candidates(
     nutrition_id: int = Query(..., description="교체하려는 칸의 메뉴 id(응답 plan_ids 의 값)"),
     exclude_ids: str = Query("", description="제외할 메뉴 id 들(쉼표 구분) — 보통 현재 식단에 이미 있는 메뉴"),
     limit: int = Query(8, ge=1, le=30),
+    exclude_allergens: str = Query(
+        "", description="제외할 알레르겐(쉼표 구분) — 대체식 칸 교체 시 그 그룹의 알레르겐. 교차반응까지 확장해 거른다"),
     enforce_menu_structure: bool = Query(
         True, description="generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"),
 ) -> dict:
@@ -505,6 +536,13 @@ def swap_candidates(
     excluded_names = {by_id[i].name for i in excluded if i in by_id}
     pool = [m for m in menus
             if m.category == cur.category and m.menu_id not in excluded and m.name not in excluded_names]
+    # 대체식 칸: 그 그룹이 피해야 할 알레르겐(교차반응 포함)이 든 메뉴는 후보에서 뺀다
+    # (alternative_menu 가 대체 메뉴를 고를 때와 같은 기준).
+    allergens = {a.strip() for a in exclude_allergens.split(",") if a.strip()}
+    if allergens:
+        _, _, am = _load_module3()
+        unsafe = am._expand_cross_reactive(allergens)
+        pool = [m for m in pool if not (set(getattr(m, "allergens", set()) or set()) & unsafe)]
     if enforce_menu_structure and cur.category == "주식":
         import menu_taxonomy as mt
 
@@ -639,7 +677,10 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             lambda name: canon[name].menu_id if name in canon else None)
 
     if payload.with_alternatives and res.plan:
-        body["alternatives"] = _derive_alternatives(
+        alts = _derive_alternatives(
             am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
         )
+        for a in alts:
+            a["plan_ids"] = _alt_plan_ids(a.get("plan"), body["plan"], body["plan_ids"], canon)
+        body["alternatives"] = alts
     return body

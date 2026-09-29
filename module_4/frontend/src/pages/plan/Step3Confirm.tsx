@@ -15,7 +15,7 @@ const C = {
 
 function saveCsv(name: string, rows: (string | number)[][]) {
   const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
@@ -71,30 +71,37 @@ const FileRow = ({ checked, onToggle, title, badge, desc, disabled }: { checked:
   </div>
 );
 
-export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
+export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm }: {
   plan: MealPlan; onPrev: () => void;
   /** 초안 저장 — 입력한 식단 이름을 넘긴다. 실패 시 reject(버튼 로딩 해제용). */
   onSaveDraft: (name: string) => Promise<void>;
+  /** 확정 저장(status '확정') — 성공해야 CSV 를 내려받는다. 실패 시 reject. */
+  onConfirm: (name: string) => Promise<void>;
 }) {
   const { message } = App.useApp();
   const [files, setFiles] = useState({ table: true, normal: true, alt: false });
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const range = planDateRange(plan);
   const mealsText = plan.meals.map((m) => MEAL_TABLE[m]).join('·');
   // 기본 식단 이름은 실제 조건(기간·대상·끼니)에서 만든다. 예: '9/25–10/1 · 초등학생 중식'
   const [name, setName] = useState(() => `${range} · ${planTargetLabel(plan)} ${mealsText}`);
   const allergyN = plan.alternatives.reduce((s, t) => s + t.count, 0);
 
-  const confirm = () => {
-    const base = (name.trim() || '식단') ;
+  const confirm = async () => {
+    const base = name.trim();
+    if (!base) { message.warning('식단 이름을 입력해 주세요'); return; }
     const jobs: (() => void)[] = [];
     if (files.table) jobs.push(() => saveCsv(`${base}_식단표.csv`, tableRows(plan)));
     if (files.normal) jobs.push(() => saveCsv(`${base}_일반식_조리지시서.csv`, recipeRows(plan.weeks, plan.headcount, plan.menuRecipes, plan.menuRecipesById)));
     if (files.alt) jobs.push(() => saveCsv(`${base}_대체식_조리지시서.csv`, recipeRows(plan.alternatives.flatMap((t) => t.weeks), plan.headcount, plan.menuRecipes, plan.menuRecipesById)));
     if (!jobs.length) { message.warning('내려받을 파일을 하나 이상 선택해 주세요'); return; }
+    // 먼저 확정 상태로 저장한다 — 실패하면 내려받지 않고 머문다(다시 시도 가능).
+    setConfirming(true);
+    try { await onConfirm(base); } catch { setConfirming(false); return; }
     // 브라우저가 연속 다운로드를 막지 않도록 약간 간격을 둠
     jobs.forEach((run, i) => setTimeout(run, i * 350));
-    message.success(`식단이 확정되고 CSV ${jobs.length}개를 내려받았어요`);
+    // 완료 안내는 이동한 홈 화면의 토스트가 한다(시안 02e)
   };
   const saveDraft = async () => {
     const n = name.trim();
@@ -146,8 +153,8 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Button onClick={onPrev}>이전</Button>
         <div style={{ flex: 1 }} />
-        <Button onClick={saveDraft} loading={saving}>초안으로 저장</Button>
-        <Button type="primary" icon={<DownloadOutlined />} onClick={confirm}>확정하고 CSV 내려받기</Button>
+        <Button onClick={saveDraft} loading={saving} disabled={confirming}>초안으로 저장</Button>
+        <Button type="primary" icon={<DownloadOutlined />} onClick={confirm} loading={confirming} disabled={saving}>확정하고 CSV 내려받기</Button>
       </div>
     </div>
   );

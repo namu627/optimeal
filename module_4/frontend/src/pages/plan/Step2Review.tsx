@@ -39,23 +39,26 @@ const redTag = (text: string) => (
 // 렌더마다 새로 만들어지지 않도록 컴포넌트 밖에 둔다(상태 유지).
 // check: 후보로 바꿨을 때 셀(한 끼)이 예산·나트륨 상한을 넘는지 — 넘으면 빨간 태그 + 교체 버튼 비활성.
 // 되돌리기(원래 메뉴 = 솔버가 고른 메뉴)는 막지 않는다.
-function SwapPanel({ item, excludeIds, check, onPick, onRevert }: {
-  item: MealItem; excludeIds: number[]; check: (c: SwapCandidate) => SwapCheck;
+// allergens: 대체식 칸이면 그 그룹의 알레르겐(서버가 후보에서 거른다). 일반식 칸은 빈 배열.
+function SwapPanel({ item, excludeIds, allergens, check, onPick, onRevert }: {
+  item: MealItem; excludeIds: number[]; allergens: string[]; check: (c: SwapCandidate) => SwapCheck;
   onPick: (c: SwapCandidate) => void; onRevert: () => void;
 }) {
   const id = item.nutritionId;
   const [state, setState] = useState<PanelState>({ status: 'loading' });
-  const excludeKey = excludeIds.join(',');
+  // 원래 메뉴(되돌리기 칸에 따로 보임)는 후보 목록에서 뺀다 — 같은 메뉴가 두 번 뜨지 않게.
+  const excludeKey = [...excludeIds, ...(item.origNutritionId != null ? [item.origNutritionId] : [])].join(',');
+  const allergenKey = allergens.join(',');
 
   useEffect(() => {
     if (id == null) return;
     let alive = true;
     // 막히는 후보가 섞여도 고를 수 있는 후보가 남도록 넉넉히 받는다.
-    fetchSwapCandidates(id, excludeKey ? excludeKey.split(',').map(Number) : [], 12)
+    fetchSwapCandidates(id, excludeKey ? excludeKey.split(',').map(Number) : [], 12, allergenKey ? allergenKey.split(',') : [])
       .then((data) => { if (alive) setState({ status: 'ok', data }); })
       .catch((e) => { console.error('[메뉴교체] 후보 조회 실패:', e); if (alive) setState({ status: 'error' }); });
     return () => { alive = false; };
-  }, [id, excludeKey]);
+  }, [id, excludeKey, allergenKey]);
 
   const canRevert = !!item.orig && item.orig !== item.name;
   const revertBox = canRevert && (
@@ -111,7 +114,8 @@ function SwapPanel({ item, excludeIds, check, onPick, onRevert }: {
           같은 자리({state.data.category}) 실메뉴 · 열량 가까운 순 · 지금 {candLine(state.data.current)}
         </div>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {/* 후보가 많아도 창이 화면 밖으로 넘치지 않도록 높이를 고정하고 안에서 스크롤 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 360, overflowY: 'auto', paddingRight: 2 }}>
         {revertBox}
         {body}
       </div>
@@ -138,11 +142,16 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
   );
   const doneChecks = plan.checks.filter((c) => c.done).length;
 
-  // 교체 후보 제외 목록: 지금 본식단에 올라 있는 메뉴 id(같은 메뉴를 한 식단에 두 번 넣지 않게).
+  // 교체 후보 제외 목록: 지금 보고 있는 식단(본식단 또는 선택한 대체식 트랙)에 올라 있는 메뉴 id
+  // (같은 메뉴를 한 식단에 두 번 넣지 않게). 대체식 트랙이면 그 그룹 알레르겐도 후보에서 거른다.
   const planIds = useMemo(
-    () => [...new Set(plan.weeks.flatMap((w) => w.days.flatMap((d) => d.cells.flatMap((c) => c.items.map((it) => it.nutritionId)))))]
+    () => [...new Set(weeks.flatMap((w) => w.days.flatMap((d) => d.cells.flatMap((c) => c.items.map((it) => it.nutritionId)))))]
       .filter((x): x is number => x != null),
-    [plan.weeks],
+    [weeks],
+  );
+  const trackAllergens = useMemo(
+    () => (view === 'alt' ? plan.alternatives[track]?.allergens ?? [] : []),
+    [view, track, plan.alternatives],
   );
 
   // 교체·삭제는 칸 식별자(menuId)로 찾고, 바꾼 뒤 셀·총합·달성률·원가를 칸 영양으로 다시 계산한다.
@@ -159,7 +168,8 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
       const first = x.orig ? { orig: x.orig, origNutritionId: x.origNutritionId, origNutri: x.origNutri }
         : { orig: x.name, origNutritionId: x.nutritionId, origNutri: x.nutri };
       return {
-        ...x, name: c.name, nutritionId: c.menu_id, flag: undefined, alt: false,
+        // alt(알레르기 대체 여부)는 그대로 둔다 — 되돌리면 원래 배지 상태로 돌아가야 한다.
+        ...x, name: c.name, nutritionId: c.menu_id, flag: undefined,
         nutri: candidateNutri(c), ...first,
       };
     }))));
@@ -177,12 +187,17 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
     setPlan({ ...plan, checks: plan.checks.map((c) => (c.label === label ? { ...c, done: !c.done } : c)) });
   };
 
+  // '대체' 배지 + 초록 글씨: 알레르기 때문에 바뀐 메뉴(it.alt) 또는 영양사가 직접 교체한 메뉴
+  // (일반식·대체식 탭 모두). 되돌리기하면 orig 가 지워져 배지도 사라진다.
+  const isAltItem = (it: MealItem) => !!it.alt || (!!it.orig && it.orig !== it.name);
+
   const MenuLine = ({ it, cell }: { it: MealItem; cell: MealCell }) => {
+    const alt = isAltItem(it);
     if (readOnly) {
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, lineHeight: '20px' }}>
-          <span style={{ fontSize: 13, color: it.flag ? C.redText : it.alt ? C.greenText : C.text }}>{it.name}</span>
-          {it.alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+          <span style={{ fontSize: 13, color: it.flag ? C.redText : alt ? C.greenText : C.text }}>{it.name}</span>
+          {alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
           {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
         </div>
       );
@@ -192,12 +207,12 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
         <Popover
           trigger="click" placement="bottom" destroyOnHidden
           title={<span style={{ fontSize: 13 }}>‘{it.name}’ 대신</span>}
-          content={<SwapPanel item={it} excludeIds={planIds} check={(c) => checkSwap(plan, cell, it, c)}
+          content={<SwapPanel item={it} excludeIds={planIds} allergens={trackAllergens} check={(c) => checkSwap(plan, cell, it, c)}
             onPick={(c) => onSwap(it, cell, c)} onRevert={() => onRevert(it)} />}
         >
-          <span style={{ fontSize: 13, color: it.flag ? C.redText : it.alt ? C.greenText : C.text, cursor: 'pointer' }}>{it.name}</span>
+          <span style={{ fontSize: 13, color: it.flag ? C.redText : alt ? C.greenText : C.text, cursor: 'pointer' }}>{it.name}</span>
         </Popover>
-        {it.alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+        {alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
         {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
         <span className="del" style={{ opacity: 0, cursor: 'pointer', color: C.muted, transition: 'opacity .1s' }} onClick={() => onDelete(it)}>
           <CloseOutlined style={{ fontSize: 10 }} />
