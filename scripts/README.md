@@ -22,6 +22,9 @@ docker exec optimeal_app python scripts/load_recipe_foodsafety.py
 # 3) 같은 원본의 로컬 xlsx 적재 — API 키가 없을 때의 대체 경로이자 2) 누락분 보강.
 #    2)와 순서가 바뀌어도 이름 기준으로 서로 건너뛰어 중복 행이 생기지 않는다.
 docker exec optimeal_app python scripts/load_nutrition_from_recipe_db.py
+# 3b) 3)으로 적재한 행에 xlsx 조리 과정(cooking_step_1~11)을 original_data.MANUALnn 으로 붙인다
+#     (레시피 화면의 조리 순서). 3) 다음에 실행. 2) API 적재 행은 원래 MANUAL 이 있어 건드리지 않는다.
+docker exec optimeal_app python scripts/load_cooking_steps_from_recipe_db.py
 # 4) 재료 맵 → 5) 메뉴↔재료보유 레시피 연결(원가 계산 경로)
 docker exec optimeal_app python scripts/load_ingredients_from_recipe_db.py
 docker exec optimeal_app python scripts/connect_menus_to_recipes.py --apply
@@ -34,6 +37,10 @@ skip 해 김치 후보가 1종만 남았다 → 3일 반복 금지 제약과 충
 지금은 '기타'를 `cooking_method` '무침'(no_heat)으로 적재한다. 6)의 김치가 9종 미만이면 이 문제다.
 
 가격(`ingredient_price`)은 가락시장 API 키가 필요한 별도 적재이며, 없으면 원가가 0원으로 계산된다.
+
+조리 순서(레시피 화면)는 `nutrition_recipe.original_data` 의 `MANUAL01~20` 에서 읽는다. 2)는 API 원본에
+이 키가 있고, 3)으로 들어온 행은 3b)가 xlsx `cooking_step_N` 원문을 같은 키로 옮긴다(`manual_source` 로 출처 표시,
+다듬기·보충 없음). 3b)를 빼먹으면 해당 메뉴(약 300개)의 조리 순서가 화면에서 공백으로 나온다.
 
 ---
 
