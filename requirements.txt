@@ -16,6 +16,7 @@
 # fastapi==0.115.6            # 모듈 4 REST API
 # uvicorn==0.34.0             # 모듈 4 ASGI 서버
 # ortools==9.11.4210          # 모듈 3 CSP Solver (CP-SAT)
+# reportlab==4.4.10           # 모듈 4 PDF 내보내기 (2026-09-29 추가, 한글 폰트는 이미지의 fonts-nanum)
 # --- 이하 의존성 자동 포함 (pip freeze) ---
 absl-py==2.5.0
 annotated-types==0.8.0
@@ -130,6 +131,7 @@ pytz==2026.2
 PyYAML==6.0.3
 pyzmq==27.1.0
 referencing==0.37.0
+reportlab==4.4.10
 requests==2.32.3
 rfc3339-validator==0.1.4
 rfc3986-validator==0.1.1

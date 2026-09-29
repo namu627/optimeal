@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
-from .routers import calibration, menu, nutrition, plans, scaling
+from .routers import calibration, export, menu, nutrition, plans, scaling
 
 # [통합테스트 수정안] 프론트(React/Vite)가 브라우저에서 이 API를 호출하려면 CORS 필수.
 # 개발 기본값은 Vite(5173)·CRA(3000). 운영은 OPTIMEAL_CORS_ORIGINS(콤마구분)로 지정.
@@ -75,6 +75,7 @@ def create_app() -> FastAPI:
     application.include_router(nutrition.router)
     application.include_router(menu.router)
     application.include_router(plans.router)
+    application.include_router(export.router)
 
     @application.get("/health", tags=["meta"], summary="헬스체크 · 선택적 의존성 상태")
     def health() -> dict:

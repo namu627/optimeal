@@ -388,8 +388,37 @@ def _make_recipe_of_by_id(engine):
     return recipe_of
 
 
+def _steps_by_id(engine, ids) -> dict[int, list[str]]:
+    """menu_id(nutrition_id) -> 조리 단계 문장 목록(원본 순서).
+
+    출처는 nutrition_recipe.original_data 의 MANUAL01~20 뿐이다 — API 적재분은 식품안전나라 원본,
+    소규모 레시피 xlsx 적재분은 scripts/load_cooking_steps_from_recipe_db.py 가 옮긴 cooking_step 원문.
+    원문을 다듬거나 만들어 내지 않고, 빈 칸만 건너뛴다. 단계가 없는 메뉴(식약처 영양DB 등)는
+    키가 없다 → 호출부에서 빈 목록.
+    """
+    from sqlalchemy import bindparam, text
+
+    ids = [i for i in ids if i is not None]
+    if not ids:
+        return {}
+    query = text("""
+        SELECT nr.nutrition_id AS nid, kv.key AS k, kv.value AS v
+        FROM nutrition_recipe nr
+        CROSS JOIN LATERAL jsonb_each_text(nr.original_data) kv
+        WHERE nr.nutrition_id IN :ids
+          AND kv.key ~ '^MANUAL[0-9]+$'
+          AND btrim(kv.value) <> ''
+    """).bindparams(bindparam("ids", expanding=True))
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"ids": ids}).mappings().all()
+    ordered: dict[int, list[tuple[int, str]]] = {}
+    for r in rows:
+        ordered.setdefault(r["nid"], []).append((int(r["k"][len("MANUAL"):]), r["v"].strip()))
+    return {nid: [v for _, v in sorted(steps)] for nid, steps in ordered.items()}
+
+
 def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
-    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서용).
+    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서·레시피 화면용).
 
     module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
     재료 구성은 메뉴(행)에만 의존하므로 여기서 plan 값(키) 기준으로 한 번만 접어 돌려준다
@@ -400,6 +429,7 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
         key_to_id: plan 값 -> menu_id (plan_ids 면 항등, 이름 plan 이면 대표행 id 조회).
 
     레시피(recipe_ingredient_map)가 없는 메뉴는 note만 채운 항목으로 남긴다.
+    steps 는 원본 조리 단계(_steps_by_id)이며 원본에 없으면 빈 목록이다(임의 생성하지 않음).
     실패해도(DB 미구성 등) 조리 지시서 없이 응답은 나가야 하므로 빈 dict로 저하한다.
     """
     if not plan or not servings:
@@ -407,7 +437,8 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
     try:
         import cooking_sheet as csheet
 
-        recipe_of_id = _make_recipe_of_by_id(cs.get_engine())
+        engine = cs.get_engine()
+        recipe_of_id = _make_recipe_of_by_id(engine)
         rows = csheet.build_cooking_sheet(plan, lambda key: recipe_of_id(key_to_id(key)), servings)
     except Exception:
         return {}
@@ -418,6 +449,13 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
             "ingredients": r["ingredients"],
             "note": r["note"],
         })
+    ids = {key: key_to_id(key) for key in out}
+    try:
+        steps = _steps_by_id(engine, set(ids.values()))
+    except Exception:
+        steps = {}  # 단계 조회 실패는 재료 표시를 막지 않는다
+    for key, rec in out.items():
+        rec["steps"] = steps.get(ids[key], [])
     return out
 
 
@@ -521,6 +559,34 @@ def swap_candidates(
 
     return {"category": cur.category, "current": out(cur), "candidates": [out(m) for m in picked],
             "total_in_category": len(ranked)}
+
+
+@router.get("/recipes", summary="메뉴 레시피 조회 (재료 투입량·원본 조리 단계)")
+def menu_recipes(
+    ids: list[int] = Query([], description="메뉴 id(nutrition_id) — 본식단·교체한 메뉴"),
+    names: list[str] = Query([], description="메뉴명 — id 가 없는 대체식 칸. generate 와 같은 대표행으로 해석"),
+    servings: int = Query(..., ge=1, description="인원수 — 투입량은 1인분 × 인원수 총량"),
+) -> dict:
+    """레시피 화면에서 생성 응답에 레시피가 없는 메뉴(검토에서 교체한 메뉴·대체식)를 채운다.
+
+    generate 의 menu_recipes 와 같은 빌더(_build_menu_recipes)를 쓰므로 모양·값이 같다.
+    재료는 recipe_ingredient_map, 조리 단계는 식품안전나라 원본(MANUAL01~20)에 있는 것만 온다.
+
+    Raises:
+        HTTPException(422): 요청 메뉴가 100개 초과. 503: 모듈 3·DB 미구성.
+    """
+    if len(ids) + len(names) > 100:
+        raise HTTPException(status_code=422, detail={
+            "reason": "too_many_menus", "message": "한 번에 100개 메뉴까지 조회할 수 있습니다."})
+    cs, _, _ = _load_module3()
+    by_id = _build_menu_recipes(cs, {"1": {"점심": list(dict.fromkeys(ids))}}, servings, lambda mid: mid) if ids else {}
+    by_name: dict = {}
+    if names:
+        canon = _canonical_by_name(_candidate_pool(cs))
+        by_name = _build_menu_recipes(
+            cs, {"1": {"점심": list(dict.fromkeys(names))}}, servings,
+            lambda name: canon[name].menu_id if name in canon else None)
+    return {"by_id": {str(k): v for k, v in by_id.items()}, "by_name": by_name}
 
 
 @router.get("/profiles", response_model=list[schemas.UserProfileOut],
