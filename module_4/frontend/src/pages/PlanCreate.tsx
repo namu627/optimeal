@@ -121,14 +121,16 @@ function PlanWizard({ initialForm }: { initialForm?: Step1Form }) {
   // CSV 내려받기는 Step3Confirm 이 저장 성공 후에 한다. 시안 02e 대로 확정 직후 홈으로 이동.
   const confirmPlan = async (name: string) => {
     if (!plan) return;
+    let id: number;
     try {
-      await savePlan(name, { ...plan, status: '확정' });
+      ({ id } = await savePlan(name, { ...plan, status: '확정' }));
     } catch (e) {
       console.error('[식단확정] 저장 실패:', e);
       message.error('식단을 확정하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       throw e;
     }
-    setTimeout(() => navigate('/'), 1200); // CSV 연속 다운로드가 시작될 시간을 둔다
+    // CSV 연속 다운로드가 시작될 시간을 두고 홈으로(확정 완료 토스트는 홈이 띄운다)
+    setTimeout(() => navigate('/', { state: { confirmedId: id } }), 1200);
   };
 
   return (

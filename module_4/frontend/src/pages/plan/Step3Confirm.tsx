@@ -101,7 +101,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm }: {
     try { await onConfirm(base); } catch { setConfirming(false); return; }
     // 브라우저가 연속 다운로드를 막지 않도록 약간 간격을 둠
     jobs.forEach((run, i) => setTimeout(run, i * 350));
-    message.success(`식단이 확정되고 CSV ${jobs.length}개를 내려받았어요`);
+    // 완료 안내는 이동한 홈 화면의 토스트가 한다(시안 02e)
   };
   const saveDraft = async () => {
     const n = name.trim();
