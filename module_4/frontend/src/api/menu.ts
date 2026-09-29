@@ -116,7 +116,38 @@ export interface PlanCheck { label: string; done: boolean; view?: boolean }
 // Step3 조리 지시서용 — 메뉴명 → 재료 투입량(총량)·조리순서. 백엔드가 실제로 계산해 준
 // 값(recipe_ingredient_map 보강분)만 들어오며, 레시피 미보강 메뉴는 note만 채워져 온다.
 export interface RecipeIngredient { step?: number | null; name: string; amount?: number | null; unit?: string; role?: string | null }
-export interface MenuRecipe { cooking_method?: string | null; ingredients: RecipeIngredient[]; note?: string | null }
+// steps: 식품안전나라 원본 조리 단계(원문 그대로). 원본에 없으면 [] — 화면은 빈 상태로 둔다(임의 생성 금지).
+// 이 필드가 생기기 전에 저장된 식단에는 steps 키 자체가 없다 → 레시피 화면이 다시 조회한다.
+export interface MenuRecipe { cooking_method?: string | null; ingredients: RecipeIngredient[]; note?: string | null; steps?: string[] }
+
+/** 생성 응답에 레시피가 없는 메뉴(검토에서 교체·대체식·구버전 저장본)를 조회. 투입량은 servings 명 총량. */
+export async function fetchMenuRecipes(ids: number[], names: string[], servings: number): Promise<{
+  by_id: Record<string, MenuRecipe>; by_name: Record<string, MenuRecipe>;
+}> {
+  const params = new URLSearchParams();
+  ids.forEach((id) => params.append('ids', String(id)));
+  names.forEach((n) => params.append('names', n));
+  params.append('servings', String(servings));
+  const { data } = await api.get('/api/menu/recipes', { params });
+  return data;
+}
+
+/** POST /api/menu/export/pdf 본문 — 백엔드 routers/export.py ExportPdfRequest 와 동일. */
+export interface PdfExportRequest {
+  title: string; file_name?: string;
+  summary: { label: string; value: string }[];
+  /** 식단표 그리드 — 행 = 하루, 열 = 끼니. 칸 = 메뉴들 + 1인 열량·단백질. */
+  grids: { title: string; corner?: string; columns: string[];
+    rows: { label: string; sub?: string; cells: ({ menus: string[]; kcal?: number | null; protein?: number | null } | null)[] }[] }[];
+  tables: { title: string; header: string[]; rows: (string | number | null)[][] }[];
+  recipes_title?: string; recipes_note?: string;
+  recipes: { name: string; meta?: string; ingredients: (string | number | null)[][]; steps: string[] }[];
+}
+/** 식단표(·조리 지시서) PDF. 한글 폰트는 백엔드가 임베드한다. */
+export async function exportPlanPdf(body: PdfExportRequest): Promise<Blob> {
+  const { data } = await api.post<Blob>('/api/menu/export/pdf', body, { responseType: 'blob' });
+  return data;
+}
 
 export interface MealPlan {
   conditionText: string; periodText: string; headcount: number;
