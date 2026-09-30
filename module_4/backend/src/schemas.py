@@ -194,6 +194,14 @@ class MenuGenerateRequest(BaseModel):
     )
     target_kcal_per_day: float = Field(2000.0, gt=0)
     kcal_tolerance: float = Field(0.10, ge=0, le=0.5)
+    budget_mode: Literal["day", "carryover"] = Field(
+        "carryover",
+        description="예산 운영 방식. **carryover**(기본): 기간 총액 ≤ 1끼 예산 B × 끼니 수 × 일수 를 Hard 로 "
+                    "지키고, 한 끼가 B 를 넘거나 모자라는 것은 허용하되 B×0.8~1.2 밖·연속일 원가/나트륨 급변을 "
+                    "Soft 로 감점한다(이월). **day**: 기존 방식 — 매일 1일 상한을 Hard 로. "
+                    "B = budget_limit_per_person ÷ 끼니 수. 적용 결과는 applied_targets.budget_mode·"
+                    "budget_total·budget_per_meal, 끼니별 원가는 응답 carryover.",
+    )
     budget_limit_per_person: Optional[float] = Field(
         None, gt=0,
         description="1인 **1일** 식재료비 상한(원, H-3 Hard 제약). 한 끼 예산 × 끼니 수로 보낼 것. "

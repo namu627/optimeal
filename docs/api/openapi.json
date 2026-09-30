@@ -721,7 +721,7 @@
           "menu"
         ],
         "summary": "메뉴 교체 후보 (같은 자리의 실메뉴)",
-        "description": "현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).\n\n카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해\n김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정\n(menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.\n자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.\n정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.\n\n⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체\n재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.\n\nRaises:\n    HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.",
+        "description": "현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).\n\n카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해\n김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정\n(menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.\n자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.\n정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.\n\n예산(carryover): plan_total_cost·total_budget 를 함께 주면 후보마다 교체 후 기간 총액\n(`period_total_after` = 현재 총액 − 현재 메뉴 원가 + 후보 원가)과 `within_total_budget`(≤ 총예산)을 싣는다.\ncarryover 모드에서는 한 끼가 B 를 넘어도 기간 총액 안이면 교체 가능하다. 둘 중 하나라도 없으면\n예산 필드를 싣지 않는다(day 모드 한 끼 예산 판정은 프론트 checkSwap 이 한다).\n울타리: meal_cost 와 guard_min/guard_max(하나 이상)를 주면 후보마다 교체 후 끼니 원가(`meal_cost_after`)와\n`within_meal_guard`(울타리 안)를 싣는다.\n\n⚠ 그 밖의 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체\n재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.\n\nRaises:\n    HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.",
         "operationId": "swap_candidates_api_menu_candidates_get",
         "parameters": [
           {
@@ -770,6 +770,101 @@
               "title": "Enforce Menu Structure"
             },
             "description": "generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"
+          },
+          {
+            "name": "plan_total_cost",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)",
+              "title": "Plan Total Cost"
+            },
+            "description": "carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)"
+          },
+          {
+            "name": "total_budget",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)",
+              "title": "Total Budget"
+            },
+            "description": "carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)"
+          },
+          {
+            "name": "meal_cost",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)",
+              "title": "Meal Cost"
+            },
+            "description": "carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)"
+          },
+          {
+            "name": "guard_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)",
+              "title": "Guard Min"
+            },
+            "description": "carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)"
+          },
+          {
+            "name": "guard_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)",
+              "title": "Guard Max"
+            },
+            "description": "carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)"
           }
         ],
         "responses": {
@@ -1655,6 +1750,16 @@
             "minimum": 0.0,
             "title": "Kcal Tolerance",
             "default": 0.1
+          },
+          "budget_mode": {
+            "type": "string",
+            "enum": [
+              "day",
+              "carryover"
+            ],
+            "title": "Budget Mode",
+            "description": "예산 운영 방식. **carryover**(기본): 기간 총액 ≤ 1끼 예산 B × 끼니 수 × 일수 를 Hard 로 지키고, 한 끼가 B 를 넘거나 모자라는 것은 허용하되 B×0.8~1.2 밖·연속일 원가/나트륨 급변을 Soft 로 감점한다(이월). **day**: 기존 방식 — 매일 1일 상한을 Hard 로. B = budget_limit_per_person ÷ 끼니 수. 적용 결과는 applied_targets.budget_mode·budget_total·budget_per_meal, 끼니별 원가는 응답 carryover.",
+            "default": "carryover"
           },
           "budget_limit_per_person": {
             "anyOf": [

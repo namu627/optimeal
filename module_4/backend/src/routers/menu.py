@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace as dc_replace
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -53,6 +53,13 @@ def _solver_time_limit(payload) -> float:
 #   실제 시세 원가(2026-09-30 KAMIS 적재 후)로는 3식 7일이 INFEASIBLE 로 증명됐다.
 DEFAULT_BUDGET_PER_MEAL_WON = 3500.0
 
+# 이월(carryover) 모드 끼니 원가 울타리(1끼 예산 B 배수, Hard). None 이면 울타리 없음.
+#   2026-09-30 폭 스윕(없음 / 0.5~1.5 / 0.6~1.4 / 0.7~1.3 × 7일3식 B3,500·3,000 각 2회, 7일1식, 31일1식):
+#   모든 폭에서 INFEASIBLE·UNKNOWN 0, 7일 ≤30.3초·31일 ≤47.9초 → 기준을 만족하는 가장 좁은 0.7~1.3 채택.
+#   7일3식 B3,500 끼니 원가 1,337~5,789 → 2,460~4,520, Soft 밴드 밖 10 → 5~6끼, 연속일 최대 원가 차 2,238~3,266 → 1,110~1,746.
+#   연속일 균형 Soft 를 끈 비교는 7일3식에서 지표가 나빠져(밴드 밖 7~8, 원가 차 1,650~1,938) 켠 채로 둔다.
+CARRYOVER_GUARD: tuple[float, float] | None = (0.7, 1.3)
+
 
 def _budget_limit_per_day(payload, meals) -> float | None:
     """요청 예산 → 솔버에 넘길 1인 1일 상한.
@@ -63,6 +70,29 @@ def _budget_limit_per_day(payload, meals) -> float | None:
     if "budget_limit_per_person" not in payload.model_fields_set:
         return DEFAULT_BUDGET_PER_MEAL_WON * len(meals)
     return payload.budget_limit_per_person
+
+
+def _budget_plan(payload, meals, cs) -> dict:
+    """예산 모드 해석 → {mode, per_day, per_meal, total, carryover_on}.
+
+    · day      : 기존 그대로 — 1일 상한 per_day 를 매일 Hard 로.
+    · carryover: 기간 총액 Hard(per_day × 일수 = B×M×D, budget_period="total") + 끼니 밴드·연속일
+                 균형 Soft(module_3 budget_carryover). B(1끼 예산) = per_day ÷ 끼니 수.
+    예산이 없으면(명시적 null) 어느 모드든 예산 항을 걸지 않는다. module_3 가 이월 모듈이 없는
+    구버전이면 day 로 떨어진다(응답 budget_mode 에 실제 적용 모드가 남는다).
+    """
+    per_day = _budget_limit_per_day(payload, meals)
+    mode = payload.budget_mode
+    if mode == "carryover" and getattr(cs, "bc", None) is None:
+        mode = "day"
+    on = mode == "carryover" and per_day is not None
+    return {
+        "mode": mode,
+        "per_day": per_day,
+        "per_meal": (per_day / len(meals)) if per_day is not None else None,
+        "total": (per_day * payload.days) if per_day is not None else None,
+        "carryover_on": on,
+    }
 
 
 def _load_module3():
@@ -301,7 +331,7 @@ def _canonical_rank(m) -> tuple:
 
 
 def _nutrition_by_id(menus) -> dict:
-    """menu_id -> {name, kcal, protein, sodium, cost}. 전 후보(동명 행 각각)를 id 로 구분해 싣는다.
+    """menu_id -> {name, kcal, protein, sodium, cost, cost_exact}. 전 후보(동명 행 각각)를 id 로 구분해 싣는다.
     calories·cost 는 후보(MenuItem)에 이미 있고, protein·sodium 은 nutrition_recipe 에서 보강한다.
     조회에 실패해도 kcal·cost 는 채우고 protein·sodium 만 None 으로 둔다 — 응답은 항상 나간다.
     """
@@ -331,6 +361,8 @@ def _nutrition_by_id(menus) -> dict:
             "protein": prot.get(m.menu_id),
             "sodium": sod.get(m.menu_id),
             "cost": round(float(getattr(m, "cost_won", 0) or 0)),
+            # 반올림 전 원가 — 프론트가 합계를 반올림 전 값으로 더해 서버 총액(total_cost_won)과 맞추게 한다.
+            "cost_exact": round(float(getattr(m, "cost_won", 0) or 0), 4),
         }
     return out
 
@@ -534,6 +566,16 @@ def swap_candidates(
     limit: int = Query(8, ge=1, le=30),
     enforce_menu_structure: bool = Query(
         True, description="generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"),
+    plan_total_cost: float | None = Query(
+        None, ge=0, description="carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)"),
+    total_budget: float | None = Query(
+        None, gt=0, description="carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)"),
+    meal_cost: float | None = Query(
+        None, ge=0, description="carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)"),
+    guard_min: float | None = Query(
+        None, ge=0, description="carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)"),
+    guard_max: float | None = Query(
+        None, gt=0, description="carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)"),
 ) -> dict:
     """현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).
 
@@ -543,7 +585,14 @@ def swap_candidates(
     자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.
     정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.
 
-    ⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체
+    예산(carryover): plan_total_cost·total_budget 를 함께 주면 후보마다 교체 후 기간 총액
+    (`period_total_after` = 현재 총액 − 현재 메뉴 원가 + 후보 원가)과 `within_total_budget`(≤ 총예산)을 싣는다.
+    carryover 모드에서는 한 끼가 B 를 넘어도 기간 총액 안이면 교체 가능하다. 둘 중 하나라도 없으면
+    예산 필드를 싣지 않는다(day 모드 한 끼 예산 판정은 프론트 checkSwap 이 한다).
+    울타리: meal_cost 와 guard_min/guard_max(하나 이상)를 주면 후보마다 교체 후 끼니 원가(`meal_cost_after`)와
+    `within_meal_guard`(울타리 안)를 싣는다.
+
+    ⚠ 그 밖의 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체
     재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.
 
     Raises:
@@ -569,10 +618,23 @@ def swap_candidates(
     picked = ranked[:limit]
     nut = _nutrition_by_id(picked + [cur])
 
+    judge_total = plan_total_cost is not None and total_budget is not None
+    judge_guard = meal_cost is not None and (guard_min is not None or guard_max is not None)
+
     def out(m) -> dict:
         n = nut[m.menu_id]
-        return {"menu_id": m.menu_id, "name": n["name"], "kcal": n["kcal"],
-                "protein": n["protein"], "sodium": n["sodium"], "cost": n["cost"]}
+        row = {"menu_id": m.menu_id, "name": n["name"], "kcal": n["kcal"],
+               "protein": n["protein"], "sodium": n["sodium"], "cost": n["cost"], "cost_exact": n["cost_exact"]}
+        if judge_total:
+            after = plan_total_cost - float(cur.cost_won or 0) + float(m.cost_won or 0)
+            row["period_total_after"] = round(after)
+            row["within_total_budget"] = after <= total_budget
+        if judge_guard:
+            meal_after = meal_cost - float(cur.cost_won or 0) + float(m.cost_won or 0)
+            row["meal_cost_after"] = round(meal_after)
+            row["within_meal_guard"] = ((guard_min is None or meal_after >= guard_min)
+                                        and (guard_max is None or meal_after <= guard_max))
+        return row
 
     return {"category": cur.category, "current": out(cur), "candidates": [out(m) for m in picked],
             "total_in_category": len(ranked)}
@@ -647,11 +709,13 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
     sodium_by_idx = _load_sodium(menus) if sodium_max else None
-    budget_per_day = _budget_limit_per_day(payload, meals)
+    budget = _budget_plan(payload, meals, cs)
+    budget_per_day = budget["per_day"]
     cfg = hc.HardConstraintConfig(
         target_kcal_per_day=kcal,
         kcal_tolerance=payload.kcal_tolerance,
         budget_limit_per_person=budget_per_day,
+        budget_period="total" if budget["carryover_on"] else "day",
         excluded_allergens=set(payload.excluded_allergens),
         nutrient_max_per_day=({"sodium": sodium_max} if sodium_by_idx else {}),
         enable_staple_main=payload.enforce_menu_structure,
@@ -672,12 +736,26 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
     )
+    guard = None
+    guard_relaxed = False
+    if budget["carryover_on"]:
+        guard = CARRYOVER_GUARD
+        req.carryover = cs.bc.CarryoverConfig(
+            per_meal_budget_won=budget["per_meal"],
+            sodium_max_per_day=sodium_max if sodium_by_idx else None,
+            guard_low=guard[0] if guard else None, guard_high=guard[1] if guard else None)
     res = cs.build_and_solve(menus, req)
+    # 안전장치: 울타리 때문에 해가 없다고 **증명**되면(INFEASIBLE) 울타리만 빼고 한 번 더 푼다.
+    #   UNKNOWN(시간 안에 못 찾음)은 울타리 탓인지 알 수 없으므로 그대로 돌려준다.
+    if guard is not None and res.status == "INFEASIBLE":
+        req.carryover = dc_replace(req.carryover, guard_low=None, guard_high=None)
+        res = cs.build_and_solve(menus, req)
+        guard_relaxed = True
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
         # 풀이 종료 사유(optimal·gap·stall·time_limit…). 구버전 module_3 는 필드가 없어 None.
-        "stop_reason": getattr(res, "stop_reason", None),
+        "stop_reason": "guard_relaxed" if guard_relaxed else getattr(res, "stop_reason", None),
         # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
         "applied_targets": {
             "meals": list(meals),
@@ -686,6 +764,13 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             "protein_g": protein_g,  # 프로파일 기준 단백질 목표(제약 아님, 표시용). 프로파일 없으면 None
             # 실제로 적용한 1인 1일 예산 상한(원). 요청에서 생략했으면 1끼 기본값 × 끼니 수. None=미적용
             "budget_limit_per_day": budget_per_day,
+            # 예산 모드(실제 적용값)·기간 총예산·끼니당 기준 B. carryover 면 총예산이 Hard 상한이다.
+            "budget_mode": budget["mode"],
+            "budget_total": budget["total"],
+            "budget_per_meal": budget["per_meal"],
+            # 끼니 원가 울타리(원, carryover 만). 울타리를 풀고 다시 풀었으면(guard_relaxed) None.
+            "guard_min_won": (budget["per_meal"] * guard[0] if guard and not guard_relaxed else None),
+            "guard_max_won": (budget["per_meal"] * guard[1] if guard and not guard_relaxed else None),
             "profile": basis,
         },
         "plan": _to_jsonable(res.plan),
@@ -695,6 +780,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "soft_breakdown": _to_jsonable(res.soft_breakdown),
         "diversity_breakdown": _to_jsonable(res.diversity_breakdown),
         "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
+        # 식단가 이월 리포트(carryover 모드만): 끼니별 원가 배열·최대/최소·B 초과 끼니 수·연속일 최대 원가 차.
+        "carryover": _to_jsonable(getattr(res, "carryover_breakdown", None)),
     }
 
     # Level 2: module_3 가 plan 과 같은 모양의 plan_ids(솔버가 고른 menu_id)를 주면 본식단은 id 로
