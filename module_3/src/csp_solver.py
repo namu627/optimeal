@@ -148,6 +148,16 @@ class MealPlanRequest:
     # 끼니 슬롯 구성. int=정확히 그 개수 / (lo, hi)=범위(hi=None 이면 상한 없음).
     composition: dict = field(default_factory=lambda: dict(DEFAULT_COMPOSITION))
     solver_time_limit: float = 10.0
+    # 총 소요 마감(opt-in · None=미적용). time.monotonic() 기준 절대 시각. 주면 웜스타트·풀이 시간을
+    #   solver_time_limit 과 "마감까지 남은 시간" 중 작은 쪽으로 자른다 — 모델 구성(3식 7일 ~6초)처럼
+    #   solver_time_limit 밖에서 쓰인 시간까지 총 한도에 넣고 싶을 때(API 응답 시간 상한). 2026-09-30.
+    deadline: float = None
+    # 웜스타트 힌트 구성 튜닝(opt-in · None=csp_warm_start 기본값). 2026-09-30 계측(초등 저학년 3식 7일·울타리):
+    #   하루 부분 문제가 기본 2초 상한 근처(~1.7초)까지 돌아 힌트에 10~12초가 들고, 힌트 몫(남은 시간×0.35)에서
+    #   잘려 6일치만 만들어지면 본 풀이가 첫 해를 못 찾아 UNKNOWN 이 됐다(7일치면 첫 해 ~12초).
+    #   hint_per_day_time: 하루 부분 문제 시간 상한(초). hint_budget_ratio: 남은 시간 중 힌트에 쓸 비율.
+    hint_per_day_time: float = None
+    hint_budget_ratio: float = None
     # 롤링 웜스타트(초기해 hint) 사용 여부. 기본 ON.
     #   31일 풀이의 병목은 "첫 가능해 찾기"이며(나트륨 일 상한이 558슬롯을 전역 결합),
     #   순차 구성한 초기해를 넣으면 24.8~65.5초(한도 초과 발생) → 10.1~10.8초로 고정된다.
@@ -331,6 +341,13 @@ def _count_bounds(spec) -> tuple:
     return spec, spec
 
 
+def _time_left(req: MealPlanRequest, budget: float) -> float:
+    """budget(초)과 마감(req.deadline)까지 남은 시간 중 작은 쪽. 마감이 없으면 budget 그대로."""
+    if req.deadline is None:
+        return budget
+    return min(budget, req.deadline - time.monotonic())
+
+
 def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResult:
     model = cp_model.CpModel()
     D = range(req.days)
@@ -419,12 +436,13 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             affinity_table=req.affinity_table,
             affinity_weights=req.affinity_weights,
             meal_cost_bounds=(bc.guard_bounds_won(req.carryover) if req.carryover is not None else None),
-            time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
+            time_budget=_time_left(req, req.solver_time_limit) * (req.hint_budget_ratio or ws.DEFAULT_BUDGET_RATIO),
+            **({"per_day_time": req.hint_per_day_time} if req.hint_per_day_time else {}))
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
     # ---------------------- 풀이 및 결과 추출 -----------------------------
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = max(1.0, req.solver_time_limit - hint_seconds)
+    solver.parameters.max_time_in_seconds = max(1.0, _time_left(req, req.solver_time_limit - hint_seconds))
     for name, value in (req.solver_params or {}).items():
         setattr(solver.parameters, name, value)
     if req.relative_gap_limit:

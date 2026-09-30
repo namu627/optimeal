@@ -174,4 +174,5 @@ def test_meal_guard_none_is_unchanged_model():
     a = build_and_solve(menus, _req(3, hard, cfg))
     wide = build_and_solve(menus, _req(3, hard, bc.CarryoverConfig(1000.0, guard_low=0.0, guard_high=100.0)))
     assert a.carryover_breakdown["guard"] is None and a.carryover_breakdown["active_terms"]["meal_guard"] is False
-    assert a.plan == wide.plan and a.objective == wide.objective
+    # 같은 목적값의 최적해가 여럿이면(동점) 멀티스레드 CP-SAT 이 다른 배치를 고를 수 있어 plan 은 비교하지 않는다.
+    assert a.status == wide.status == "OPTIMAL" and a.objective == wide.objective

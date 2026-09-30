@@ -41,6 +41,32 @@ SOLVER_STALL_MIN_IMPROVEMENT = 0.005
 SOLVER_PARAMS = {"max_presolve_iterations": 1}
 
 
+# ── 동시 풀이 직렬화 · 총 소요 한도 (2026-09-30) ─────────────────────────────
+#   원인: 7일 3식 기본 조건이 단독으로는 FEASIBLE 인데, 요청 두 개가 겹치면 CP-SAT 둘이 4코어를 나눠 써서
+#   둘 다 30초 안에 첫 해를 못 찾고 UNKNOWN 이 됐다(실서버 재현: 동시 2회 → UNKNOWN 2회, 단독 → FEASIBLE).
+#   · 풀이는 한 번에 하나만 돈다. SOLVER_BUSY_WAIT_SEC 안에 차례가 안 오면 429(solver_busy)로 바로 알린다
+#     — 줄 세워 기다리게 하면 두 번째 요청은 90초 클라이언트 타임아웃을 넘긴다.
+#   · 요청에 solver_time_limit 이 없으면 **요청 시작부터의 총 한도**를 module_3 deadline 으로 건다.
+#     3식 7일은 모델 구성에만 ~6초를 써서 풀이 30초 + 구성·후처리로 응답이 39~46초였다 → 7일 이하 34초.
+#     7일 초과는 프론트 axios 타임아웃(90초) 안에 들어오도록 80초(풀이 자체 상한 60초는 그대로).
+_SOLVE_LOCK = threading.Lock()
+SOLVER_BUSY_WAIT_SEC = 3.0
+TOTAL_TIME_BUDGET_SHORT = 34.0      # 7일 이하
+TOTAL_TIME_BUDGET_LONG = 80.0       # 7일 초과
+GUARD_RELAX_MIN_SECONDS = 10.0      # 울타리 해제 재풀이에 최소로 보장하는 시간
+# 웜스타트 힌트: 본 풀이는 **7일치 완성 힌트**가 있어야 시간 안에 첫 해를 찾는다(6일치로 잘리면 UNKNOWN).
+#   하루 부분 문제 상한 2초→1초로 힌트 10~12초→약 8초, 힌트 몫 0.35→0.5 로 잘림을 막는다(3/3 완성 확인).
+HINT_PER_DAY_TIME = 1.0
+HINT_BUDGET_RATIO = 0.5
+
+
+def _total_deadline(payload, started: float) -> float | None:
+    """요청 시작 시각 기준 총 소요 마감(time.monotonic). solver_time_limit 을 명시한 요청은 None(기존 동작)."""
+    if payload.solver_time_limit is not None:
+        return None
+    return started + (TOTAL_TIME_BUDGET_SHORT if payload.days <= 7 else TOTAL_TIME_BUDGET_LONG)
+
+
 def _solver_time_limit(payload) -> float:
     """요청의 풀이 시간 상한. 명시값이 있으면 그대로, 없으면 일수 기준 기본값."""
     if payload.solver_time_limit is not None:
@@ -704,6 +730,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     Raises:
         HTTPException(503): 모듈 3 또는 영양성분 DB 미구성.
     """
+    started = time.monotonic()
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
     meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
@@ -744,13 +771,28 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             per_meal_budget_won=budget["per_meal"],
             sodium_max_per_day=sodium_max if sodium_by_idx else None,
             guard_low=guard[0] if guard else None, guard_high=guard[1] if guard else None)
-    res = cs.build_and_solve(menus, req)
-    # 안전장치: 울타리 때문에 해가 없다고 **증명**되면(INFEASIBLE) 울타리만 빼고 한 번 더 푼다.
-    #   UNKNOWN(시간 안에 못 찾음)은 울타리 탓인지 알 수 없으므로 그대로 돌려준다.
-    if guard is not None and res.status == "INFEASIBLE":
-        req.carryover = dc_replace(req.carryover, guard_low=None, guard_high=None)
+    if hasattr(req, "deadline"):   # 구버전 module_3 에는 필드가 없다
+        req.deadline = _total_deadline(payload, started)
+    if hasattr(req, "hint_per_day_time"):
+        req.hint_per_day_time = HINT_PER_DAY_TIME
+        req.hint_budget_ratio = HINT_BUDGET_RATIO
+    if not _SOLVE_LOCK.acquire(timeout=SOLVER_BUSY_WAIT_SEC):
+        raise HTTPException(status_code=429, detail={
+            "reason": "solver_busy",
+            "message": "다른 식단을 생성하는 중이에요. 끝난 뒤 다시 시도해 주세요.",
+            "hint": "식단 생성은 한 번에 하나씩 풀어요(동시에 풀면 둘 다 시간 안에 해를 못 찾음)."})
+    try:
         res = cs.build_and_solve(menus, req)
-        guard_relaxed = True
+        # 안전장치: 울타리 때문에 해가 없다고 **증명**되면(INFEASIBLE) 울타리만 빼고 한 번 더 푼다.
+        #   UNKNOWN(시간 안에 못 찾음)은 울타리 탓인지 알 수 없고, 총 한도 안에 다시 풀 시간도 없어 그대로 돌려준다.
+        if guard is not None and res.status == "INFEASIBLE":
+            req.carryover = dc_replace(req.carryover, guard_low=None, guard_high=None)
+            if getattr(req, "deadline", None) is not None:
+                req.deadline = max(req.deadline, time.monotonic() + GUARD_RELAX_MIN_SECONDS)
+            res = cs.build_and_solve(menus, req)
+            guard_relaxed = True
+    finally:
+        _SOLVE_LOCK.release()
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
