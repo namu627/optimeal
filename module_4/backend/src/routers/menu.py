@@ -47,11 +47,12 @@ SOLVER_PARAMS = {"max_presolve_iterations": 1}
 #   · 풀이는 한 번에 하나만 돈다. SOLVER_BUSY_WAIT_SEC 안에 차례가 안 오면 429(solver_busy)로 바로 알린다
 #     — 줄 세워 기다리게 하면 두 번째 요청은 90초 클라이언트 타임아웃을 넘긴다.
 #   · 요청에 solver_time_limit 이 없으면 **요청 시작부터의 총 한도**를 module_3 deadline 으로 건다.
-#     3식 7일은 모델 구성에만 ~6초를 써서 풀이 30초 + 구성·후처리로 응답이 39~46초였다 → 7일 이하 34초.
+#     3식 7일은 모델 구성에만 ~6초를 써서 풀이 30초 + 구성·후처리로 응답이 39~46초였다 → 7일 이하 34초로 시작했으나,
+#     브라우저·Vite·도커가 함께 도는 PC(4코어)에서 화면 생성 3회 중 1회 UNKNOWN 이 나와 40초로 늘렸다(2026-09-30).
 #     7일 초과는 프론트 axios 타임아웃(90초) 안에 들어오도록 80초(풀이 자체 상한 60초는 그대로).
 _SOLVE_LOCK = threading.Lock()
 SOLVER_BUSY_WAIT_SEC = 3.0
-TOTAL_TIME_BUDGET_SHORT = 34.0      # 7일 이하
+TOTAL_TIME_BUDGET_SHORT = 40.0      # 7일 이하
 TOTAL_TIME_BUDGET_LONG = 80.0       # 7일 초과
 GUARD_RELAX_MIN_SECONDS = 10.0      # 울타리 해제 재풀이에 최소로 보장하는 시간
 # 웜스타트 힌트: 본 풀이는 **7일치 완성 힌트**가 있어야 시간 안에 첫 해를 찾는다(6일치로 잘리면 UNKNOWN).
