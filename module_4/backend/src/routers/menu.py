@@ -48,6 +48,23 @@ def _solver_time_limit(payload) -> float:
     return 30.0 if payload.days <= 7 else 60.0
 
 
+# 예산을 요청에서 아예 빼면 쓰는 기본값 — "1인 1끼" 기준. 솔버(H-3)는 1인 1일 상한을 받으므로
+#   × 끼니 수로 넘긴다. 예전 기본값 3,500원은 1일 값으로 넘어가 3식이면 끼니당 약 1,167원이 되어,
+#   실제 시세 원가(2026-09-30 KAMIS 적재 후)로는 3식 7일이 INFEASIBLE 로 증명됐다.
+DEFAULT_BUDGET_PER_MEAL_WON = 3500.0
+
+
+def _budget_limit_per_day(payload, meals) -> float | None:
+    """요청 예산 → 솔버에 넘길 1인 1일 상한.
+
+    필드를 **생략**했을 때만 기본값(1끼 3,500원 × 끼니 수)을 쓴다. 명시한 값은 그대로(프론트는
+    이미 한 끼 예산 × 끼니 수를 1일 값으로 보낸다 — toWireRequest), 명시한 null 은 예산 미적용.
+    """
+    if "budget_limit_per_person" not in payload.model_fields_set:
+        return DEFAULT_BUDGET_PER_MEAL_WON * len(meals)
+    return payload.budget_limit_per_person
+
+
 def _load_module3():
     """모듈 3 (csp_solver, csp_hard_constraints, alternative_menu) 를 로드한다.
 
@@ -630,10 +647,11 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
     sodium_by_idx = _load_sodium(menus) if sodium_max else None
+    budget_per_day = _budget_limit_per_day(payload, meals)
     cfg = hc.HardConstraintConfig(
         target_kcal_per_day=kcal,
         kcal_tolerance=payload.kcal_tolerance,
-        budget_limit_per_person=payload.budget_limit_per_person,
+        budget_limit_per_person=budget_per_day,
         excluded_allergens=set(payload.excluded_allergens),
         nutrient_max_per_day=({"sodium": sodium_max} if sodium_by_idx else {}),
         enable_staple_main=payload.enforce_menu_structure,
@@ -666,6 +684,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             "target_kcal_per_day": kcal,
             "sodium_max_mg_per_day": sodium_max,
             "protein_g": protein_g,  # 프로파일 기준 단백질 목표(제약 아님, 표시용). 프로파일 없으면 None
+            # 실제로 적용한 1인 1일 예산 상한(원). 요청에서 생략했으면 1끼 기본값 × 끼니 수. None=미적용
+            "budget_limit_per_day": budget_per_day,
             "profile": basis,
         },
         "plan": _to_jsonable(res.plan),

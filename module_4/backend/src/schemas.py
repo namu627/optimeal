@@ -194,7 +194,12 @@ class MenuGenerateRequest(BaseModel):
     )
     target_kcal_per_day: float = Field(2000.0, gt=0)
     kcal_tolerance: float = Field(0.10, ge=0, le=0.5)
-    budget_limit_per_person: Optional[float] = Field(3500.0, gt=0)
+    budget_limit_per_person: Optional[float] = Field(
+        None, gt=0,
+        description="1인 **1일** 식재료비 상한(원, H-3 Hard 제약). 한 끼 예산 × 끼니 수로 보낼 것. "
+                    "**생략**하면 1인 1끼 3,500원 × 끼니 수를 적용한다(적용값은 응답 "
+                    "applied_targets.budget_limit_per_day). 명시적 null 이면 예산 미적용.",
+    )
     sodium_max_mg_per_day: Optional[float] = Field(
         2000.0, gt=0,
         description="1일 나트륨 상한 mg (H-2e Hard 제약). null이면 미적용. "
