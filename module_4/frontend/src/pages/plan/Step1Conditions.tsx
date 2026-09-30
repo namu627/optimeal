@@ -1,7 +1,7 @@
 // src/pages/plan/Step1Conditions.tsx
 // 식단 생성 1단계 · 조건 입력 (시안 화면 4 / 4-a 생성중 / 4-b INFEASIBLE)
 import { useEffect, useState } from 'react';
-import { Card, Select, InputNumber, Button, Checkbox, Alert, Segmented } from 'antd';
+import { Card, Select, InputNumber, Button, Checkbox, Alert, Segmented, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import {
@@ -112,18 +112,31 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
     setConds((prev) => (k in prev ? (() => { const n = { ...prev }; delete n[k]; return n; })() : { ...prev, [k]: null }));
   // 항상 아침→점심→저녁 순으로 유지 (클릭 순서와 무관하게 식단표 행 순서가 흔들리지 않도록)
   const MEAL_ORDER = ['아침', '점심', '저녁'];
-  const toggleMeal = (m: string) =>
+  // 31일은 점심만 — 3식은 현재 풀이 한도(총 80초) 안에 해가 나오지 않는다(2026-09-30 화면 기본 조건 2회 모두 UNKNOWN).
+  const LONG_DAYS = 31;
+  const LONG_MEALS = ['점심'];
+  const mealLocked = (m: string) => days === LONG_DAYS && !LONG_MEALS.includes(m);
+  const toggleMeal = (m: string) => {
+    if (mealLocked(m)) return;
     setMeals((p) => (p.includes(m) ? p.filter((x) => x !== m) : MEAL_ORDER.filter((x) => p.includes(x) || x === m)));
+  };
+  // 기간을 31일로 바꾸면 끼니를 점심만 남긴다. 7일·1일로 돌아가면 아침·저녁을 다시 고를 수 있다(자동으로 켜지는 않음).
+  const pickDays = (d: number) => {
+    setDays(d);
+    if (d === LONG_DAYS) setMeals((p) => p.filter((x) => LONG_MEALS.includes(x)));
+  };
 
   // over: 시간 초과 안내의 '기간 줄이기'·'하루 단위로 생성'이 바꾼 값을 바로 반영해 보낸다(상태 갱신을 기다리지 않음).
   const submit = (over: { days?: number; budgetMode?: BudgetMode } = {}) => {
     if (genState === 'loading') return; // 중복 제출 방지
     const d = over.days ?? days, bm = over.budgetMode ?? budgetMode;
+    // 이전 폼 스냅샷이 31일·3식이어도 점심만 보낸다.
+    const sendMeals = d === LONG_DAYS ? meals.filter((x) => LONG_MEALS.includes(x)) : meals;
     if (over.days != null) setDays(over.days);
     if (over.budgetMode) setBudgetMode(over.budgetMode);
-    onFormChange?.({ profile, count, conds, days: d, meals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
+    onFormChange?.({ profile, count, conds, days: d, meals: sendMeals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
     onGenerate({
-      profile_key: profile, serving_count: count, days: d, meals,
+      profile_key: profile, serving_count: count, days: d, meals: sendMeals,
       target_kcal_per_day: kcalValue, sodium_max_mg_per_day: sodiumValue, budget_limit_per_person: budget,
       budget_mode: bm,
       conditions: Object.keys(conds), with_alternatives: true,
@@ -186,7 +199,7 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
           <Field label="기간">
             <div style={{ display: 'flex', gap: 10 }}>
               {[1, 7, 31].map((d) => (
-                <div key={d} onClick={() => setDays(d)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${days === d ? C.green : C.border}`, background: days === d ? C.tint : '#fff', color: days === d ? C.greenText : C.sub, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', fontWeight: days === d ? 600 : 400 }}>
+                <div key={d} onClick={() => pickDays(d)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${days === d ? C.green : C.border}`, background: days === d ? C.tint : '#fff', color: days === d ? C.greenText : C.sub, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', fontWeight: days === d ? 600 : 400 }}>
                   <span style={{ width: 14, height: 14, borderRadius: 7, border: `${days === d ? 4 : 1}px solid ${days === d ? C.green : C.border}`, background: '#fff' }} />{d}일
                 </div>
               ))}
@@ -197,19 +210,19 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
             <div style={{ display: 'flex', gap: 10 }}>
               {['아침', '점심', '저녁'].map((m) => {
                 const on = meals.includes(m);
-                return (
-                  <div key={m} onClick={() => toggleMeal(m)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${on ? C.green : C.border}`, background: on ? C.tint : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}>
-                    <Checkbox checked={on} /><span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? C.text : C.sub }}>{m}</span>
+                const locked = mealLocked(m);
+                const box = (
+                  <div key={m} onClick={() => toggleMeal(m)} aria-disabled={locked} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${on ? C.green : C.border}`, background: locked ? C.head : on ? C.tint : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.55 : 1 }}>
+                    <Checkbox checked={on} disabled={locked} /><span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? C.text : C.sub }}>{m}</span>
                   </div>
                 );
+                return locked ? <Tooltip key={m} title="31일은 점심만 생성할 수 있어요">{box}</Tooltip> : box;
               })}
             </div>
           </div>
-          {/* 31일 3식은 현재 풀이 한도(총 80초) 안에 해를 못 찾는 경우가 많다(2026-09-30 화면 기본 조건 2회 모두 UNKNOWN). */}
-          {days === 31 && meals.length === 3 && (
-            <Alert type="warning" showIcon style={{ marginTop: 10 }}
-              title="31일 3식은 생성에 오래 걸리거나 실패할 수 있어요"
-              description="시간 안에 식단을 찾지 못하면 기간을 7일로 줄이거나 끼니 수를 줄여 다시 생성해 주세요." />
+          {days === LONG_DAYS && (
+            <Alert type="info" showIcon style={{ marginTop: 10 }}
+              title="31일은 점심만 생성할 수 있어요(3식은 현재 시간 안에 생성되지 않음)" />
           )}
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label="1일 열량 목표"><InputNumber value={kcalValue} disabled={locked} onChange={(v) => setKcal(Number(v) || 0)} suffix="kcal" style={{ width: '100%' }} /></Field>
