@@ -10,10 +10,17 @@
   docker exec optimeal_app python scripts/derive_ingredient_price.py --apply   # 적재
 
 규칙:
-  1) 밥 = 쌀 g당 가격 ÷ COOKED_RICE_WEIGHT_RATIO(2.3)                         source='쌀 환산'
+  1) 밥류 = 원곡 g당 가격 ÷ COOKED_RICE_WEIGHT_RATIO(2.3)                      source='쌀 환산'
+     밥←쌀, 현미밥←현미, 귀리밥←귀리. 원곡 가격이 없으면 보류(출력에 표시).
   2) '상위품목(부위)' 꼴 재료에 자기 가격이 없으면 상위품목 가격을 그대로 쓴다     source='상위품목 대체'
      예: 닭고기(가슴)·닭고기(다리) ← 닭고기, 돼지고기(등심) ← 돼지고기.
      부위별 단가 차이(가슴살 > 통닭 등)는 반영되지 않는다 — 수기 참조표로 덮어쓸 자리를 표시하는 용도.
+  3) 이름만 다른 같은 재료(SYNONYM_SUBSTITUTES)는 원 재료 가격을 쓴다              source='동의어 대체'
+     예: 배춧잎←배추, 달걀(흰자)←달걀. 원 재료 가격이 없으면 보류.
+     ingredient_synonym 에는 넣지 않는다 — 이 이름들은 이미 각자 별도 ingredient 행이고 synonym_name 이
+     자기 자신을 가리키고 있어(UNIQUE), 옮기면 레시피 적재·영양·알레르기 쪽 재료 식별이 바뀐다.
+  4) 팀 정책 "물·육수 = 0원"(POLICY_ZERO): 물과 조리장에서 끓이는 육수류는 0원/g      source='정책 0원'
+     원가 합계는 가격 없음과 같지만, 커버리지·미가격 목록에서 '빈칸'이 아닌 '정책값'으로 구분된다.
 
 멱등: 실행할 때마다 두 source 의 기존 행을 지우고 현재 상위 가격으로 다시 만든다.
       price_date 는 원천 가격의 price_date 라, 원천이 갱신되면 재실행으로 따라간다.
@@ -23,6 +30,7 @@
 
 import argparse
 import re
+from datetime import date
 
 from sqlalchemy import text
 
@@ -32,7 +40,7 @@ from load_ingredient_price import get_engine
 #   (단체급식 취반 기준 '쌀 1kg → 밥 약 2.3kg'). g당 가격은 그 배수로 나눈다.
 COOKED_RICE_WEIGHT_RATIO = 2.3
 # {파생 재료명: 원천 재료명}
-RICE_DERIVATIONS = {"밥": "쌀"}
+RICE_DERIVATIONS = {"밥": "쌀", "현미밥": "현미", "귀리밥": "귀리"}
 RICE_SOURCE = "쌀 환산"
 
 # '상위품목(부위)' 대체를 허용할 상위품목. 부위 = 괄호 안 전체('등심, 다짐육' 포함).
@@ -41,7 +49,18 @@ PARENT_ITEMS = ["닭고기", "돼지고기", "소고기"]
 EXCLUDE_PART_KEYWORDS = ("뼈", "꼬리")
 PARENT_SOURCE = "상위품목 대체"
 
-DERIVED_SOURCES = (RICE_SOURCE, PARENT_SOURCE)
+# {이름만 다른 재료: 원 재료}. 같은 물건을 부르는 다른 이름(부위·형태가 달라 단가가 다른 것은 넣지 않는다).
+#   달걀(흰자)는 무게당 단가를 달걀 전체와 같게 본다(흰자만 따로 사지 않고 달걀을 깨서 쓰므로).
+SYNONYM_SUBSTITUTES = {"배춧잎": "배추", "미니 단호박": "단호박", "홍시": "감", "달걀(흰자)": "달걀"}
+SYNONYM_SOURCE = "동의어 대체"
+
+# 팀 정책: 물·조리장에서 끓이는 육수는 0원(수도료·연료비는 식재료비가 아니고, 육수 재료는
+#   레시피에 따로 잡히면 그쪽에 원가가 붙는다). 시판 육수·곰탕 제품은 여기에 넣지 않는다.
+POLICY_ZERO = ["물", "쌀뜨물", "발효종", "육수", "닭육수", "채소국물", "야채국물", "사골육수",
+               "해물육수", "멸치육수", "멸치다시마육수"]
+POLICY_ZERO_SOURCE = "정책 0원"
+
+DERIVED_SOURCES = (RICE_SOURCE, PARENT_SOURCE, SYNONYM_SOURCE, POLICY_ZERO_SOURCE)
 
 _LATEST_REAL_PRICE = """
     SELECT DISTINCT ON (p.ingredient_id) p.ingredient_id, i.ingredient_name, p.price_per_g, p.price_date, p.source
@@ -52,15 +71,17 @@ _LATEST_REAL_PRICE = """
 
 
 def plan(conn):
-    """적재할 파생 행 목록 [{ingredient_id, name, price, price_date, source, notes}]."""
+    """(적재할 파생 행 [{ingredient_id, name, price, price_date, source, notes}], 보류 목록 [(재료, 사유)])."""
     derived = list(DERIVED_SOURCES)
     real = {r.ingredient_name: r for r in conn.execute(text(_LATEST_REAL_PRICE), {"derived": derived})}
     names = {r.ingredient_name: r.ingredient_id
              for r in conn.execute(text("SELECT ingredient_id, ingredient_name FROM ingredient"))}
-    rows = []
+    rows, held = [], []
 
     for target, origin in RICE_DERIVATIONS.items():
         src = real.get(origin)
+        if target in names and target not in real and src is None:
+            held.append((target, f"원곡 '{origin}' 가격 없음"))
         if target in names and target not in real and src:
             rows.append({
                 "ingredient_id": names[target], "name": target,
@@ -84,21 +105,44 @@ def plan(conn):
             "price_date": src.price_date, "source": PARENT_SOURCE,
             "notes": f"상위품목 대체: {parent} {src.price_per_g}원/g({src.source} {src.price_date}) — 부위 단가 미반영",
         })
-    return rows
+
+    for target, origin in SYNONYM_SUBSTITUTES.items():
+        if target not in names or target in real:
+            continue
+        src = real.get(origin)
+        if src is None:
+            held.append((target, f"원 재료 '{origin}' 가격 없음"))
+            continue
+        rows.append({
+            "ingredient_id": names[target], "name": target, "price": float(src.price_per_g),
+            "price_date": src.price_date, "source": SYNONYM_SOURCE,
+            "notes": f"동의어 대체: {origin} {src.price_per_g}원/g({src.source} {src.price_date})",
+        })
+
+    for target in POLICY_ZERO:
+        if target in names and target not in real:
+            rows.append({
+                "ingredient_id": names[target], "name": target, "price": 0.0,
+                "price_date": date.today(), "source": POLICY_ZERO_SOURCE,
+                "notes": "팀 정책: 물·조리장 육수 = 0원",
+            })
+    return rows, held
 
 
 def main():
-    ap = argparse.ArgumentParser(description="규칙 기반 파생 원가(밥=쌀÷2.3, 부위=상위품목) 적재")
+    ap = argparse.ArgumentParser(description="규칙 기반 파생 원가(밥류÷2.3·부위=상위품목·동의어·정책 0원) 적재")
     ap.add_argument("--apply", action="store_true", help="DB 에 적재(없으면 대상만 출력)")
     args = ap.parse_args()
 
     engine = get_engine()
     with engine.begin() as conn:
-        rows = plan(conn)
+        rows, held = plan(conn)
         for r in rows:
             print(f"  [{r['source']}] {r['name']:<20} {r['price']:>9.4f}원/g  ({r['notes']})")
-        print(f"\n  대상 {len(rows)}개 (쌀 환산 {sum(r['source'] == RICE_SOURCE for r in rows)} · "
-              f"상위품목 대체 {sum(r['source'] == PARENT_SOURCE for r in rows)})")
+        for name, reason in held:
+            print(f"  [보류] {name} — {reason}")
+        counts = " · ".join(f"{src} {sum(r['source'] == src for r in rows)}" for src in DERIVED_SOURCES)
+        print(f"\n  대상 {len(rows)}개 ({counts}) / 보류 {len(held)}개")
         if not args.apply:
             print("  [dry-run] DB 미반영. --apply 로 적재.")
             return

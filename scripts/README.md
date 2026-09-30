@@ -37,7 +37,12 @@ docker exec optimeal_app python scripts/load_ingredient_price.py --mode preview
 docker exec optimeal_app python scripts/load_ingredient_price.py --mode load
 docker exec optimeal_app python scripts/load_ingredient_price_kamis.py --mode preview
 docker exec optimeal_app python scripts/load_ingredient_price_kamis.py --mode load
-# 7b) 규칙 파생 원가(밥=쌀÷2.3, '닭고기(가슴)' 등 부위=상위품목). 7) 다음에, 가격이 갱신될 때마다 다시 실행.
+# 7a) 참가격(한국소비자원 생필품 가격, 공공데이터포털 15083256 월 CSV → data/raw/한국소비자원_생필품가격_YYYYMM.csv)
+#     가공식품·양념(두부·식용유·설탕·밀가루·장류 등). 가락·KAMIS 가격이 있는 재료는 건드리지 않으므로 7) 다음에.
+docker exec optimeal_app python scripts/load_ingredient_price_chamgagyeok.py --mode preview
+docker exec optimeal_app python scripts/load_ingredient_price_chamgagyeok.py --mode load
+# 7b) 규칙 파생 원가(밥류÷2.3, 부위=상위품목, 동의어 대체, 물·육수 정책 0원). 7)·7a) 다음에,
+#     가격이 갱신될 때마다 다시 실행(파생 행은 매번 지우고 현재 원천 가격으로 다시 만든다).
 docker exec optimeal_app python scripts/derive_ingredient_price.py --apply
 ```
 
@@ -57,8 +62,11 @@ skip 해 김치 후보가 1종만 남았다 → 3일 반복 금지 제약과 충
 | `서울시농수산식품공사` | `load_ingredient_price.py` | 가락시장 도매(청과·수산), '상' 등급 30일 평균 |
 | `KAMIS_W` | `load_ingredient_price_kamis.py` | KAMIS 도매(02) 당일가 |
 | `KAMIS_R` | 〃 | KAMIS 소매(01) 당일가 — 도매가 없는 재료만(축산 전부 포함) |
-| `쌀 환산` | `derive_ingredient_price.py` | 밥 = 쌀 g당 가격 ÷ 2.3 |
+| `참가격_R` | `load_ingredient_price_chamgagyeok.py` | 한국소비자원 참가격 소매가(월) — 가공식품·양념 |
+| `쌀 환산` | `derive_ingredient_price.py` | 밥·현미밥·귀리밥 = 원곡 g당 가격 ÷ 2.3 |
 | `상위품목 대체` | 〃 | `닭고기(가슴)` 등 부위 재료 = 상위품목(`닭고기`·`돼지고기`·`소고기`) 가격 |
+| `동의어 대체` | 〃 | 이름만 다른 재료 = 원 재료 가격(배춧잎←배추, 미니 단호박←단호박, 홍시←감, 달걀(흰자)←달걀) |
+| `정책 0원` | 〃 | 팀 정책: 물·쌀뜨물·발효종·조리장 육수류 = 0원 |
 
 KAMIS 로더 요점(`load_ingredient_price_kamis.py`):
 - `dailyPriceByCategoryList` 를 도매(02)·소매(01) × 6개 부류로 호출하고, 부류별로 당일 가격이 있는 직전 영업일까지
@@ -74,8 +82,26 @@ KAMIS 로더 요점(`load_ingredient_price_kamis.py`):
 - 오매칭은 `data/external/kamis_price_match_exclude.csv`(`kamis_name` 컬럼, `품목|품종`)에 적고 load 재실행.
 - 재실행 멱등(같은 조사일은 갱신). 1차 적재(2026-09-30)의 구분 없는 `source='KAMIS'` 행은 load 때 정리된다.
 
+참가격 로더 요점(`load_ingredient_price_chamgagyeok.py`):
+- 원본 CSV 는 cp949. 용량은 상품명 끝 괄호(`(900ml)`, `(냉동, 100g)`, `(300~500g)`→중간값, `(500ml*20개)`).
+  개수 단위(개·입·캔·매)는 g 로 못 바꿔 환산 실패 CSV 로 남긴다. 세일·1+1 행은 정상가가 아니라 뺀다.
+- ml → g 는 `DENSITY_G_PER_ML`(식물성 유지 0.92, 간장 1.15, 식초 1.01…), 표에 없으면 1.0 가정 + 로그.
+- 매칭: 브랜드를 버린 상품명 뒤토막으로 `ingredient`/`ingredient_synonym` 완전일치 → `KEYWORD_RULES` 로 보충.
+  간편식·완제품(`COMPOSITE_EXCLUDE`), 비식품(`NON_FOOD_EXCLUDE` — 생필품 조사라 절반 이상이 비식품),
+  특수 변형(`VARIANT_EXCLUDE`, 자일로스 설탕)은 매칭하지 않는다.
+- 재료 단가 = 상품별 [판매점별 g당 가격(점포 내 조사일 중앙값)]의 중앙값 → **매칭된 전체 상품**의 중앙값.
+  (한때 '용량 상위 절반'을 썼으나 대용량이 프리미엄 제품이면 왜곡돼 폐기 — 두부가 380g 국산콩 기준 13.2원/g.)
+- 참가격에 없는 저염간장은 일반 간장(진간장·양조간장) 값으로 근사한다. 두유는 팩 단위(용량 미표기)라 환산 불가,
+  전분·빵가루·올리브유·생크림·곤약·튀김가루는 2026-08 원본에 상품이 없다.
+- 산출물: `data/external/chamgagyeok_price_{match_preview,unmatched,unit_fail}_YYYYMM.csv`.
+- 가락·KAMIS 가 있는 재료는 적재하지 않고, 걸리는 기존 `참가격_R` 행은 load 때 지운다. 같은 조사일 재실행은 갱신(멱등).
+
 파생 원가 요점(`derive_ingredient_price.py`) — 값을 새로 만들지 않고 DB 에 있는 가격에 고정 규칙만 적용한다:
 - `COOKED_RICE_WEIGHT_RATIO = 2.3`: 백미는 취반 시 무게가 약 2.2~2.4배(단체급식 취반 기준 쌀 1kg → 밥 약 2.3kg).
+  현미밥·귀리밥도 같은 배수. 원곡(현미·귀리) 가격이 없으면 보류한다(2026-09-30 기준 귀리밥 보류).
+- 동의어 대체는 `ingredient_synonym` 에 넣지 않는다 — 대상 이름들이 이미 각자 별도 ingredient 행이라,
+  synonym 을 옮기면 레시피 적재·영양·알레르기의 재료 식별이 바뀐다. 원 재료 가격이 없으면 보류(홍시←감).
+- `정책 0원` 은 원가 합계엔 가격 없음과 같지만, 커버리지·미가격 목록에서 빈칸이 아닌 정책값으로 구분된다.
 - 상위품목 대체는 부위 단가 차이(가슴살 > 통닭, 채끝 > 양지 등)를 반영하지 않는다. 뼈·꼬리 부위는 정육 단가와
   크게 달라 대체하지 않는다(`EXCLUDE_PART_KEYWORDS`). 수기 참조표로 덮을 자리를 표시하는 용도다.
 - 두부 등 가공품은 다루지 않는다(수기 참조표 대상). 실행마다 두 source 행을 지우고 다시 만든다(멱등).

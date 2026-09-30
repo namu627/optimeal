@@ -492,8 +492,10 @@ def test_live_hard_budget_respected(live):
     if _table_count("SELECT count(*) FROM ingredient_price") == 0 or \
        _table_count("SELECT count(*) FROM recipe_ingredient_map") == 0:
         pytest.skip("ingredient_price/recipe_ingredient_map 미적재 — 예산 검증 불가")
+    # 1일 상한 = 1끼 3,500원 × 3식. 예전 값(1일 3,500원)은 시세 원가 적재 후 3식에서 INFEASIBLE 이라
+    #   풀이가 UNKNOWN → skip 되어 예산 준수를 검증하지 못했다(2026-09-30).
     r = live.post("/api/menu/generate", json={
-        "days": 3, "budget_limit_per_person": 3500, "solver_time_limit": 25}).json()
+        "days": 3, "budget_limit_per_person": 3500 * 3, "solver_time_limit": 25}).json()
     if r["status"] not in {"OPTIMAL", "FEASIBLE"}:
         pytest.skip(f"solver {r['status']}")
     assert r["total_cost_won"] and r["total_cost_won"] > 0
