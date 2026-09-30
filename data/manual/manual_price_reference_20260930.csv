@@ -1,0 +1,19 @@
+ingredient_id,ingredient_name,product_name,package_amount,package_unit,price_won,density_g_per_ml,source_site,url,surveyed_on,note
+814,생크림,칸디아 휘핑크림(동물성),1000,ml,9890,1.0,푸드스프링,https://www.foodspring.co.kr/goods/detail/490659,2026-09-30,동물성 생크림
+814,생크림,앵커 쉐프스 휘핑크림(동물성),1000,ml,10900,1.0,11번가,https://www.11st.co.kr/products/7426774148,2026-09-30,동물성 생크림. 혼합(동물+식물) 제품은 제외
+276,올리브유,보베다 엑스트라버진 올리브유,1000,ml,10500,0.91,푸드스프링,https://www.foodspring.co.kr/goods/detail/887166,2026-09-30,
+276,올리브유,데체코 엑스트라버진 올리브유,5000,ml,89000,0.91,푸드스프링,https://www.foodspring.co.kr/goods/detail/459322,2026-09-30,
+69,전분,뚜레반 감자전분,1000,g,12860,,푸드스프링,https://www.foodspring.co.kr/goods/detail/460559,2026-09-30,
+69,전분,금하 감자전분,1000,g,10710,,푸드스프링,https://www.foodspring.co.kr/goods/detail/1062870,2026-09-30,
+775,빵가루,정희 습식 일본식 빵가루,2000,g,6520,,푸드스프링,https://www.foodspring.co.kr/goods/detail/459291,2026-09-30,
+775,빵가루,FO 냉동빵가루(업소용),2000,g,9480,,푸드스프링,https://www.foodspring.co.kr/goods/detail/460514,2026-09-30,
+1186,튀김가루,백설 튀김가루,2000,g,6000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/493159,2026-09-30,
+1186,튀김가루,백설 튀김가루 2kg×6,12000,g,42790,,푸드스프링,https://www.foodspring.co.kr/goods/detail/19076,2026-09-30,
+132,두유,매일두유 고단백 플레인 190ml×24,4560,ml,17990,1.03,코스트코,https://www.costco.co.kr/Foods/Beverages/Soy-MilkMilk/Maeil-Soymilk-Protein-Plain-190ml-x-24/p/693917,2026-09-30,단일 출처(고단백 제품이라 일반 두유보다 비쌀 수 있음)
+866,실곤약,사조대림 실곤약,200,g,960,,푸드스프링,https://www.foodspring.co.kr/goods/detail/401855,2026-09-30,포장 중량(물 포함)
+866,실곤약,한미 엄선 실곤약,1000,g,3360,,푸드스프링,https://www.foodspring.co.kr/goods/detail/995229,2026-09-30,포장 중량(물 포함)
+866,실곤약,한성기업 실곤약,1000,g,3870,,푸드스프링,https://www.foodspring.co.kr/goods/detail/400584,2026-09-30,포장 중량(물 포함)
+866,실곤약,한미 실곤약,1000,g,3200,,푸드스프링,https://www.foodspring.co.kr/goods/detail/627378,2026-09-30,포장 중량(물 포함)
+427,곤약,한성기업 판곤약,600,g,1600,,푸드스프링,https://www.foodspring.co.kr/goods/detail/636412,2026-09-30,
+427,곤약,모노링크 곤약(흑),250,g,1350,,푸드스프링,https://www.foodspring.co.kr/goods/detail/402302,2026-09-30,
+180,발사믹식초,구르메 발사믹(화이트와인),500,g,5600,,푸드스프링,https://www.foodspring.co.kr/goods/detail/401950,2026-09-30,단일 출처. 화이트 발사믹

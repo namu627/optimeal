@@ -55,6 +55,8 @@ DENSITY_G_PER_ML = {
     "올리브유": 0.91, "참기름": 0.92, "들기름": 0.92,
     "간장": 1.15, "진간장": 1.15, "양조간장": 1.15, "국간장": 1.15,
     "저염간장": 1.15, "저염 간장": 1.15, "저염진간장": 1.15,
+    # 음료(2026-09-30 재매칭): 탄산수 ≈ 물, 맥주 1.01, 오렌지주스 1.04(과즙 음료 대표값)
+    "탄산수": 1.0, "맥주": 1.01, "오렌지주스": 1.04,
     "식초": 1.01, "사과식초": 1.01, "현미식초": 1.01,
 }
 
@@ -63,7 +65,7 @@ COMPOSITE_EXCLUDE = re.compile(
     r"라면|사발|컵|죽$|죽\b|밥$|덮밥|국밥|볶음밥|컵반|이유식|진밥|너겟|돈까스|돈카츠|핫도그|만두|떡볶이|"
     r"짜장|곰탕|육개장|미역국|콩나물국|냉면|우동|초밥|스프|젤리|캔디|크래커|칩|에너지바|드링크|음료|"
     r"커피|라떼|티백|녹차|아메리카노|우유식빵|식빵|호떡|약과|케이크|빵$|롤$|유과|만쥬|분유|"
-    r"드레싱|치킨|백숙|카레|막걸리|맥주|소주|탄산수|사이다|콜라|"
+    r"드레싱|치킨|백숙|카레|막걸리|소주|사이다|콜라|"
     r"불가리스|요플레|카페믹스|버터롤|그라브락스"
 )
 # 생필품 조사라 식품이 아닌 상품이 절반 이상이다. 동의어 뒤토막 매칭('...영에이지 크림' → '크림')을 막는다.
@@ -77,6 +79,12 @@ NON_FOOD_EXCLUDE = re.compile(
 VARIANT_EXCLUDE = re.compile(r"자일로스")
 
 # 동의어 테이블로 안 잡히는 상품 → 재료명들(DB 에 있는 것 전부에 적용). (패턴, 제외 패턴, 대상)
+# EXCLUSIVE_RULES 는 맞으면 동의어 뒤토막 매칭을 하지 않는다 — '델몬트 오렌지'(주스)가 과일 '오렌지'로 가는 것 방지.
+EXCLUSIVE_RULES = [
+    (r"탄산수", None, ["탄산수"]),
+    (r"^(카스 프레쉬|테라|하이트 엑스트라 콜드|제주 위트 에일)$", None, ["맥주"]),
+    (r"^(델몬트|미닛메이드) 오렌지$", None, ["오렌지주스"]),
+]
 KEYWORD_RULES = [
     (r"두부", r"유부|두부면", ["두부"]),
     (r"부침", r"가루", ["두부(부침용)", "두부(단단한)"]),
@@ -130,6 +138,7 @@ KEYWORD_RULES = [
     (r"와사비", None, ["와사비", "연와사비"]),
 ]
 _KEYWORD_RULES = [(re.compile(p), re.compile(x) if x else None, t) for p, x, t in KEYWORD_RULES]
+_EXCLUSIVE_RULES = [(re.compile(p), re.compile(x) if x else None, t) for p, x, t in EXCLUSIVE_RULES]
 
 _UNIT_G = {"kg": 1000.0, "g": 1.0}
 _UNIT_ML = {"l": 1000.0, "ml": 1.0}
@@ -195,6 +204,14 @@ def match_product(conn, base, maker, lookup_cache):
     if COMPOSITE_EXCLUDE.search(base) or NON_FOOD_EXCLUDE.search(base) or VARIANT_EXCLUDE.search(base):
         return []
     hits = []
+    for pat, excl, targets in _EXCLUSIVE_RULES:
+        if pat.search(base) and not (excl and excl.search(base)):
+            for t in targets:
+                found = _lookup_exact_name(conn, t, lookup_cache)
+                if found and found[0] not in {h[0] for h in hits}:
+                    hits.append((found[0], found[1], "keyword"))
+    if hits:
+        return hits
     for cand in name_suffixes(base, maker):
         found = _lookup_exact_name(conn, cand, lookup_cache)
         if found:
