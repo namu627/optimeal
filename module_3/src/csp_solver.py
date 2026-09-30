@@ -24,6 +24,7 @@ from ortools.sat.python import cp_model
 #   scd = nyc(남유찬): Soft — 다양성·제철·완제품자제·나트륨당저감 (목적함수)
 #   ws  = 롤링 웜스타트 (탐색 보조 — 해의 의미를 바꾸지 않음)
 try:
+    from . import budget_carryover as bc
     from . import csp_hard_constraints as hc
     from . import csp_warm_start as ws
     from . import menu_affinity as ma
@@ -32,6 +33,7 @@ try:
     from . import soft_constraints_diversity as scd
     from . import user_profiles as up
 except ImportError:  # `python csp_solver.py` 직접 실행 시
+    import budget_carryover as bc
     import csp_hard_constraints as hc
     import csp_warm_start as ws
     import menu_affinity as ma
@@ -199,6 +201,11 @@ class MealPlanRequest:
     #   None/빈 목록이면 항이 자동 비활성 → 8/14 이전과 동일 동작.
     affinity_table: list = None
     affinity_weights: object = None    # ma.AffinityWeights (None=기본값)
+    # 식단가 이월(2026-09-30, opt-in · None=미적용 → 기존과 같은 모델). bc.CarryoverConfig 를 주면
+    #   끼니 밴드·연속일 균형 Soft 항을 더하고 carryover_breakdown 을 채운다. 총예산 Hard 는 여기가
+    #   아니라 hard.budget_period="total" 로 건다. 켜면 budget_floor_won(하루 하한)은 무시하고
+    #   끼니 단위 하한(밴드)만 쓴다 — 두 하한이 같은 원가를 이중으로 끌어올리지 않게.
+    carryover: object = None
 @dataclass
 class MealPlanResult:
     status: str
@@ -220,6 +227,8 @@ class MealPlanResult:
     #   | 'stall'(stall_seconds 동안 개선 없음) | 'time_limit' | 'unknown'.
     #   조기 종료를 켠 호출에서 "왜 이 시간에 끝났나"를 응답에 남기기 위한 필드(추가 필드).
     stop_reason: str = None
+    # 식단가 이월 리포트(req.carryover 를 줬을 때만): 끼니별 원가·최대/최소·B 초과 끼니 수 등.
+    carryover_breakdown: dict = None
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
@@ -364,7 +373,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         days=req.days, n_meals=len(req.meals),
         weights=req.soft_weights,
         pref_scores=req.pref_scores,
-        budget_floor_won=req.budget_floor_won,
+        budget_floor_won=None if req.carryover is not None else req.budget_floor_won,
     )
     div = scd.add_diversity_soft_objective(
         model, x, menus,
@@ -380,7 +389,15 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         table=req.affinity_table,
         weights=req.affinity_weights,
     )
-    model.Maximize(soft.score + div.score + aff.score)
+    sodium_by_idx = (req.hard_nutrient_by_idx or {}).get("sodium")
+    carry = None
+    if req.carryover is not None:
+        carry = bc.add_carryover_objective(
+            model, x, menus,
+            days=req.days, n_meals=len(req.meals),
+            config=req.carryover, sodium_by_idx=sodium_by_idx,
+        )
+    model.Maximize(soft.score + div.score + aff.score + (carry.score if carry is not None else 0))
     # ---------------------- 롤링 웜스타트 (탐색 보조) ----------------------
     # 하루씩 순차로 구성한 배치를 초기해로 넣는다. 모델 자체는 그대로 풀리므로
     # 해의 의미(가능영역·최적성)는 불변 — 힌트가 틀리면 솔버가 버릴 뿐이다.
@@ -401,6 +418,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             main_cap=scd.scale_targets(dw.main_cap_per_week, req.days),
             affinity_table=req.affinity_table,
             affinity_weights=req.affinity_weights,
+            meal_cost_bounds=(bc.guard_bounds_won(req.carryover) if req.carryover is not None else None),
             time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
@@ -442,6 +460,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                                if solver.Value(x[m, d, s])))
     objective, hard_breakdown, soft_breakdown = 0.0, None, None
     diversity_breakdown, affinity_breakdown = None, None
+    carryover_breakdown = None
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         objective = solver.ObjectiveValue()
         if hard is not None:
@@ -464,6 +483,15 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                 solver, x, menus, aff,
                 days=req.days, n_meals=len(req.meals),
             )
+        if carry is not None:
+            total_budget = None
+            if req.hard is not None and req.hard.budget_limit_per_person is not None:
+                total_budget = req.hard.budget_limit_per_person * req.days
+            carryover_breakdown = bc.evaluate_carryover_breakdown(
+                solver, x, menus, carry,
+                days=req.days, n_meals=len(req.meals),
+                total_budget_won=total_budget, sodium_by_idx=sodium_by_idx,
+            )
     return MealPlanResult(
         status=solver.StatusName(status),
         objective=objective,
@@ -477,6 +505,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         affinity_breakdown=affinity_breakdown,
         plan_ids=plan_ids,
         stop_reason=_stop_reason(status, watch, req.relative_gap_limit, solver),
+        carryover_breakdown=carryover_breakdown,
     )
 # ===========================================================================
 # (4) 출력

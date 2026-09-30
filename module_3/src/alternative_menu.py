@@ -339,6 +339,7 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
     # 하드 밴드/예산/나트륨 상한
     band = None
     day_budget = None
+    total_budget = None   # budget_period="total": 교체 후 기간 총액 ≤ 상한×일수
     sodium_cap = None
     if hard_config is not None:
         sodium_cap = (getattr(hard_config, "nutrient_max_per_day", None) or {}).get("sodium")
@@ -346,13 +347,18 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
             t = hard_config.target_kcal_per_day
             tol = hard_config.kcal_tolerance
             band = (t * (1 - tol), t * (1 + tol))
-        if getattr(hard_config, "budget_limit_per_person", None) is not None \
-                and getattr(hard_config, "budget_period", "day") == "day":
-            day_budget = hard_config.budget_limit_per_person
+        if getattr(hard_config, "budget_limit_per_person", None) is not None:
+            if getattr(hard_config, "budget_period", "day") == "day":
+                day_budget = hard_config.budget_limit_per_person
+            else:
+                total_budget = hard_config.budget_limit_per_person * len(plan)
 
     results = []
     for grp in allergy_groups:
         alt_plan, subs, unresolved = {}, [], []
+        # 그룹마다 공통식 총액에서 출발해 교체마다 갱신(total 모드 예산 판정용)
+        period_cost = sum((getattr(by_name.get(n), "cost_won", 0.0) or 0.0)
+                          for ms_ in plan.values() for ms in ms_.values() for n in ms)
         for day, meals in plan.items():
             alt_plan[day] = {}
             # 하루 running 총 칼로리/원가(스왑마다 갱신)
@@ -382,6 +388,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     ocal = getattr(mi, "calories", 0.0) or 0.0
                     ocost = getattr(mi, "cost_won", 0.0) or 0.0
                     budget_left = (day_budget - (day_cost - ocost)) if day_budget is not None else None
+                    if total_budget is not None:
+                        budget_left = total_budget - (period_cost - ocost)
                     ona = _sodium_of(mi, sodium_by_id) or 0.0
                     sodium_left = (None if day_sodium is None
                                    else sodium_cap - (day_sodium - ona))
@@ -419,6 +427,7 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     current.discard(name); current.add(alt.name)
                     day_kcal += (getattr(alt, "calories", 0.0) or 0.0) - ocal
                     day_cost += (getattr(alt, "cost_won", 0.0) or 0.0) - ocost
+                    period_cost += (getattr(alt, "cost_won", 0.0) or 0.0) - ocost
                     if day_sodium is not None:
                         day_sodium += (_sodium_of(alt, sodium_by_id) or 0.0) - ona
                 alt_plan[day][meal] = new_picks
