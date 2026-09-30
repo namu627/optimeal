@@ -1,12 +1,12 @@
 // src/pages/plan/Step1Conditions.tsx
 // 식단 생성 1단계 · 조건 입력 (시안 화면 4 / 4-a 생성중 / 4-b INFEASIBLE)
 import { useEffect, useState } from 'react';
-import { Card, Select, InputNumber, Button, Checkbox, Alert } from 'antd';
+import { Card, Select, InputNumber, Button, Checkbox, Alert, Segmented } from 'antd';
 import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import {
-  PROFILE_OPTIONS, ALLERGEN_POOL, listProfiles,
-  type MenuGenerateRequest, type AllergyGroup, type MenuProfile,
+  PROFILE_OPTIONS, ALLERGEN_POOL, BUDGET_MODE_LABEL, listProfiles,
+  type MenuGenerateRequest, type AllergyGroup, type MenuProfile, type BudgetMode,
 } from '../../api/menu';
 
 const C = {
@@ -14,7 +14,7 @@ const C = {
   green: '#12A150', greenText: '#0B6B36', tint: '#E4F7EB', tintBorder: '#BFEACF', head: '#F7FAF8',
   red: '#E5484D', redText: '#B42318', redTint: '#FDECEC', redBorder: '#F8D0D1',
 };
-type GenState = 'idle' | 'loading' | 'infeasible';
+type GenState = 'idle' | 'loading' | 'infeasible' | 'timeout';
 
 // 위저드에서 뒤로 돌아왔을 때 조건을 그대로 복원하기 위한 폼 스냅샷
 export interface Step1Form {
@@ -26,6 +26,8 @@ export interface Step1Form {
   kcal: number;
   sodium: number;
   budget: number;
+  /** 예산 방식. 이 필드가 생기기 전 스냅샷에는 없다 → 기본값(carryover). */
+  budgetMode?: BudgetMode;
   groups: AllergyGroup[];
 }
 
@@ -40,6 +42,7 @@ const DEFAULT_FORM: Step1Form = {
   kcal: 1750,
   sodium: 1300,
   budget: 4500,
+  budgetMode: 'carryover',
   groups: [
     { label: '그룹 1', allergens: ['난류', '우유'], count: 3 },
     { label: '그룹 2', allergens: ['땅콩'], count: 1 },
@@ -79,6 +82,7 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
   const [kcal, setKcal] = useState(init.kcal);
   const [sodium, setSodium] = useState(init.sodium);
   const [budget, setBudget] = useState(init.budget);
+  const [budgetMode, setBudgetMode] = useState<BudgetMode>(init.budgetMode ?? 'carryover');
   const [groups, setGroups] = useState<AllergyGroup[]>(init.groups);
   // GET /api/menu/profiles — 프로파일별 영양 기준. null=불러오는 중, 'failed'=실패(수동 입력 허용)
   const [profiles, setProfiles] = useState<Record<string, MenuProfile> | null | 'failed'>(null);
@@ -113,15 +117,22 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
   const toggleMeal = (m: string) =>
     setMeals((p) => (p.includes(m) ? p.filter((x) => x !== m) : MEAL_ORDER.filter((x) => p.includes(x) || x === m)));
 
-  const submit = () => {
-    onFormChange?.({ profile, count, conds, days, meals, kcal: kcalValue, sodium: sodiumValue, budget, groups });
+  // over: 시간 초과 안내의 '기간 줄이기'·'하루 단위로 생성'이 바꾼 값을 바로 반영해 보낸다(상태 갱신을 기다리지 않음).
+  const submit = (over: { days?: number; budgetMode?: BudgetMode } = {}) => {
+    if (genState === 'loading') return; // 중복 제출 방지
+    const d = over.days ?? days, bm = over.budgetMode ?? budgetMode;
+    if (over.days != null) setDays(over.days);
+    if (over.budgetMode) setBudgetMode(over.budgetMode);
+    onFormChange?.({ profile, count, conds, days: d, meals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
     onGenerate({
-      profile_key: profile, serving_count: count, days, meals,
+      profile_key: profile, serving_count: count, days: d, meals,
       target_kcal_per_day: kcalValue, sodium_max_mg_per_day: sodiumValue, budget_limit_per_person: budget,
+      budget_mode: bm,
       conditions: Object.keys(conds), with_alternatives: true,
       allergy_groups: groups.filter((g) => g.allergens.length),
     });
   };
+  const shorterDays = days > 7 ? 7 : days > 1 ? 1 : null;
 
   const setCondCount = (name: string, n: number) => setConds((p) => ({ ...p, [name]: n }));
 
@@ -133,7 +144,21 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
         <Alert type="error" showIcon
           message="조건을 만족하는 식단을 찾지 못했습니다"
           description="입력한 조건이 서로 충돌해 해를 찾지 못했습니다. 예산·나트륨 상한·알레르기 제외 범위·끼니 구성 같은 조건을 조정하면 다시 생성할 수 있어요."
-          action={<Button danger onClick={submit}>조건 수정하기</Button>}
+          action={<Button danger onClick={() => submit()}>조건 수정하기</Button>}
+        />
+      )}
+      {genState === 'timeout' && (
+        <Alert type="warning" showIcon
+          message="시간 안에 식단을 찾지 못했어요"
+          description={`조건이 충돌한 건 아니에요. 제한 시간 안에 조건을 모두 만족하는 식단을 찾지 못했어요 — 같은 조건으로 다시 시도하면 찾을 수 있어요.${
+            shorterDays ? ` 기간을 ${shorterDays}일로 줄이거나` : ''}${budgetMode === 'carryover' ? ' 예산을 하루 단위로 바꾸면' : ''} 더 빨리 찾을 수 있어요.`}
+          action={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Button size="small" type="primary" onClick={() => submit()}>다시 시도</Button>
+              {shorterDays && <Button size="small" onClick={() => submit({ days: shorterDays })}>기간 {shorterDays}일로 줄이기</Button>}
+              {budgetMode === 'carryover' && <Button size="small" onClick={() => submit({ budgetMode: 'day' })}>하루 단위로 생성</Button>}
+            </div>
+          }
         />
       )}
 
@@ -188,6 +213,17 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
           </div>
           <div style={{ marginTop: 6, marginBottom: 14, fontSize: 12, color: C.muted }}>{targetHint}</div>
           <Field label="1인 1식 예산"><InputNumber value={budget} onChange={(v) => setBudget(Number(v) || 0)} suffix="원" style={{ width: 200 }} /></Field>
+          <div style={{ marginTop: 14 }}>
+            <Field label="예산 방식">
+              <Segmented<BudgetMode> value={budgetMode} onChange={setBudgetMode}
+                options={(['carryover', 'day'] as const).map((m) => ({ value: m, label: BUDGET_MODE_LABEL[m] }))} />
+            </Field>
+            <div style={{ marginTop: 6, fontSize: 12, color: C.muted }}>
+              {budgetMode === 'carryover'
+                ? `기간 총액(1식 예산 × 끼니 수 × ${days}일)을 넘지 않는 선에서 어떤 끼니는 조금 더, 어떤 끼니는 조금 덜 쓸 수 있어요`
+                : '매일 하루 예산(1식 예산 × 끼니 수)을 넘지 않게 짜요'}
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -224,7 +260,7 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <Button onClick={onCancel}>취소</Button>
         <div style={{ flex: 1 }} />
-        <Button type="primary" onClick={submit}>다음: 식단 생성 <ArrowRightOutlined /></Button>
+        <Button type="primary" onClick={() => submit()} loading={genState === 'loading'} disabled={genState === 'loading'}>다음: 식단 생성 <ArrowRightOutlined /></Button>
       </div>
 
       {/* 생성 중 오버레이 */}

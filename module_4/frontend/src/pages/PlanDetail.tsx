@@ -8,7 +8,7 @@ import { colors } from '../theme';
 import Step2Review from './plan/Step2Review';
 import RecipeDrawer from './plan/RecipeDrawer';
 import { downloadPlanPdf, describeExportError } from './plan/planExport';
-import { formatSavedAt, getSavedPlan, type SavedPlan } from '../api/menu';
+import { formatSavedAt, getSavedPlan, recomputePlan, type SavedPlan } from '../api/menu';
 
 type LoadState = { status: 'loading' } | { status: 'notfound' } | { status: 'error' } | { status: 'ok'; saved: SavedPlan };
 
@@ -28,7 +28,8 @@ function PlanDetailView({ id }: { id: number }) {
     if (!Number.isInteger(id)) return;
     let alive = true;
     getSavedPlan(id)
-      .then((saved) => { if (alive) setState({ status: 'ok', saved }); })
+      // 저장 당시 규칙으로 박힌 경고(예: 예전 칸 단위 나트륨)를 현재 규칙으로 다시 계산해서 보여 준다.
+      .then((saved) => { if (alive) setState({ status: 'ok', saved: { ...saved, plan: recomputePlan(saved.plan) } }); })
       .catch((e) => {
         console.error('[식단상세] 조회 실패:', e);
         if (alive) setState({ status: e?.response?.status === 404 ? 'notfound' : 'error' });

@@ -9,11 +9,11 @@ import Step1Conditions, { type Step1Form } from './plan/Step1Conditions';
 import Step2Review from './plan/Step2Review';
 import Step3Confirm from './plan/Step3Confirm';
 import {
-  generateMenu, toMealPlan, mockPlan, isInfeasibleResponse, isUnavailable, savePlan,
+  generateMenu, toMealPlan, mockPlan, isInfeasibleResponse, isTimeoutResponse, isSolverBusy, isUnavailable, savePlan,
   type MenuGenerateRequest, type MenuGenerateRaw, type MealPlan,
 } from '../api/menu';
 
-type GenState = 'idle' | 'loading' | 'infeasible';
+type GenState = 'idle' | 'loading' | 'infeasible' | 'timeout';
 
 // 상단 '새 식단'을 다시 눌러 /plans/new 로 재진입하면(같은 URL이어도 location.key 가 바뀜)
 // 위저드를 1단계부터 새로 시작한다. (이미 검토·확정 단계에 있으면 아무 반응 없어 보이던 버그 수정)
@@ -32,11 +32,17 @@ function PlanWizard() {
   const [form, setForm] = useState<Step1Form | undefined>(undefined); // 조건 수정 시 입력값 복원용
 
   const onGenerate = async (req: MenuGenerateRequest) => {
+    if (genState === 'loading') return; // 중복 요청 방지 — 겹치면 서버에서 두 풀이가 CPU 를 나눠 둘 다 시간 초과
     setGenState('loading');
     let raw: MenuGenerateRaw;
     try {
       raw = await generateMenu(req);
     } catch (e) {
+      if (isSolverBusy(e)) {
+        message.warning('다른 식단을 생성하는 중이에요. 끝난 뒤 다시 시도해 주세요.');
+        setGenState('idle');
+        return;
+      }
       // 진짜 서버 오류(503/네트워크)만 여기로 온다. 목업은 개발 서버에서만 쓰고,
       // 프로덕션 빌드에서는 가짜 식단을 보여주지 않고 오류를 알린다.
       if (import.meta.env.DEV) {
@@ -50,6 +56,12 @@ function PlanWizard() {
           : '식단 생성 요청에 실패했습니다. 네트워크 상태를 확인해 주세요.');
         setGenState('idle');
       }
+      return;
+    }
+    if (isTimeoutResponse(raw)) {
+      // 시간 안에 해를 못 찾음(UNKNOWN) — 조건 충돌이 아니므로 다른 안내(다시 시도·기간 줄이기·하루 단위)로.
+      console.warn('[식단생성] 시간 안에 해를 찾지 못했습니다:', raw.status, raw.stop_reason);
+      setGenState('timeout');
       return;
     }
     if (isInfeasibleResponse(raw)) {

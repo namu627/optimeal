@@ -6,6 +6,7 @@ import { CheckCircleFilled, DownloadOutlined, ReadOutlined } from '@ant-design/i
 import StepIndicator from './StepIndicator';
 import RecipeDrawer from './RecipeDrawer';
 import KpiRow from '../../components/KpiRow';
+import BudgetSummaryCard from './BudgetSummaryCard';
 import { MEAL_TABLE, planDateRange, planTargetLabel, type MealPlan } from '../../api/menu';
 import { saveCsv, tableRows, recipeRows, downloadPlanPdf, describeExportError } from './planExport';
 
@@ -102,6 +103,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
       {/* 영양 달성률 + 1인 원가 (박미연 KpiRow) */}
       <KpiRow variant="ring" achievement={plan.achievement} cost={{ value: plan.costPerPerson, budget: plan.budgetPerPerson }} />
       <div style={{ textAlign: 'right', marginTop: -6, fontSize: 12, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>총 예상 식재료비 {plan.totalCost.toLocaleString()}원</div>
+      <BudgetSummaryCard plan={plan} />
 
       {/* 내려받을 파일 */}
       <Card size="small" styles={{ body: { padding: 24 } }}>
