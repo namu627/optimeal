@@ -19,7 +19,7 @@
   - ingredient_id 와 ingredient_name 이 DB 와 다르면 그 행은 건너뛴다(잘못된 id 로 엉뚱한 재료에 들어가는 것 방지).
   - 이미 다른 출처(가락·KAMIS·참가격·파생 등 '수기_참조'가 아닌 source)의 가격이 있는 재료는 건드리지 않는다.
     파생(derive)은 이 스크립트 다음에 돌며, 실제 가격이 생긴 재료는 파생 대상에서 빠진다.
-  - 멱등: 같은 조사일 재실행은 수기_참조 행만 갱신(ON CONFLICT ... WHERE source='수기_참조').
+  - 멱등: 같은 조사일 재실행은 수기_참조 행만 갱신(UNIQUE(ingredient_id, price_date, source)).
 """
 
 import argparse
@@ -128,9 +128,8 @@ def main():
             row = conn.execute(text("""
                 INSERT INTO ingredient_price (ingredient_id, price_per_g, price_date, source, notes)
                 VALUES (:ingredient_id, :price, :price_date, :src, :notes)
-                ON CONFLICT (ingredient_id, price_date) DO UPDATE
+                ON CONFLICT (ingredient_id, price_date, source) DO UPDATE
                     SET price_per_g = EXCLUDED.price_per_g, notes = EXCLUDED.notes
-                    WHERE ingredient_price.source = :src
                 RETURNING (xmax = 0) AS is_insert
             """), {**t, "src": SOURCE_NAME}).fetchone()
             stats["skipped" if row is None else ("inserted" if row.is_insert else "updated")] += 1

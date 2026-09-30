@@ -11,8 +11,8 @@ OptiMeal 프로젝트 유틸리티 스크립트 모음.
 스키마 변경이므로 빈 DB 라도 번호 순으로 한 번 적용한다.
 
 ```bash
-# 0) 스키마 보강 (v2 → v3 → v4)
-for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql; do
+# 0) 스키마 보강 (v2 → v3 → v4 → v5)
+for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
   docker exec -i optimeal_db psql -U optimeal -d optimeal < "$f"; done
 
 # 1) 레시피 본문 (data/raw/ xlsx 필요 — 구글드라이브)
@@ -57,22 +57,28 @@ skip 해 김치 후보가 1종만 남았다 → 3일 반복 금지 제약과 충
 가격(`ingredient_price`)은 7)의 API 키가 필요한 별도 적재이며, 없으면 원가가 0원으로 계산된다.
 **순서: 가락 → KAMIS → 참가격 → 수기 → derive.** 뒤 단계는 앞 단계 가격이 있는 재료를 건드리지 않는다.
 가락은 청과·수산뿐이라 축산(소·돼지·닭·계란·우유)·곡류(쌀·찹쌀·현미·콩)는 KAMIS 로만 채워진다.
-식단 원가는 재료별 **최신 `price_date`** 행을 쓰므로(`csp_solver._MENU_QUERY`), 두 소스에 다 있는 재료는
-나중 조사일 쪽이 쓰인다. 같은 날짜면 먼저 적재된 행이 유지된다(KAMIS·파생 로더는 타 소스 행을 덮지 않음).
+**가격 선택 = 출처 우선순위(2026-09-30 고정).** 재료에 여러 출처 가격이 있으면 아래 표의 **순위**가 앞선 출처를 쓰고,
+같은 출처 안에서만 최신 `price_date` 를 쓴다(예전의 "출처 무관 최신 날짜"는 로더 실행 순서에 따라 원가가 바뀌었다).
+테이블 유일키도 `(ingredient_id, price_date, source)`(migrations/v5)라 같은 날 여러 출처 행이 함께 남고, 로더는 자기
+출처 행만 갱신한다 → 로더를 어떤 순서로 돌려도 고르는 가격이 같다. 규칙은 두 곳에 같은 목록으로 있다 —
+식단 원가 `module_3/src/csp_solver.py` `PRICE_SOURCE_PRIORITY`(`_MENU_QUERY`), 파생 부모 가격 `scripts/price_priority.py`.
+둘이 같은지는 `module_4/backend/tests/test_price_priority.py` 가 확인한다. 교체 후보·레시피·원가 화면은 모두 module_3 원가를 쓴다.
 
-`ingredient_price.source` 값:
+`ingredient_price.source` 값(순위 순):
 
-| source | 적재 | 의미 |
-|---|---|---|
-| `서울시농수산식품공사` | `load_ingredient_price.py` | 가락시장 도매(청과·수산), '상' 등급 30일 평균 |
-| `KAMIS_W` | `load_ingredient_price_kamis.py` | KAMIS 도매(02) 당일가 |
-| `KAMIS_R` | 〃 | KAMIS 소매(01) 당일가 — 도매가 없는 재료만(축산 전부 포함) |
-| `참가격_R` | `load_ingredient_price_chamgagyeok.py` | 한국소비자원 참가격 소매가(월) — 가공식품·양념·음료 |
-| `수기_참조` | `load_ingredient_price_manual.py` | 사람이 조사한 참조 가격표(상품·URL·조사일 기록) — 재료별 g당 중앙값 |
-| `쌀 환산` | `derive_ingredient_price.py` | 밥·현미밥·귀리밥 = 원곡 g당 가격 ÷ 2.3 |
-| `상위품목 대체` | 〃 | `닭고기(가슴)` 등 부위 재료 = 상위품목(`닭고기`·`돼지고기`·`소고기`) 가격 |
-| `동의어 대체` | 〃 | 이름만 다른 재료 = 원 재료 가격(배춧잎←배추, 미니 단호박←단호박, 홍시←감, 달걀(흰자)←달걀, 묵은지·백김치←김치, 맛간장←간장) |
-| `정책 0원` | 〃 | 팀 정책: 물·쌀뜨물·발효종·조리장 육수류 = 0원 |
+| 순위 | source | 적재 | 의미 |
+|---|---|---|---|
+| 1 | `KAMIS_W` | `load_ingredient_price_kamis.py` | KAMIS 도매(02) 당일가 |
+| 2 | `서울시농수산식품공사` | `load_ingredient_price.py` | 가락시장 도매(청과·수산), '상' 등급 30일 평균 |
+| 3 | `KAMIS_R` | `load_ingredient_price_kamis.py` | KAMIS 소매(01) 당일가 — 도매가 없는 재료만(축산 전부 포함) |
+| 4 | `참가격_R` | `load_ingredient_price_chamgagyeok.py` | 한국소비자원 참가격 소매가(월) — 가공식품·양념·음료 |
+| 5 | `수기_참조` | `load_ingredient_price_manual.py` | 사람이 조사한 참조 가격표(상품·URL·조사일 기록) — 재료별 g당 중앙값 |
+| 6 | `쌀 환산` | `derive_ingredient_price.py` | 밥·현미밥·귀리밥 = 원곡 g당 가격 ÷ 2.3 |
+| 6 | `상위품목 대체` | 〃 | `닭고기(가슴)` 등 부위 재료 = 상위품목(`닭고기`·`돼지고기`·`소고기`) 가격 |
+| 6 | `동의어 대체` | 〃 | 이름만 다른 재료 = 원 재료 가격(배춧잎←배추, 미니 단호박←단호박, 홍시←감, 달걀(흰자)←달걀, 묵은지·백김치←김치, 맛간장←간장) |
+| 7 | `정책 0원` | 〃 | 팀 정책: 물·쌀뜨물·발효종·조리장 육수류 = 0원(해당 재료 전용) |
+
+파생(6)의 부모 가격도 같은 우선순위로 고른다(예: 밥 = 우선순위로 고른 쌀 가격 ÷ 2.3).
 
 KAMIS 로더 요점(`load_ingredient_price_kamis.py`):
 - `dailyPriceByCategoryList` 를 도매(02)·소매(01) × 6개 부류로 호출하고, 부류별로 당일 가격이 있는 직전 영업일까지

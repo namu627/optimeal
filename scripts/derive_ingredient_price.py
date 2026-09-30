@@ -35,6 +35,7 @@ from datetime import date
 from sqlalchemy import text
 
 from load_ingredient_price import get_engine
+from price_priority import rank_sql
 
 # 쌀 → 밥 중량 배수. 백미는 취반 시 흡수로 무게가 약 2.2~2.4배가 된다
 #   (단체급식 취반 기준 '쌀 1kg → 밥 약 2.3kg'). g당 가격은 그 배수로 나눈다.
@@ -65,11 +66,12 @@ POLICY_ZERO_SOURCE = "정책 0원"
 
 DERIVED_SOURCES = (RICE_SOURCE, PARENT_SOURCE, SYNONYM_SOURCE, POLICY_ZERO_SOURCE)
 
-_LATEST_REAL_PRICE = """
+# 원천(파생이 아닌) 가격 — 식단 원가와 같은 출처 우선순위로 고른다(scripts/price_priority.py).
+_LATEST_REAL_PRICE = f"""
     SELECT DISTINCT ON (p.ingredient_id) p.ingredient_id, i.ingredient_name, p.price_per_g, p.price_date, p.source
     FROM ingredient_price p JOIN ingredient i USING (ingredient_id)
     WHERE p.source <> ALL(:derived)
-    ORDER BY p.ingredient_id, p.price_date DESC
+    ORDER BY p.ingredient_id, {rank_sql('p.source')}, p.price_date DESC
 """
 
 
@@ -156,7 +158,7 @@ def main():
             inserted += conn.execute(text("""
                 INSERT INTO ingredient_price (ingredient_id, price_per_g, price_date, source, notes)
                 VALUES (:ingredient_id, :price, :price_date, :source, :notes)
-                ON CONFLICT (ingredient_id, price_date) DO NOTHING
+                ON CONFLICT (ingredient_id, price_date, source) DO NOTHING
             """), r).rowcount
         print(f"  기존 파생 행 {deleted}개 삭제 → {inserted}개 적재")
 

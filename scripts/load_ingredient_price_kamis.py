@@ -25,9 +25,9 @@
     도매에는 같은 품목에 수입·중국산 품종이 섞여 오므로 국산 품종이 있으면 수입 품종은 버린다.
   - 가락 가격이 있는 재료에는 소매(KAMIS_R)를 넣지 않는다(도매끼리는 최신 조사일이 이기게 둔다).
     적재 시 이 규칙에 걸리는 기존 KAMIS_R 행과 1차 적재의 구분 없는 source='KAMIS' 행을 지운다.
-  - ingredient_price UNIQUE(ingredient_id, price_date) — 같은 날 가락 등 타 소스 행이 있으면 덮어쓰지 않는다
-    (ON CONFLICT ... WHERE source LIKE 'KAMIS%'). 같은 조사일 재실행은 KAMIS 행만 갱신되어 멱등.
-    식단 원가는 csp_solver._MENU_QUERY 가 재료별 최신 price_date 를 쓰므로 KAMIS 가 더 최근이면 KAMIS 가 쓰인다.
+  - ingredient_price UNIQUE(ingredient_id, price_date, source)(migrations/v5) — 출처별로 행을 따로 둔다.
+    같은 조사일 재실행은 자기 출처 행만 갱신되어 멱등. 어느 출처를 쓸지는 출처 우선순위
+    (KAMIS_W > 가락 > KAMIS_R > …, scripts/price_priority.py · csp_solver.PRICE_SOURCE_PRIORITY)가 정한다.
   - 응답 JSON 의 condition 에 인증키가 그대로 되돌아오므로 원문 응답은 절대 출력/저장하지 않는다.
 """
 
@@ -484,11 +484,9 @@ def load_ingredient_price(engine, matched):
                 text("""
                     INSERT INTO ingredient_price (ingredient_id, price_per_g, price_date, source, notes)
                     VALUES (:ing_id, :price, :pdate, :source, :notes)
-                    ON CONFLICT (ingredient_id, price_date) DO UPDATE
+                    ON CONFLICT (ingredient_id, price_date, source) DO UPDATE
                         SET price_per_g = EXCLUDED.price_per_g,
-                            source      = EXCLUDED.source,
                             notes       = EXCLUDED.notes
-                        WHERE ingredient_price.source LIKE 'KAMIS%'
                     RETURNING (xmax = 0) AS is_insert
                 """),
                 {"ing_id": ing_id, "price": price, "pdate": regday, "source": SOURCE_BY_CLS[cls], "notes": notes},

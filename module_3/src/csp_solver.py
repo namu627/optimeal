@@ -77,10 +77,20 @@ DEFAULT_MENU_CATEGORIES = ["주식", "국", "찌개", "주찬", "부찬", "김�
 #   부찬 상한 3은 현장 배식 기준(영양사 확정) — 상한이 없으면 열량 밴드가 허용하는 만큼
 #   4개까지 늘어난다(8/12 1차 산출물에서 63끼니 중 6끼니가 4개였다).
 DEFAULT_COMPOSITION = {"주식": 1, "국": 1, "주찬": 1, "부찬": (2, 3), "김치": 1}
-_MENU_QUERY = """
+# 원가 출처 우선순위(2026-09-30 고정) — 재료에 여러 출처 가격이 있으면 앞 출처를 쓰고, 같은 출처 안에서만
+#   최신 날짜를 쓴다(예전: 출처 무관 최신 날짜 → 로더 실행 순서에 따라 원가가 바뀌었다).
+#   scripts/price_priority.py 와 같은 목록이어야 한다(module_4 test_price_priority 가 확인).
+PRICE_SOURCE_PRIORITY = (
+    ("KAMIS_W",), ("서울시농수산식품공사",), ("KAMIS_R",), ("참가격_R",), ("수기_참조",),
+    ("쌀 환산", "상위품목 대체", "동의어 대체"), ("정책 0원",),
+)
+_PRICE_RANK = "(CASE " + " ".join(
+    f"WHEN source IN ({', '.join(repr(s) for s in g)}) THEN {i}"
+    for i, g in enumerate(PRICE_SOURCE_PRIORITY, start=1)) + " ELSE 99 END)"
+_MENU_QUERY = f"""
 WITH latest_price AS (
     SELECT DISTINCT ON (ingredient_id) ingredient_id, price_per_g
-    FROM ingredient_price ORDER BY ingredient_id, price_date DESC
+    FROM ingredient_price ORDER BY ingredient_id, {_PRICE_RANK}, price_date DESC
 ),
 allergen AS (
     SELECT DISTINCT ingredient_id FROM constraints WHERE constraint_type = '알레르기'

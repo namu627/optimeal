@@ -574,7 +574,8 @@ def load_ingredient_price(engine, matched_results):
     ingredient_id 기준으로 묶는다.)
 
     ── (3) ON CONFLICT upsert 처리 ──
-    (ingredient_id, price_date) UNIQUE 제약을 이용해 upsert. 재실행해도 안전(idempotent).
+    (ingredient_id, price_date, source) UNIQUE 제약(migrations/v5)으로 upsert — 같은 날 다른 출처 행은 건드리지 않는다.
+    재실행해도 안전(idempotent). 어느 출처 가격을 쓸지는 scripts/price_priority.py 우선순위가 정한다.
     """
     price_date = date.today()
     grouped = defaultdict(list)  # {ingredient_id: [matched_result, ...]}
@@ -608,9 +609,8 @@ def load_ingredient_price(engine, matched_results):
                     ) VALUES (
                         :ing_id, :price, :pdate, :source, :notes
                     )
-                    ON CONFLICT (ingredient_id, price_date) DO UPDATE
+                    ON CONFLICT (ingredient_id, price_date, source) DO UPDATE
                         SET price_per_g = EXCLUDED.price_per_g,
-                            source      = EXCLUDED.source,
                             notes       = EXCLUDED.notes
                     RETURNING (xmax = 0) AS is_insert
                 """),

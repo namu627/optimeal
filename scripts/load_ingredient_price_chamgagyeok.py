@@ -25,7 +25,7 @@
   - 한 재료의 값: 상품별로 [판매점별 g당 가격(점포 내 조사일 중앙값)]의 중앙값을 구한 뒤,
     매칭된 전체 상품의 그 값의 중앙값.
   - 가락·KAMIS 가격이 있는 재료는 건드리지 않는다. 걸리는 기존 참가격_R 행은 load 때 지운다.
-  - 멱등: 같은 조사일 재실행은 참가격_R 행만 갱신(ON CONFLICT ... WHERE source='참가격_R').
+  - 멱등: 같은 조사일 재실행은 참가격_R 행만 갱신(UNIQUE(ingredient_id, price_date, source)).
 """
 
 import argparse
@@ -274,9 +274,8 @@ def load(engine, results, names):
             row = conn.execute(text("""
                 INSERT INTO ingredient_price (ingredient_id, price_per_g, price_date, source, notes)
                 VALUES (:ing, :price, :pdate, :src, :notes)
-                ON CONFLICT (ingredient_id, price_date) DO UPDATE
+                ON CONFLICT (ingredient_id, price_date, source) DO UPDATE
                     SET price_per_g = EXCLUDED.price_per_g, notes = EXCLUDED.notes
-                    WHERE ingredient_price.source = :src
                 RETURNING (xmax = 0) AS is_insert
             """), {"ing": ing, "price": price, "pdate": regday, "src": SOURCE_NAME, "notes": notes}).fetchone()
             stats["skipped" if row is None else ("inserted" if row.is_insert else "updated")] += 1
