@@ -53,8 +53,9 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
     // PDF 를 맨 앞에 — 받은 뒤 새 탭으로 여는데(window.open), 클릭 직후여야 팝업 차단을 덜 받는다.
     if (files.pdf) jobs.push({ label: 'PDF', run: () => downloadPlanPdf(plan, base, files.pdfRecipes) });
     if (files.table) jobs.push({ label: '식단표 CSV', run: () => saveCsv(`${base}_식단표.csv`, tableRows(plan)) });
-    if (files.normal) jobs.push({ label: '일반식 조리 지시서 CSV', run: () => saveCsv(`${base}_일반식_조리지시서.csv`, recipeRows(plan.weeks, plan.headcount, plan.menuRecipes, plan.menuRecipesById)) });
-    if (files.alt) jobs.push({ label: '대체식 조리 지시서 CSV', run: () => saveCsv(`${base}_대체식_조리지시서.csv`, recipeRows(plan.alternatives.flatMap((t) => t.weeks), plan.headcount, plan.menuRecipes, plan.menuRecipesById)) });
+    // 조리 지시서 CSV 는 응답에 없는 메뉴(교체·대체식)의 레시피를 서버에서 조회한 뒤 만든다(PDF 와 같은 규칙).
+    if (files.normal) jobs.push({ label: '일반식 조리 지시서 CSV', run: async () => saveCsv(`${base}_일반식_조리지시서.csv`, await recipeRows(plan, plan.weeks)) });
+    if (files.alt) jobs.push({ label: '대체식 조리 지시서 CSV', run: async () => saveCsv(`${base}_대체식_조리지시서.csv`, await recipeRows(plan, plan.alternatives.flatMap((t) => t.weeks))) });
     if (!jobs.length) { message.warning('내려받을 파일을 하나 이상 선택해 주세요'); return; }
     setExporting(true);
     let ok = 0;

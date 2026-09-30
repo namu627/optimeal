@@ -35,9 +35,7 @@ const DEFAULT_FORM: Step1Form = {
   profile: 'elem_low_mix',
   count: 320,
   conds: { 고혈압: 18, 당뇨: 6 },
-  // 현재 데이터(김치 후보 1건)로는 2일 이상이 항상 INFEASIBLE 이라 1일을 기본으로 둔다.
-  // TODO: 김치 데이터 보강되면 7일 기본으로 복귀
-  days: 1,
+  days: 7,
   meals: ['점심'],
   kcal: 1750,
   sodium: 1300,
@@ -207,6 +205,12 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
               })}
             </div>
           </div>
+          {/* 31일 3식은 현재 풀이 한도(총 80초) 안에 해를 못 찾는 경우가 많다(2026-09-30 화면 기본 조건 2회 모두 UNKNOWN). */}
+          {days === 31 && meals.length === 3 && (
+            <Alert type="warning" showIcon style={{ marginTop: 10 }}
+              title="31일 3식은 생성에 오래 걸리거나 실패할 수 있어요"
+              description="시간 안에 식단을 찾지 못하면 기간을 7일로 줄이거나 끼니 수를 줄여 다시 생성해 주세요." />
+          )}
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label="1일 열량 목표"><InputNumber value={kcalValue} disabled={locked} onChange={(v) => setKcal(Number(v) || 0)} suffix="kcal" style={{ width: '100%' }} /></Field>
             <Field label="1일 나트륨 상한"><InputNumber value={sodiumValue} disabled={locked} onChange={(v) => setSodium(Number(v) || 0)} suffix="mg" style={{ width: '100%' }} /></Field>

@@ -3,7 +3,7 @@
 // PDF 조판은 백엔드(/api/menu/export/pdf, 한글 폰트 임베드)가 하고, 내용은 여기서 만든 행 그대로다.
 import {
   MEAL_TABLE, exportPlanPdf, planDateRange, planTargetLabel,
-  type MealPlan, type MealKind, type MenuRecipe, type PdfExportRequest,
+  type MealPlan, type MealKind, type MenuRecipe, type PdfExportRequest, type WeekBlock,
 } from '../../api/menu';
 import { collectEntries, fetchMissingRecipes, fetchedRecipe, missingRecipes, storedRecipe, type FetchedRecipes } from './recipeView';
 
@@ -66,25 +66,26 @@ export function planGrid(plan: MealPlan): PdfExportRequest['grids'][number] {
   };
 }
 
-// 조리 지시서: 메뉴별 재료 투입량(총량)·조리 순서.
-// menuRecipes(백엔드 recipe_ingredient_map 보강분)가 있으면 실데이터를, 없으면(mock/미보강 메뉴)
-// 골격 문구로 저하한다.
-export function recipeRows(weeksSrc: MealPlan['weeks'], headcount: number, menuRecipes?: MealPlan['menuRecipes'],
-  menuRecipesById?: MealPlan['menuRecipesById']): Cell[][] {
+// 조리 지시서(CSV): 메뉴별 재료 투입량(총량)·조리 순서. 레시피는 PDF 조리 지시서·레시피 화면과 같은 규칙으로 찾는다 —
+// 응답·저장본에 있으면 그것, 없으면(교체한 메뉴·대체식·구버전 저장본) 서버 조회(fetchMissingRecipes).
+// 조회해도 없으면 재료명 칸에 '레시피 미등록', 투입량·조리순서는 빈칸(임의 생성 금지).
+export const RECIPE_MISSING = '레시피 미등록';
+export async function recipeRows(plan: MealPlan, weeksSrc: WeekBlock[]): Promise<Cell[][]> {
+  const entries = collectEntries(weeksSrc);
+  const need = missingRecipes(plan, entries);
+  let fetched: FetchedRecipes = { by_id: {}, by_name: {} };
+  if (need.ids.length || need.names.length) fetched = await fetchMissingRecipes(need, plan.headcount);
+  const byKey = new Map(entries.map((e) => [e.key, e]));
   const rows: Cell[][] = [['날짜', '끼니', '메뉴', '재료명', '투입량(g, 총량)', '조리순서']];
   weeksSrc.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => {
     c.items.forEach((it) => {
-      // 솔버가 고른 행(nutritionId)의 레시피를 먼저, 없으면 이름으로(대체식·구버전 저장본).
-      const rec = (it.nutritionId != null ? menuRecipesById?.[String(it.nutritionId)] : undefined) ?? menuRecipes?.[it.name];
+      const e = byKey.get(it.nutritionId != null ? `id:${it.nutritionId}` : `name:${it.name}`)!;
+      const rec: MenuRecipe | undefined = storedRecipe(plan, e) ?? fetchedRecipe(fetched, e);
+      const meal = MEAL_TABLE[c.kind as MealKind];
       if (rec && rec.ingredients.length) {
-        rec.ingredients.forEach((ing) => rows.push([
-          d.date, MEAL_TABLE[c.kind as MealKind], it.name,
-          ing.name, ing.amount ?? '', ing.step ?? '',
-        ]));
+        rec.ingredients.forEach((ing) => rows.push([d.date, meal, it.name, ing.name, ing.amount ?? '', ing.step ?? '']));
       } else {
-        // 검토에서 교체한 메뉴는 생성 응답에 레시피가 없다 — 사실대로 표기(재생성하면 반영).
-        const note = rec?.note || (it.orig ? '교체한 메뉴 — 레시피는 식단 재생성 후 반영' : '(재료 연동 예정)');
-        rows.push([d.date, MEAL_TABLE[c.kind as MealKind], it.name, note, `1인분×${headcount}`, '(조리 순서 연동 예정)']);
+        rows.push([d.date, meal, it.name, RECIPE_MISSING, '', '']);
       }
     });
   })));
