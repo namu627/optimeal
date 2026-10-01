@@ -493,7 +493,59 @@ def _steps_by_id(engine, ids) -> dict[int, list[str]]:
     return {nid: [v for _, v in sorted(steps)] for nid, steps in ordered.items()}
 
 
-def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
+BASIS_SCALED, BASIS_LINEAR = "스케일링", "단순 비례"
+
+
+def _apply_scaling(engine, recipes: dict, ids: dict, servings: int, site_id: int | None) -> None:
+    """메뉴별 재료 총량에 스케일링 API(/api/scaling/predict)와 같은 규칙을 입히고 값마다 기준을 단다.
+
+    레시피 화면·CSV·PDF 조리 지시서가 모두 이 결과(menu_recipes)를 쓰므로 기준은 여기 한 곳에서 정한다.
+      - 스케일링: site_id 업장에 그 (레시피, 재료) 캘리브레이션 추정이 있으면 est_ratio × 1인분 × 인원수.
+      - 단순 비례: 그 밖 전부(업장 미지정·추정 없음·스케일링 레지스트리에 없는 레시피/재료) — 1인분 × 인원수.
+    스케일링 레지스트리 키는 df_B.csv 의 small_recipe_id(= recipe.notes 의 '[orig:A0330]')다. 식약처 API 로만
+    적재된 레시피는 키가 없어 늘 단순 비례다. 재료마다 base_g(1인분)·basis 를 붙인다(1인분 = 총량÷인원 이 아님).
+    module_2 CalibrationStore 를 읽기만 한다(수정 없음).
+    """
+    for rec in recipes.values():
+        for ing in rec.get("ingredients") or []:
+            amt = ing.get("amount")
+            ing["base_g"] = None if amt is None else round(float(amt) / servings, 2)
+            ing["basis"] = None if amt is None else BASIS_LINEAR
+    if site_id is None or not recipes:
+        return
+    from sqlalchemy import bindparam, text
+
+    from .. import repositories
+    from ..deps import _db_path
+
+    nids = [v for v in ids.values() if v is not None]
+    if not nids:
+        return
+    q = text("SELECT nutrition_recipe_id AS nid, substring(notes from '\\[orig:([^\\]]+)\\]') AS k FROM recipe "
+             "WHERE nutrition_recipe_id IN :ids AND notes LIKE '[orig:%'").bindparams(bindparam("ids", expanding=True))
+    with engine.connect() as conn:
+        key_of = {r["nid"]: r["k"] for r in conn.execute(q, {"ids": nids}).mappings()}
+    from calibration_store import CalibrationStore  # module_2 (deps.py 가 경로를 잡는다)
+
+    store = CalibrationStore(_db_path())
+    try:
+        for key, rec in recipes.items():
+            rid = repositories.recipe_id_of(key_of.get(ids.get(key)) or "")
+            if rid is None:
+                continue
+            for ing in rec.get("ingredients") or []:
+                iid = repositories.ingredient_id_of(ing.get("name") or "")
+                if iid is None or ing.get("base_g") is None:
+                    continue
+                pred = store.predict(site_id, rid, iid, ing["base_g"], servings)
+                if pred.method == "calibrated":
+                    ing["amount"] = round(pred.scaled_g, 1)
+                    ing["basis"] = BASIS_SCALED
+    finally:
+        store.close()
+
+
+def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id, site_id: int | None = None) -> dict:
     """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서·레시피 화면용).
 
     module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
@@ -532,6 +584,10 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
         steps = {}  # 단계 조회 실패는 재료 표시를 막지 않는다
     for key, rec in out.items():
         rec["steps"] = steps.get(ids[key], [])
+    try:
+        _apply_scaling(engine, out, ids, servings, site_id)
+    except Exception:
+        pass  # 캘리브레이션 조회 실패 → 단순 비례 그대로(기준 표기는 _apply_scaling 첫 단계에서 이미 붙었다)
     return out
 
 
@@ -672,6 +728,7 @@ def menu_recipes(
     ids: list[int] = Query([], description="메뉴 id(nutrition_id) — 본식단·교체한 메뉴"),
     names: list[str] = Query([], description="메뉴명 — id 가 없는 대체식 칸. generate 와 같은 대표행으로 해석"),
     servings: int = Query(..., ge=1, description="인원수 — 투입량은 1인분 × 인원수 총량"),
+    site_id: int | None = Query(None, ge=1, description="캘리브레이션 업장 id — 보정 있는 재료만 스케일링 총량"),
 ) -> dict:
     """레시피 화면에서 생성 응답에 레시피가 없는 메뉴(검토에서 교체한 메뉴·대체식)를 채운다.
 
@@ -685,13 +742,13 @@ def menu_recipes(
         raise HTTPException(status_code=422, detail={
             "reason": "too_many_menus", "message": "한 번에 100개 메뉴까지 조회할 수 있습니다."})
     cs, _, _ = _load_module3()
-    by_id = _build_menu_recipes(cs, {"1": {"점심": list(dict.fromkeys(ids))}}, servings, lambda mid: mid) if ids else {}
+    by_id = _build_menu_recipes(cs, {"1": {"점심": list(dict.fromkeys(ids))}}, servings, lambda mid: mid, site_id) if ids else {}
     by_name: dict = {}
     if names:
         canon = _canonical_by_name(_candidate_pool(cs))
         by_name = _build_menu_recipes(
             cs, {"1": {"점심": list(dict.fromkeys(names))}}, servings,
-            lambda name: canon[name].menu_id if name in canon else None)
+            lambda name: canon[name].menu_id if name in canon else None, site_id)
     return {"by_id": {str(k): v for k, v in by_id.items()}, "by_name": by_name}
 
 
@@ -841,7 +898,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     # 프론트 확정 화면(Step3) 조리 지시서: 재료 투입량(총량)·조리순서.
     # recipe_ingredient_map 미보강 메뉴는 note만 채워져 온다("연동 예정" 대신 실사유 표시 가능).
     if plan_ids is not None:
-        recipes_by_id = _build_menu_recipes(cs, plan_ids, payload.serving_count, lambda mid: mid)
+        recipes_by_id = _build_menu_recipes(cs, plan_ids, payload.serving_count, lambda mid: mid, payload.site_id)
         body["menu_recipes_by_id"] = _to_jsonable(recipes_by_id)
         # 이름 키(호환): 본식단에 오른 행의 레시피. 같은 이름 두 행이 함께 오르면 먼저 나온 행.
         by_name: dict = {}
@@ -852,7 +909,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         body["menu_recipes_by_id"] = None
         body["menu_recipes"] = _build_menu_recipes(
             cs, res.plan, payload.serving_count,
-            lambda name: canon[name].menu_id if name in canon else None)
+            lambda name: canon[name].menu_id if name in canon else None, payload.site_id)
 
     if payload.with_alternatives and res.plan:
         body["alternatives"] = _derive_alternatives(

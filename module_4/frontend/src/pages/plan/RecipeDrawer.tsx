@@ -7,7 +7,7 @@ import { Drawer, Empty, Grid, Segmented, Select, Spin, Table, Button } from 'ant
 import { colors } from '../../theme';
 import { type MealPlan, type MenuRecipe, type RecipeIngredient } from '../../api/menu';
 import {
-  collectEntries, storedRecipe, fetchedRecipe, missingRecipes, fetchMissingRecipes,
+  collectEntries, storedRecipe, fetchedRecipe, missingRecipes, fetchMissingRecipes, amountBasis, perServing, BASIS_LINEAR,
   type RecipeEntry as Entry, type FetchedRecipes as Fetched,
 } from './recipeView';
 
@@ -153,7 +153,18 @@ function RecipeDetail({ entry, rec, headcount, loading, failed, onRetry }: {
                 },
                 {
                   title: '1인분 (g)', key: 'per', width: 100, align: 'right',
-                  render: (_, r) => r.amount == null ? '' : <span style={{ color: colors.textSecondary }}>{fmt(r.amount / headcount)}</span>,
+                  render: (_, r) => { const per = perServing(r, headcount); return per == null ? '' : <span style={{ color: colors.textSecondary }}>{fmt(per)}</span>; },
+                },
+                {
+                  // 총량 산출 기준 — 스케일링(업장 보정값) | 단순 비례(1인분×인원). CSV·PDF 도 같은 함수(amountBasis).
+                  title: '기준', key: 'basis', width: 92,
+                  render: (_, r) => {
+                    const b = amountBasis(r);
+                    if (!b) return '';
+                    const scaled = b !== BASIS_LINEAR;
+                    return <span style={{ fontSize: 12, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
+                      color: scaled ? colors.primaryActive : colors.textSecondary, background: scaled ? colors.primaryTintSoft : colors.borderSubtle }}>{b}</span>;
+                  },
                 },
               ]}
               style={{ fontVariantNumeric: 'tabular-nums' }}

@@ -243,6 +243,11 @@ class MenuGenerateRequest(BaseModel):
         description="배식 인원수. 조리 지시서(재료 투입량 = 1인분×인원수) 스케일에만 쓰이며 "
                     "해 탐색(결정변수)에는 영향 없다.",
     )
+    site_id: Optional[int] = Field(
+        None, ge=1,
+        description="캘리브레이션 업장 id(/api/calibration). 주면 그 업장 보정이 있는 재료만 조리 지시서 "
+                    "총량을 스케일링 값으로 쓴다(재료마다 basis='스케일링'|'단순 비례').",
+    )
     with_alternatives: bool = Field(
         False, description="알레르기 그룹별 대체식(공통식+대체식 트랙) 동반 산출"
     )

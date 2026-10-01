@@ -1,6 +1,8 @@
 // src/pages/plan/recipeView.ts
 // 레시피 화면(RecipeDrawer)의 데이터 로직 — 식단에서 메뉴를 모으고 레시피를 찾는다(UI 없음).
-import { MEAL_TABLE, fetchMenuRecipes, type MealPlan, type MealKind, type MenuRecipe, type WeekBlock } from '../../api/menu';
+import {
+  MEAL_TABLE, fetchMenuRecipes, type MealPlan, type MealKind, type MenuRecipe, type RecipeIngredient, type WeekBlock,
+} from '../../api/menu';
 
 // 한 트랙(일반식·대체식) 안에서 같은 메뉴는 한 번만 — 솔버가 고른 행(nutritionId)이 있으면 그걸로 구분.
 export interface RecipeEntry { key: string; name: string; nutritionId?: number; uses: string[] }
@@ -45,4 +47,17 @@ export async function fetchMissingRecipes(need: { ids: number[]; names: string[]
   const res = await Promise.all(jobs);
   return res.reduce<FetchedRecipes>((acc, r) => ({ by_id: { ...acc.by_id, ...r.by_id }, by_name: { ...acc.by_name, ...r.by_name } }),
     { by_id: {}, by_name: {} });
+}
+
+/* ── 투입량(총량) 기준 — 레시피 화면·CSV·PDF 가 모두 이 두 함수로 값과 기준을 적는다 ──
+   스케일링: 업장 캘리브레이션 보정이 있는 재료(est_ratio × 1인분 × 인원). 단순 비례: 1인분 × 인원.
+   basis 필드가 없는 저장본은 생성 당시 단순 비례로 계산된 값이다. */
+export const BASIS_LINEAR = '단순 비례';
+export function amountBasis(ing: RecipeIngredient): string {
+  return ing.amount == null ? '' : ing.basis ?? BASIS_LINEAR;
+}
+/** 1인분(g). 스케일링 총량은 1인분×인원이 아니므로 base_g 를 먼저 쓴다(구저장본만 총량÷인원). */
+export function perServing(ing: RecipeIngredient, headcount: number): number | null {
+  if (ing.base_g != null) return ing.base_g;
+  return ing.amount == null ? null : ing.amount / headcount;
 }

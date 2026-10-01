@@ -139,7 +139,12 @@ export interface PlanCheck { label: string; done: boolean; view?: boolean }
 
 // Step3 조리 지시서용 — 메뉴명 → 재료 투입량(총량)·조리순서. 백엔드가 실제로 계산해 준
 // 값(recipe_ingredient_map 보강분)만 들어오며, 레시피 미보강 메뉴는 note만 채워져 온다.
-export interface RecipeIngredient { step?: number | null; name: string; amount?: number | null; unit?: string; role?: string | null }
+// amount 는 인원수 총량. base_g(1인분)·basis(총량 기준 '스케일링'|'단순 비례')는 백엔드 _apply_scaling 이 단다 —
+// 이 필드가 생기기 전 저장본에는 없고, 그때 총량은 1인분×인원(단순 비례)이었다(recipeView.amountBasis).
+export interface RecipeIngredient {
+  step?: number | null; name: string; amount?: number | null; unit?: string; role?: string | null;
+  base_g?: number | null; basis?: '스케일링' | '단순 비례' | null;
+}
 // steps: 식품안전나라 원본 조리 단계(원문 그대로). 원본에 없으면 [] — 화면은 빈 상태로 둔다(임의 생성 금지).
 // 이 필드가 생기기 전에 저장된 식단에는 steps 키 자체가 없다 → 레시피 화면이 다시 조회한다.
 export interface MenuRecipe { cooking_method?: string | null; ingredients: RecipeIngredient[]; note?: string | null; steps?: string[] }
