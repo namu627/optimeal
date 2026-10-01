@@ -61,3 +61,13 @@ export function perServing(ing: RecipeIngredient, headcount: number): number | n
   if (ing.base_g != null) return ing.base_g;
   return ing.amount == null ? null : ing.amount / headcount;
 }
+
+/** 대체식 칸에서 일반식 같은 칸(같은 주·날·끼니)에 없는 메뉴 이름 — '바뀐 메뉴'(알레르기 대체).
+ *  일반식 교체는 대체식에도 전파되지만(altSync), 전파 이전 저장본은 대체식 트랙에 교체 전 메뉴가 남아 있다 —
+ *  그건 알레르기 대체가 아니므로 일반식 칸의 교체 전 이름(orig)도 일반식 메뉴로 친다. */
+export function changedNames(main: WeekBlock[], alt: WeekBlock[], w: number, d: number, kind: MealKind): Set<string> {
+  const mainCell = main[w]?.days[d]?.cells.find((c) => c.kind === kind);
+  const altCell = alt[w]?.days[d]?.cells.find((c) => c.kind === kind);
+  const base = new Set((mainCell?.items ?? []).flatMap((i) => (i.orig ? [i.name, i.orig] : [i.name])));
+  return new Set((altCell?.items ?? []).map((i) => i.name).filter((n) => !base.has(n)));
+}

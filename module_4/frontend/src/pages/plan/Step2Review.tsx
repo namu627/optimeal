@@ -7,11 +7,13 @@ import StepIndicator from './StepIndicator';
 import KpiRow from '../../components/KpiRow';
 import BudgetSummaryCard from './BudgetSummaryCard';
 import {
-  MEAL_TABLE, MEAL_TIME, CARRYOVER_BAND, planDateRange, planTargetLabel, fetchSwapCandidates, recomputePlan, candidateNutri,
+  MEAL_TABLE, MEAL_TIME, CARRYOVER_BAND, planDateRange, planTargetLabel, fetchSwapCandidates, candidateNutri,
   checkSwap, budgetModeOf, planPeriodCost,
-  type MealPlan, type WeekBlock, type MealItem, type MealKind, type MealCell,
+  type MealPlan, type MealItem, type MealKind, type MealCell,
   type SwapCandidate, type SwapCandidatesResponse, type SwapCheck, type TotalBudgetQuery,
 } from '../../api/menu';
+import { editPlan, altReviewText, ALT_REVIEW_LABEL, type MainEdit } from './altSync';
+import { changedNames } from './recipeView';
 
 const C = {
   text: '#16211C', sub: '#5D6B64', muted: '#98A5A0', border: '#E5EAE7', line: '#EEF2F0', head: '#F7FAF8',
@@ -20,12 +22,6 @@ const C = {
   // 끼니 원가 기준 이탈(참고) — 이월 모드에서 허용된 상태라 경고색(빨강)·배경 강조를 쓰지 않는다. 회청색 글자만.
   slate: '#5B6B7F', slateTint: '#EEF1F5', slateBorder: '#C9D1DC',
 };
-
-function editItems(plan: MealPlan, fn: (items: MealItem[]) => MealItem[]): MealPlan {
-  const mapW = (weeks: WeekBlock[]): WeekBlock[] =>
-    weeks.map((w) => ({ ...w, days: w.days.map((d) => ({ ...d, cells: d.cells.map((c) => ({ ...c, items: fn(c.items) })) })) }));
-  return { ...plan, weeks: mapW(plan.weeks), alternatives: plan.alternatives.map((t) => ({ ...t, weeks: mapW(t.weeks) })) };
-}
 
 const noop = () => {};
 
@@ -174,10 +170,12 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
     [plan.weeks],
   );
 
-  // 교체·삭제는 칸 식별자(menuId)로 찾고, 바꾼 뒤 셀·총합·달성률·원가를 칸 영양으로 다시 계산한다.
-  // ⚠ 제약 재검증(3일 중복·열량 밴드 등)은 하지 않는다 — 재생성(include/exclude 재풀이)은 후속.
+  // 교체·되돌리기·삭제는 칸 식별자(menuId)로 찾고 셀·총합·달성률·원가를 다시 계산한다(altSync.editPlan).
+  // 일반식 메뉴 편집은 대체식 트랙 같은 칸에도 반영 — 대체되지 않은 자리는 따라가고, 알레르기 대체 자리는 재검토 표시.
+  //   대체식 탭에서 대체식 메뉴를 직접 고치면 그 메뉴만 고친다.
+  const edit = (it: MealItem, e: MainEdit) => setPlan(editPlan(plan, it, e));
   const onDelete = (it: MealItem) => {
-    setPlan(recomputePlan(editItems(plan, (items) => items.filter((x) => x.menuId !== it.menuId))));
+    edit(it, { kind: 'delete' });
     message.success(`'${it.name}' 삭제`);
   };
   const onSwap = (it: MealItem, cell: MealCell, c: SwapCandidate) => {
@@ -187,23 +185,12 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
       message.warning(`'${c.name}'(으)로 바꾸면 ${carryover ? '기간 총예산·끼니 원가 범위' : '한 끼 예산'}를 넘거나 나트륨을 알 수 없어요`);
       return;
     }
-    setPlan(recomputePlan(editItems(plan, (items) => items.map((x) => {
-      if (x.menuId !== it.menuId) return x;
-      const first = x.orig ? { orig: x.orig, origNutritionId: x.origNutritionId, origNutri: x.origNutri }
-        : { orig: x.name, origNutritionId: x.nutritionId, origNutri: x.nutri };
-      return {
-        ...x, name: c.name, nutritionId: c.menu_id, flag: undefined, alt: false,
-        nutri: candidateNutri(c), ...first,
-      };
-    }))));
+    edit(it, { kind: 'swap', to: { name: c.name, nutritionId: c.menu_id, nutri: candidateNutri(c) } });
     if (k.overSodium) message.warning(`'${it.name}' → '${c.name}' 교체 — 그날 나트륨이 하루 상한을 넘어요`);
     else message.success(`'${it.name}' → '${c.name}' 교체`);
   };
   const onRevert = (it: MealItem) => {
-    setPlan(recomputePlan(editItems(plan, (items) => items.map((x) => (x.menuId !== it.menuId ? x : {
-      ...x, name: x.orig ?? x.name, nutritionId: x.origNutritionId, nutri: x.origNutri, flag: undefined,
-      orig: undefined, origNutritionId: undefined, origNutri: undefined,
-    })))));
+    edit(it, { kind: 'revert' });
     message.success(`'${it.orig}'(으)로 되돌렸어요`);
   };
   const toggleCheck = (label: string) => {
@@ -211,12 +198,15 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
     setPlan({ ...plan, checks: plan.checks.map((c) => (c.label === label ? { ...c, done: !c.done } : c)) });
   };
 
-  const MenuLine = ({ it, cell }: { it: MealItem; cell: MealCell }) => {
+  // '대체' 배지: 대체식 탭에서 일반식 같은 칸과 다른 메뉴(알레르기 대체)에만 — PDF·CSV 의 [대체] 와 같은 기준(changedNames).
+  //   대체식 트랙 메뉴는 전부 alt=true 로 오므로 alt 만 보면 따라간 메뉴에도 배지가 붙었다.
+  const MenuLine = ({ it, cell, changed }: { it: MealItem; cell: MealCell; changed?: Set<string> }) => {
+    const isAlt = changed ? changed.has(it.name) : !!it.alt;
     if (readOnly) {
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, lineHeight: '20px' }}>
-          <span style={{ fontSize: 13, color: it.flag ? C.redText : it.alt ? C.greenText : C.text }}>{it.name}</span>
-          {it.alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+          <span style={{ fontSize: 13, color: it.flag ? C.redText : isAlt ? C.greenText : C.text }}>{it.name}</span>
+          {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
           {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
         </div>
       );
@@ -230,9 +220,9 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
             total={totalQuery && { ...totalQuery, mealCost: cell.cost, guardMin: plan.guardMin, guardMax: plan.guardMax }}
             onPick={(c) => onSwap(it, cell, c)} onRevert={() => onRevert(it)} />}
         >
-          <span style={{ fontSize: 13, color: it.flag ? C.redText : it.alt ? C.greenText : C.text, cursor: 'pointer' }}>{it.name}</span>
+          <span style={{ fontSize: 13, color: it.flag ? C.redText : isAlt ? C.greenText : C.text, cursor: 'pointer' }}>{it.name}</span>
         </Popover>
-        {it.alt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+        {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
         {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
         <span className="del" style={{ opacity: 0, cursor: 'pointer', color: C.muted, transition: 'opacity .1s' }} onClick={() => onDelete(it)}>
           <CloseOutlined style={{ fontSize: 10 }} />
@@ -241,7 +231,7 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
     );
   };
 
-  const Cell = ({ cell }: { cell?: MealCell }) => {
+  const Cell = ({ cell, changed }: { cell?: MealCell; changed?: Set<string> }) => {
     if (!cell) return <td style={{ border: `1px solid ${C.line}`, verticalAlign: 'top' }} />;
     // 나트륨 등 실제 위반만 빨간 배경(경고). 이월 밴드 밖(B×0.8~1.2) 원가는 **참고** — 배경·테두리 없이
     //   회청색 작은 글자 "1인 N원 ▲기준 초과 / ▼기준 미만" + 툴팁만(색만으로 구분하지 않도록 문구 포함).
@@ -250,7 +240,12 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
       : undefined;
     return (
       <td style={{ border: `1px solid ${C.line}`, verticalAlign: 'top', padding: '10px 12px', background: cell.warn ? C.redTint : '#fff', minWidth: 150 }}>
-        {cell.items.map((it) => <MenuLine key={it.menuId ?? it.name} it={it} cell={cell} />)}
+        {cell.altReview?.length ? (
+          <Tooltip title={altReviewText(cell)}>
+            <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 600, color: '#8A5A00', background: '#FBF2DF', borderRadius: 5, padding: '1px 6px', display: 'inline-block' }}>{ALT_REVIEW_LABEL}</div>
+          </Tooltip>
+        ) : null}
+        {cell.items.map((it) => <MenuLine key={it.menuId ?? it.name} it={it} cell={cell} changed={changed} />)}
         <div style={{ marginTop: 8, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
           <span style={{ fontWeight: 700, color: cell.warn ? C.redText : C.text }}>{cell.kcal} kcal</span>
           <span style={{ color: C.sub, marginLeft: 12 }}>단백 {cell.protein.toFixed(1)}g</span>
@@ -328,7 +323,7 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
           <div style={{ marginTop: 4, fontSize: 12, color: C.sub }}>{planTargetLabel(plan)} · {planDateRange(plan)} · {plan.headcount}명 · 단위 1인 기준</div>
 
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14, tableLayout: 'fixed' }}>
-            {weeks.map((wk) => (
+            {weeks.map((wk, wi) => (
               <tbody key={wk.label}>
                 <tr>
                   <th style={{ width: 92, border: `1px solid ${C.line}`, background: C.head, padding: '9px 12px', textAlign: 'left', fontSize: 13, color: C.text }}>{wk.label}</th>
@@ -352,7 +347,8 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
                       <div style={{ fontSize: 13, fontWeight: 600, color: C.green }}>{MEAL_TABLE[meal as MealKind]}</div>
                       <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>{MEAL_TIME[meal as MealKind]}</div>
                     </td>
-                    {wk.days.map((d) => <Cell key={d.date + meal} cell={d.cells.find((c) => c.kind === meal)} />)}
+                    {wk.days.map((d, di) => <Cell key={d.date + meal} cell={d.cells.find((c) => c.kind === meal)}
+                      changed={view === 'alt' && plan.alternatives.length ? changedNames(plan.weeks, weeks, wi, di, meal as MealKind) : undefined} />)}
                   </tr>
                 ))}
               </tbody>

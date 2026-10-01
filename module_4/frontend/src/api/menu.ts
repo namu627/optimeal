@@ -127,7 +127,13 @@ export interface MealCell {
   cost?: number; band?: 'low' | 'high';
   /** 이 끼니 1인 나트륨 합(mg, recomputePlan). 하루 합계 계산용. */
   sodium?: number;
+  /** 대체식 트랙 칸 전용 — 일반식 교체·삭제가 알레르기 대체 자리에 걸려 대체식을 다시 봐야 함(pages/plan/altSync). */
+  altReview?: AltReview[];
+  /** 대체식 트랙 칸 전용 — 알레르기 대체가 아닌 자리라 일반식 교체·삭제를 그대로 따라갔음(대체식 표에 '일반식 교체 반영'으로 싣는다). */
+  altFollow?: AltReview[];
 }
+/** mainMenuId: 원인이 된 일반식 메뉴 칸 id(되돌리면 이 id 로 표시를 걷는다). note: 사람이 읽는 원인. */
+export interface AltReview { mainMenuId: number; note: string }
 // sodium: 그날 1인 나트륨 합(mg). sodiumOver: 하루 상한(plan.sodiumCapPerDay) 초과 — 나트륨 경고는 이 날 단위로만 건다.
 export interface MealDay { date: string; dow: string; cells: MealCell[]; sodium?: number; sodiumOver?: boolean }
 export interface WeekBlock { label: string; days: MealDay[] }
