@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Card, Select, InputNumber, Button, Checkbox, Alert, Segmented, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
+import GeneratingOverlay from './GeneratingOverlay';
+import type { GeneratingInfo } from './generatingInfo';
 import {
   PROFILE_OPTIONS, ALLERGEN_POOL, BUDGET_MODE_LABEL, listProfiles,
   type MenuGenerateRequest, type AllergyGroup, type MenuProfile, type BudgetMode,
@@ -138,6 +140,8 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
   const LONG_BLOCK_TEXT = `31일은 ${LONG_MAX_MEALS}끼까지 생성할 수 있어요(3식은 현재 시간 안에 안정적으로 생성되지 않음)`;
   // 31일에서 잠긴 끼니를 누르거나, 31일로 바꾸며 끼니가 잘렸을 때 위 안내를 띄운다.
   const [longBlocked, setLongBlocked] = useState(false);
+  // 생성 중 화면에 보일 조건 — 실제로 보낸 값(31일 끼니 잘림 반영)
+  const [genInfo, setGenInfo] = useState<GeneratingInfo | null>(null);
   // 개수를 넘기면 점심 → 저녁 → 아침 순으로 남긴다. 결과는 아침→점심→저녁 순.
   const trimLong = (p: string[]) => {
     const keep = ['점심', '저녁', '아침'].filter((x) => p.includes(x)).slice(0, LONG_MAX_MEALS);
@@ -164,13 +168,15 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
     const sendMeals = d === LONG_DAYS ? trimLong(meals) : meals;
     if (over.days != null) setDays(over.days);
     if (over.budgetMode) setBudgetMode(over.budgetMode);
+    const sendGroups = groups.filter((g) => g.allergens.length);
+    setGenInfo({ days: d, meals: sendMeals, headcount: count, hasAllergy: sendGroups.length > 0 });
     onFormChange?.({ profile, count, conds, days: d, meals: sendMeals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
     onGenerate({
       profile_key: profile, serving_count: count, days: d, meals: sendMeals,
       target_kcal_per_day: kcalValue, sodium_max_mg_per_day: sodiumValue, budget_limit_per_person: budget,
       budget_mode: bm,
       conditions: Object.keys(conds), with_alternatives: true,
-      allergy_groups: groups.filter((g) => g.allergens.length),
+      allergy_groups: sendGroups,
     });
   };
   const shorterDays = days > 7 ? 7 : days > 1 ? 1 : null;
@@ -324,21 +330,8 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
         <Button type="primary" onClick={() => submit()} loading={genState === 'loading'} disabled={genState === 'loading'}>다음: 식단 생성 <ArrowRightOutlined /></Button>
       </div>
 
-      {/* 생성 중 오버레이 */}
-      {genState === 'loading' && (
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(247,250,248,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-          <div style={{ width: 380, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 14, padding: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, boxShadow: '0 16px 40px rgba(22,33,28,0.12)' }}>
-            <div style={{ width: 26, height: 26, borderRadius: 13, border: `2.5px solid ${C.tint}`, borderTopColor: C.green, animation: 'spin 0.9s linear infinite' }} />
-            <div style={{ fontSize: 16, fontWeight: 600, color: C.text }}>식단을 생성하고 있습니다</div>
-            <div style={{ fontSize: 12, color: C.sub }}>보통 30~50초 · 제약조건 최적화 중</div>
-            <div style={{ width: '100%', height: 4, borderRadius: 2, background: C.line, overflow: 'hidden', marginTop: 4 }}>
-              <div style={{ width: '45%', height: '100%', background: C.green }} />
-            </div>
-            <div style={{ fontSize: 12, color: C.muted }}>창을 닫아도 생성은 계속됩니다</div>
-          </div>
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        </div>
-      )}
+      {/* 생성 중 화면 — [다시 시도]도 같은 화면(genState 가 loading 일 때마다 새로 마운트) */}
+      {genState === 'loading' && genInfo && <GeneratingOverlay info={genInfo} />}
     </div>
   );
 }
