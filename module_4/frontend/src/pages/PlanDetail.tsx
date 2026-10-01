@@ -62,10 +62,17 @@ function PlanDetailView({ id }: { id: number }) {
         <div style={{ flex: 1 }} />
         <Button icon={<ReadOutlined />} onClick={() => setRecipeOpen(true)}>레시피 보기</Button>
         <Dropdown menu={{
-          items: [{ key: 'table', label: '식단표 PDF' }, { key: 'recipes', label: '식단표 + 조리 지시서 PDF' }],
+          // 알레르기 그룹이 있으면 '대체식 포함' 변형(그룹별 대체 메뉴 표 + 조리 지시서 선택 시 대체식 조리 지시서)도 준다.
+          items: [
+            { key: 'table', label: '식단표 PDF' }, { key: 'recipes', label: '식단표 + 조리 지시서 PDF' },
+            ...(saved.plan.alternatives.length ? [
+              { key: 'table+alt', label: '식단표 + 대체식 PDF' },
+              { key: 'recipes+alt', label: '식단표 + 조리 지시서 + 대체식 PDF' },
+            ] : []),
+          ],
           onClick: ({ key }) => {
             setPdfBusy(true);
-            downloadPlanPdf(saved.plan, saved.name, key === 'recipes')
+            downloadPlanPdf(saved.plan, saved.name, { recipes: key.startsWith('recipes'), alternatives: key.endsWith('+alt') })
               .catch(async (e) => { console.error('[식단상세] PDF 실패:', e); message.error(`PDF를 만들지 못했어요 — ${await describeExportError(e)}`); })
               .finally(() => setPdfBusy(false));
           },

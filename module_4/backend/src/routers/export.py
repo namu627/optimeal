@@ -52,6 +52,7 @@ class PdfTable(BaseModel):
     title: str = Field(..., max_length=100)
     header: list[str] = Field(..., min_length=1, max_length=12)
     rows: list[list[str | float | int | None]] = Field(default_factory=list, max_length=5000)
+    empty_text: str = Field("", max_length=100, description="행이 없을 때 표 대신 찍을 문구(비면 기본 문구)")
 
 
 class GridCell(BaseModel):
@@ -84,6 +85,13 @@ class PdfRecipe(BaseModel):
     steps: list[str] = Field(default_factory=list, max_length=40)
 
 
+class PdfRecipeSection(BaseModel):
+    """추가 조리 지시서 묶음(예: 대체식 조리 지시서). 기본 recipes 뒤에 차례로 찍는다."""
+    title: str = Field(..., max_length=100)
+    note: str = Field("", max_length=300)
+    recipes: list[PdfRecipe] = Field(default_factory=list, max_length=500)
+
+
 class ExportPdfRequest(BaseModel):
     """PDF 내보내기 요청 — 프론트 planExport.ts 가 만든다."""
     model_config = {"json_schema_extra": {"example": {
@@ -101,6 +109,9 @@ class ExportPdfRequest(BaseModel):
     recipes_title: str = Field("조리 지시서", max_length=100)
     recipes_note: str = Field("", max_length=300)
     recipes: list[PdfRecipe] = Field(default_factory=list, max_length=500)
+    recipe_sections: list[PdfRecipeSection] = Field(
+        default_factory=list, max_length=10,
+        description="추가 조리 지시서 묶음(예: 대체식). 기본 recipes 뒤에 같은 형식으로 찍는다")
 
 
 def _register_fonts() -> None:
@@ -190,8 +201,17 @@ def _build_pdf(req: ExportPdfRequest) -> bytes:
             # 가장 넓은 열이 흡수한다 → 주차·요일 같은 짧은 열이 꺾이지 않는다.
             lens = [max([_disp_width(header[i])] + [_disp_width(_cell_text(r[i])) for r in rows[:300]]) for i in range(n)]
             widths = [x * 1.75 * mm + 3.4 * mm for x in lens]
-            widest = widths.index(max(widths))
-            widths[widest] = max(30 * mm, widths[widest] + avail - sum(widths))
+            if sum(widths) <= avail:
+                widest = widths.index(max(widths))
+                widths[widest] += avail - sum(widths)
+            else:
+                # 긴 열이 여럿이면(예: 대체 메뉴 표의 일반식·대체식) 가장 넓은 열 하나만 줄여서는 페이지를 넘친다 →
+                # 짧은 열(폭의 15% 이하)은 그대로 두고 나머지 긴 열을 원래 비율대로 나눠 줄인다(칸 안에서 줄바꿈).
+                short = avail * 0.15
+                fixed = sum(w for w in widths if w <= short)
+                flex = sum(w for w in widths if w > short)
+                room = max(avail - fixed, 30 * mm)
+                widths = [w if w <= short else w * room / flex for w in widths]
         t = Table(data, colWidths=widths, repeatRows=1)
         t.setStyle(grid)
         return t
@@ -256,16 +276,20 @@ def _build_pdf(req: ExportPdfRequest) -> bytes:
 
     for t in req.tables:
         story.append(p(t.title, h2))
-        story.append(table(t.header, t.rows) if t.rows else p("표시할 행이 없어요", sub))
+        story.append(table(t.header, t.rows) if t.rows else p(t.empty_text or "표시할 행이 없어요", sub))
 
-    if req.recipes:
-        story.append(p(req.recipes_title, h2))
-        if req.recipes_note:
-            story.append(p(req.recipes_note, sub))
+    # 기준 = 투입량(총량) 산출 기준('스케일링'|'단순 비례'). 4칸으로 보내는 구버전 요청은 기준 칸이 빈다.
+    ing_header = ["재료명", "역할", "투입량(g, 총량)", "1인분(g)", "기준"]
+    ing_widths = [avail * 0.36, avail * 0.13, avail * 0.2, avail * 0.15, avail * 0.16]
+
+    def recipe_section(sec_title: str, sec_note: str, recipes: list[PdfRecipe]) -> None:
+        if not recipes:
+            return
+        story.append(p(sec_title, h2))
+        if sec_note:
+            story.append(p(sec_note, sub))
             story.append(Spacer(1, 4))
-        ing_header = ["재료명", "역할", "투입량(g, 총량)", "1인분(g)"]
-        ing_widths = [avail * 0.44, avail * 0.16, avail * 0.22, avail * 0.18]
-        for r in req.recipes:
+        for r in recipes:
             block = [Spacer(1, 6), p(r.name, h3)]
             if r.meta:
                 block.append(p(r.meta, sub))
@@ -277,6 +301,10 @@ def _build_pdf(req: ExportPdfRequest) -> bytes:
                 story.extend(p(s, step) for s in r.steps)
             else:
                 story.append(p("레시피 미등록 — 데이터셋에 조리 순서가 없어요", sub))
+
+    recipe_section(req.recipes_title, req.recipes_note, req.recipes)
+    for sec in req.recipe_sections:
+        recipe_section(sec.title, sec.note, sec.recipes)
 
     class NumberedCanvas(Canvas):
         """바닥글에 'n / 전체' 쪽 번호."""

@@ -49,6 +49,14 @@ export async function fetchMissingRecipes(need: { ids: number[]; names: string[]
     { by_id: {}, by_name: {} });
 }
 
+/** entries 의 레시피를 한 번에 찾는 함수 — 응답·저장본에 있으면 그것, 없으면 서버 조회. CSV·PDF 조리 지시서 공통. */
+export async function resolveRecipes(plan: MealPlan, entries: RecipeEntry[]): Promise<(e: RecipeEntry) => MenuRecipe | undefined> {
+  const need = missingRecipes(plan, entries);
+  let fetched: FetchedRecipes = { by_id: {}, by_name: {} };
+  if (need.ids.length || need.names.length) fetched = await fetchMissingRecipes(need, plan.headcount);
+  return (e) => storedRecipe(plan, e) ?? fetchedRecipe(fetched, e);
+}
+
 /* ── 투입량(총량) 기준 — 레시피 화면·CSV·PDF 가 모두 이 두 함수로 값과 기준을 적는다 ──
    스케일링: 업장 캘리브레이션 보정이 있는 재료(est_ratio × 1인분 × 인원). 단순 비례: 1인분 × 인원.
    basis 필드가 없는 저장본은 생성 당시 단순 비례로 계산된 값이다. */
@@ -60,6 +68,17 @@ export function amountBasis(ing: RecipeIngredient): string {
 export function perServing(ing: RecipeIngredient, headcount: number): number | null {
   if (ing.base_g != null) return ing.base_g;
   return ing.amount == null ? null : ing.amount / headcount;
+}
+
+/** 그룹별 대체식에서 바뀐 메뉴만 남긴 weeks — 대체식 조리 지시서(CSV·PDF)의 메뉴 집합은 이것 하나에서 나온다. */
+export function changedAltTracks(plan: MealPlan): { label: string; weeks: WeekBlock[] }[] {
+  return plan.alternatives.map((t) => ({
+    label: t.label,
+    weeks: t.weeks.map((wk, w) => ({ ...wk, days: wk.days.map((d, di) => ({ ...d, cells: d.cells.map((c) => {
+      const changed = changedNames(plan.weeks, t.weeks, w, di, c.kind);
+      return { ...c, items: c.items.filter((i) => changed.has(i.name)) };
+    }) })) })),
+  }));
 }
 
 /** 대체식 칸에서 일반식 같은 칸(같은 주·날·끼니)에 없는 메뉴 이름 — '바뀐 메뉴'(알레르기 대체).

@@ -81,5 +81,51 @@ def test_pdf_grid_rows_are_days(client):
         assert tok in text, tok
 
 
+def test_pdf_tables_with_several_long_columns_fit_page(client, monkeypatch):
+    """긴 열이 둘 이상인 표(대체 메뉴 표: 일반식·대체식)도 열 폭 합이 본문 폭을 넘지 않는다(예전엔 페이지 밖으로 넘침)."""
+    if not _font_available():
+        pytest.skip("한글 TTF 없음")
+    import reportlab.platypus as platypus
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    seen: list[list[float]] = []
+
+    class SpyTable(platypus.Table):
+        def __init__(self, data, colWidths=None, *a, **kw):
+            if colWidths is not None and len(colWidths) == 4:
+                seen.append(list(colWidths))
+            super().__init__(data, colWidths, *a, **kw)
+
+    monkeypatch.setattr(platypus, "Table", SpyTable)
+    long_menus = ", ".join(["돼지고기 숙주덮밥", "버섯 들깨탕", "쇠고기표고찜", "모둠채소 수제피클", "톳나물 두부무침", "비트양파김치"])
+    alt = {"title": "대체식 · 그룹 1 (3명) — 바뀐 끼니 1개", "header": ["날짜", "끼니", "일반식", "대체식"],
+           "rows": [["10/1 (수)", "조식", long_menus, "[대체] 멜론스프, " + long_menus]]}
+    r = client.post("/api/menu/export/pdf", json={**BODY, "tables": [alt], "recipes": []})
+    assert r.status_code == 200
+    assert seen, "4열 표가 만들어지지 않음"
+    avail = A4[0] - 2 * 16 * mm
+    assert all(sum(w) <= avail + 0.5 for w in seen), [round(sum(w) / mm) for w in seen]
+
+
+def test_pdf_recipe_sections_follow_main_recipes(client):
+    """recipe_sections(대체식 조리 지시서)는 기본 조리 지시서 뒤에 같은 형식(재료 5칸: …·기준)으로 찍힌다."""
+    if not _font_available():
+        pytest.skip("한글 TTF 없음")
+    sec = {"title": "대체식 조리 지시서", "note": "달라진 메뉴 1개",
+           "recipes": [{"name": "멜론스프", "meta": "끓이기", "ingredients": [["멜론", "주재료", 35200, 110, "단순 비례"]], "steps": ["1. 멜론을 간다."]}]}
+    base = {**BODY, "recipes": [{"name": "미역국", "ingredients": [["건미역", "부재료", 200, 2, "스케일링"]], "steps": []}]}
+    with_sec = client.post("/api/menu/export/pdf", json={**base, "recipe_sections": [sec]})
+    without = client.post("/api/menu/export/pdf", json=base)
+    assert with_sec.status_code == 200 and without.status_code == 200
+    pypdf = pytest.importorskip("pypdf")
+    import io
+
+    text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(with_sec.content)).pages).replace(" ", "")
+    for tok in ["조리지시서", "대체식조리지시서", "멜론스프", "35,200", "단순비례", "스케일링"]:
+        assert tok in text, tok
+    assert text.index("미역국") < text.index("멜론스프")
+
+
 def test_pdf_rejects_empty_title(client):
     assert client.post("/api/menu/export/pdf", json={**BODY, "title": ""}).status_code == 422

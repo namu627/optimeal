@@ -8,7 +8,7 @@ import RecipeDrawer from './RecipeDrawer';
 import KpiRow from '../../components/KpiRow';
 import BudgetSummaryCard from './BudgetSummaryCard';
 import { MEAL_TABLE, planDateRange, planTargetLabel, type MealPlan } from '../../api/menu';
-import { saveCsv, tableRows, recipeRows, downloadPlanPdf, describeExportError } from './planExport';
+import { saveCsv, tableRows, recipeRows, altRecipeRows, downloadPlanPdf, describeExportError } from './planExport';
 
 const C = {
   text: '#16211C', sub: '#5D6B64', muted: '#98A5A0', border: '#E5EAE7', line: '#EEF2F0',
@@ -37,7 +37,9 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
   onSaveDraft: (name: string) => Promise<void>;
 }) {
   const { message } = App.useApp();
-  const [files, setFiles] = useState({ table: true, normal: true, alt: false, pdf: true, pdfRecipes: false });
+  // pdfAlt: PDF 에 알레르기 그룹별 대체 메뉴 표(+ 조리 지시서 포함 시 대체식 조리 지시서). 그룹이 있으면 기본 켬.
+  const hasAlt = plan.alternatives.length > 0;
+  const [files, setFiles] = useState({ table: true, normal: true, alt: false, pdf: true, pdfRecipes: false, pdfAlt: hasAlt });
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [recipeOpen, setRecipeOpen] = useState(false);
@@ -51,11 +53,11 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
     const base = (name.trim() || '식단') ;
     const jobs: { label: string; run: () => void | Promise<void> }[] = [];
     // PDF 를 맨 앞에 — 받은 뒤 새 탭으로 여는데(window.open), 클릭 직후여야 팝업 차단을 덜 받는다.
-    if (files.pdf) jobs.push({ label: 'PDF', run: () => downloadPlanPdf(plan, base, files.pdfRecipes) });
+    if (files.pdf) jobs.push({ label: 'PDF', run: () => downloadPlanPdf(plan, base, { recipes: files.pdfRecipes, alternatives: files.pdfAlt }) });
     if (files.table) jobs.push({ label: '식단표 CSV', run: () => saveCsv(`${base}_식단표.csv`, tableRows(plan)) });
     // 조리 지시서 CSV 는 응답에 없는 메뉴(교체·대체식)의 레시피를 서버에서 조회한 뒤 만든다(PDF 와 같은 규칙).
     if (files.normal) jobs.push({ label: '일반식 조리 지시서 CSV', run: async () => saveCsv(`${base}_일반식_조리지시서.csv`, await recipeRows(plan, plan.weeks)) });
-    if (files.alt) jobs.push({ label: '대체식 조리 지시서 CSV', run: async () => saveCsv(`${base}_대체식_조리지시서.csv`, await recipeRows(plan, plan.alternatives.flatMap((t) => t.weeks))) });
+    if (files.alt) jobs.push({ label: '대체식 조리 지시서 CSV', run: async () => saveCsv(`${base}_대체식_조리지시서.csv`, await altRecipeRows(plan)) });
     if (!jobs.length) { message.warning('내려받을 파일을 하나 이상 선택해 주세요'); return; }
     setExporting(true);
     let ok = 0;
@@ -112,7 +114,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <FileRow checked={files.table} onToggle={() => setFiles((f) => ({ ...f, table: !f.table }))} title="식단표" badge="CSV" desc={`주차·요일·끼니별 메뉴와 1인 기준 열량·단백질이 들어간 게시용 표 · 평일 ${plan.totalDays}일`} />
           <FileRow checked={files.normal} onToggle={() => setFiles((f) => ({ ...f, normal: !f.normal }))} title="일반식 조리 지시서" badge="CSV" desc="확정된 식단의 메뉴별 재료 투입량(총량)과 조리 순서 · 열: 날짜/끼니/메뉴/재료명/투입량(g)/조리순서" />
-          <FileRow checked={files.alt} onToggle={() => setFiles((f) => ({ ...f, alt: !f.alt }))} title="대체식 조리 지시서" badge="CSV" desc="알레르기 그룹 대체 메뉴의 재료 투입량과 조리 순서" />
+          <FileRow checked={files.alt} onToggle={() => setFiles((f) => ({ ...f, alt: !f.alt }))} title="대체식 조리 지시서" badge="CSV" desc="알레르기 그룹별로 일반식과 달라진 대체 메뉴의 재료 투입량과 조리 순서 · 열: 그룹/날짜/끼니/메뉴/재료명/투입량(g)/기준/조리순서" />
           <FileRow checked={files.pdf} onToggle={() => setFiles((f) => ({ ...f, pdf: !f.pdf }))} title="PDF 인쇄본" badge="PDF" desc="상단 요약(대상·인원·기간·1인 원가) + 식단표 · 식단표 CSV와 같은 내용, 한글 폰트 포함" />
           {files.pdf && (
             <div style={{ marginTop: -4, paddingLeft: 42 }}>
@@ -120,6 +122,16 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
                 <span style={{ fontSize: 13, color: C.text }}>일반식 조리 지시서 포함</span>
                 <span style={{ fontSize: 12, color: C.sub, marginLeft: 6 }}>메뉴별 재료 투입량(총량)과 조리 순서 원문</span>
               </Checkbox>
+              {hasAlt && (
+                <div style={{ marginTop: 6 }}>
+                  <Checkbox checked={files.pdfAlt} onChange={(e) => setFiles((f) => ({ ...f, pdfAlt: e.target.checked }))}>
+                    <span style={{ fontSize: 13, color: C.text }}>대체식 포함</span>
+                    <span style={{ fontSize: 12, color: C.sub, marginLeft: 6 }}>
+                      그룹별 대체 메뉴 표(바뀐 메뉴 표시){files.pdfRecipes ? ' + 대체식 조리 지시서' : ''}
+                    </span>
+                  </Checkbox>
+                </div>
+              )}
             </div>
           )}
           <FileRow checked={false} disabled title="발주 목록 · 로봇 조리 JSON" desc="추후 제공 예정이에요" />

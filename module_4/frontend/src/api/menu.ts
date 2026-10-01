@@ -174,10 +174,13 @@ export interface PdfExportRequest {
   /** 식단표 그리드 — 행 = 하루, 열 = 끼니. 칸 = 메뉴들 + 1인 열량·단백질. */
   grids: { title: string; corner?: string; columns: string[];
     rows: { label: string; sub?: string; cells: ({ menus: string[]; kcal?: number | null; protein?: number | null } | null)[] }[] }[];
-  tables: { title: string; header: string[]; rows: (string | number | null)[][] }[];
+  tables: { title: string; header: string[]; rows: (string | number | null)[][]; empty_text?: string }[];
   recipes_title?: string; recipes_note?: string;
-  recipes: { name: string; meta?: string; ingredients: (string | number | null)[][]; steps: string[] }[];
+  recipes: PdfRecipe[];
+  /** 추가 조리 지시서 묶음(대체식 등) — 기본 recipes 뒤에 같은 형식으로. */
+  recipe_sections?: { title: string; note?: string; recipes: PdfRecipe[] }[];
 }
+export interface PdfRecipe { name: string; meta?: string; ingredients: (string | number | null)[][]; steps: string[] }
 /** 식단표(·조리 지시서) PDF. 한글 폰트는 백엔드가 임베드한다. */
 export async function exportPlanPdf(body: PdfExportRequest): Promise<Blob> {
   const { data } = await api.post<Blob>('/api/menu/export/pdf', body, { responseType: 'blob' });
