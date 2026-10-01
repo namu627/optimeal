@@ -6,8 +6,11 @@
       가락·KAMIS 에 없는 가공식품·양념(두부·식용유·설탕·밀가루·간장·된장 등) 원가를 채운다.
       source='참가격_R'(소매).
 
-원본: https://www.data.go.kr/data/15083256/fileData.do 의 최신 월 CSV(cp949)를
-      data/raw/한국소비자원_생필품가격_YYYYMM.csv 로 저장. --csv 를 생략하면 가장 최근 파일을 쓴다.
+원본: https://www.data.go.kr/data/15083256/fileData.do 의 최신 월 CSV(cp949).
+      --csv 를 생략하면 data/raw/한국소비자원_생필품가격_YYYYMM.csv 중 가장 최근 파일을 쓰고, 하나도 없으면
+      데이터셋 페이지의 다운로드 링크(JSON-LD contentUrl)로 최신 월 CSV 를 받아 그 이름으로 저장한 뒤 쓴다
+      (YYYYMM 은 응답 파일명 '… 2026년 8월.csv' 에서). 받기에 실패하면 수동으로 받는 방법을 출력하고 멈춘다.
+      원본 CSV 는 .gitignore(data/raw/*.csv) 대상 — 커밋하지 않는다.
       컬럼: 상품명, 조사일, 판매가격, 판매업소, 제조사, 세일여부, 원플러스원 — 용량은 상품명 끝 괄호에 있다.
 
 실행 (preview → load 2단계, 가락·KAMIS 로더와 동일):
@@ -43,7 +46,9 @@ from load_ingredient_price import SOURCE_NAME as GARAK_SOURCE
 from load_ingredient_price import UNMATCHED_LOG_DIR, _lookup_exact_name, get_engine
 
 BASE_DIR = Path(__file__).parent.parent
+RAW_DIR = BASE_DIR / "data" / "raw"
 RAW_GLOB = "한국소비자원_생필품가격_*.csv"
+DATASET_URL = "https://www.data.go.kr/data/15083256/fileData.do"
 SOURCE_NAME = "참가격_R"
 # 이 source 들의 가격이 있는 재료에는 참가격을 넣지 않는다(시세 우선).
 MARKET_SOURCES = (GARAK_SOURCE, "KAMIS_W", "KAMIS_R")
@@ -186,8 +191,62 @@ def read_csv(path):
 
 
 def latest_raw_csv():
-    files = sorted((BASE_DIR / "data" / "raw").glob(RAW_GLOB))
+    files = sorted(RAW_DIR.glob(RAW_GLOB))
     return files[-1] if files else None
+
+
+MANUAL_DOWNLOAD_HELP = f"""  수동으로 받는 방법:
+    1) {DATASET_URL} 에서 '다운로드'(CSV)를 누른다(로그인 불필요).
+    2) 받은 파일(예: '한국소비자원 생필품 가격데이터 2026년 8월.csv')을
+       data/raw/한국소비자원_생필품가격_YYYYMM.csv 로 이름을 바꿔 넣는다(예: …_202608.csv).
+    3) 다시 실행한다. 다른 경로의 파일은 --csv 로 지정할 수 있다."""
+
+
+def download_latest_csv():
+    """공공데이터포털 15083256 최신 월 CSV 를 data/raw/ 에 받아 경로를 돌려준다. 실패하면 RuntimeError(사유)."""
+    import requests
+
+    ua = {"User-Agent": "Mozilla/5.0 (optimeal price loader)"}
+    try:
+        page = requests.get(DATASET_URL, headers=ua, timeout=30)
+        page.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"데이터셋 페이지 접속 실패: {type(exc).__name__}: {exc}") from exc
+    # 페이지 JSON-LD 의 distribution.contentUrl = 최신 파일 다운로드 링크(fileDownload.do?atchFileId=…)
+    m = re.search(r'"contentUrl"\s*:\s*"(https://www\.data\.go\.kr/cmm/cmm/fileDownload\.do\?[^"]+)"', page.text)
+    if not m:
+        raise RuntimeError("데이터셋 페이지에서 다운로드 링크(contentUrl)를 찾지 못함 — 페이지 구조가 바뀌었을 수 있음")
+    try:
+        res = requests.get(m.group(1), headers=ua, timeout=180)
+        res.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"CSV 다운로드 실패: {type(exc).__name__}: {exc}") from exc
+    # 파일명은 UTF-8 바이트가 그대로 오는데 requests 는 헤더를 latin-1 로 읽는다 → 되돌린다.
+    disp = res.headers.get("Content-Disposition", "")
+    try:
+        disp = disp.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    ym = re.search(r"(\d{4})\s*년\s*(\d{1,2})\s*월", disp)
+    if not ym:
+        raise RuntimeError(f"응답 파일명에서 연·월을 읽지 못함: {disp or '(Content-Disposition 없음)'}")
+    head = None
+    for enc in ("cp949", "utf-8-sig"):
+        try:
+            head = res.content[:4000].decode(enc, errors="strict").splitlines()[0]
+            break
+        except UnicodeDecodeError:
+            continue
+    if not head or "상품명" not in head or "판매가격" not in head:
+        raise RuntimeError(f"받은 파일이 참가격 CSV 형식이 아님(첫 줄: {head!r:.80})")
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    dest = RAW_DIR / f"한국소비자원_생필품가격_{ym.group(1)}{int(ym.group(2)):02d}.csv"
+    tmp = dest.with_suffix(".csv.part")
+    tmp.write_bytes(res.content)
+    tmp.replace(dest)
+    print(f"  [다운로드] {disp.split('filename=')[-1].strip(chr(34)) if 'filename=' in disp else m.group(1)} "
+          f"→ {dest.relative_to(BASE_DIR)} ({len(res.content):,} bytes)")
+    return dest
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -291,10 +350,21 @@ def main():
     ap.add_argument("--csv", type=Path, default=None, help="원본 CSV (생략 시 data/raw 최신 파일)")
     args = ap.parse_args()
 
-    path = args.csv or latest_raw_csv()
-    if path is None or not Path(path).exists():
-        print(f"[오류] 참가격 CSV 가 없습니다. 공공데이터포털 15083256 최신 월 CSV 를 data/raw/{RAW_GLOB} 로 저장하세요.")
-        sys.exit(1)
+    if args.csv is not None:
+        path = args.csv
+        if not Path(path).exists():
+            print(f"[오류] --csv 파일이 없습니다: {path}")
+            sys.exit(1)
+    else:
+        path = latest_raw_csv()
+        if path is None:
+            print(f"  data/raw/{RAW_GLOB} 가 없어 공공데이터포털 15083256 에서 최신 월 CSV 를 받습니다.")
+            try:
+                path = download_latest_csv()
+            except RuntimeError as exc:
+                print(f"[오류] 참가격 CSV 를 받지 못했습니다 — {exc}")
+                print(MANUAL_DOWNLOAD_HELP)
+                sys.exit(1)
     df = read_csv(path)
     total = len(df)
     df = df[(df["세일여부"].fillna("") != "Y") & (df["원플러스원"].fillna("") != "Y")].copy()

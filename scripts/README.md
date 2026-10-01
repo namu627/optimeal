@@ -48,6 +48,8 @@ docker exec optimeal_app python scripts/load_ingredient_price.py --mode load
 docker exec optimeal_app python scripts/load_ingredient_price_kamis.py --mode preview
 docker exec optimeal_app python scripts/load_ingredient_price_kamis.py --mode load
 # 7a) 참가격(한국소비자원 생필품 가격, 공공데이터포털 15083256 월 CSV → data/raw/한국소비자원_생필품가격_YYYYMM.csv)
+#     data/raw/ 에 파일이 없으면 로더가 최신 월 CSV 를 받아 저장한 뒤 쓴다(있으면 그대로 사용, --csv 로 지정 가능).
+#     받기에 실패하면 수동으로 받는 방법을 출력하고 멈춘다. 원본 CSV 는 .gitignore 대상.
 #     가공식품·양념(두부·식용유·설탕·밀가루·장류 등). 가락·KAMIS 가격이 있는 재료는 건드리지 않으므로 7) 다음에.
 docker exec optimeal_app python scripts/load_ingredient_price_chamgagyeok.py --mode preview
 docker exec optimeal_app python scripts/load_ingredient_price_chamgagyeok.py --mode load
