@@ -12,8 +12,9 @@ OptiMeal 프로젝트 유틸리티 스크립트 모음.
 
 ```bash
 # 0) 스키마 보강 (v2 → v3 → v4 → v5)
+#    psql -f 로 파일을 직접 읽힌다(PowerShell 파이프는 한글 주석이 깨지며 문장이 빠진 적이 있다 — 루트 README 배포 체크리스트)
 for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
-  docker exec -i optimeal_db psql -U optimeal -d optimeal < "$f"; done
+  docker cp "$f" optimeal_db:/tmp/ && docker exec optimeal_db psql -U optimeal -d optimeal -f "/tmp/$(basename "$f")"; done
 
 # 1) 레시피 본문 (data/raw/ xlsx 필요 — 구글드라이브)
 docker exec optimeal_app python scripts/load_recipe_data.py

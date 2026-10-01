@@ -82,6 +82,36 @@ flake8 module_2/
 
 ---
 
+## 배포 체크리스트 (식단 생성 서버)
+
+새 서버에 올리거나 DB 를 새로 만들 때 위에서부터 차례로 확인한다. 예산 규칙은 `docs/budget_carryover.md`.
+
+- [ ] **마이그레이션 v2 → v5 적용** — `psql -f` 로 파일을 직접 읽힌다.
+  ```bash
+  for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
+    docker cp "$f" optimeal_db:/tmp/ && docker exec optimeal_db psql -U optimeal -d optimeal -f "/tmp/$(basename "$f")"; done
+  ```
+  ⚠ PowerShell 에서 `Get-Content 파일 | docker exec -i ... psql` 로 흘려 넣지 말 것 — 한글 주석이 깨지면서 뒤 문장이
+  잘려 v5 의 `SET NOT NULL` 이 빠진 채 적용된 적이 있다. 적용 뒤 `\d ingredient_price` 에서 `source` 가 not null 이고
+  유일키가 `(ingredient_id, price_date, source)` 인지 확인한다.
+- [ ] **`.env` 키** — `.env.example` 참고. 원가에 `GARAK_ID`/`GARAK_PASSWD`(가락시장), `KAMIS_CERT_ID`/`KAMIS_CERT_KEY`(KAMIS),
+  후보 메뉴에 `FOODSAFETY_RECIPE_KEY` 가 필요하다. 키 값은 출력·커밋하지 않는다(KAMIS 응답 JSON 의 `condition` 에 키가
+  그대로 되돌아오므로 원본 응답을 로그·파일로 남기지 않는다). 확인은 길이만: `awk -F= '/^KAMIS_CERT_KEY=/{print length($2)}' .env`.
+- [ ] **적재 순서** — `scripts/README.md` 의 "DB 세팅 순서"대로: 레시피 → 후보(영양) → 재료 맵 → 원가
+  **가락 → KAMIS → 참가격 → 수기 → derive**. derive 는 가격이 바뀔 때마다 맨 마지막에 다시 돌린다.
+  끝나면 `scripts/check_menu_candidates.py` 로 카테고리별 후보 수를 확인한다.
+- [ ] **이미지 재빌드** — `requirements.txt`·`docker/Dockerfile` 이 바뀌었으면 `docker compose build app && docker compose up -d app`.
+  PDF 한글 폰트(`fonts-nanum`)가 이미지에 들어 있는지 `/api/menu/export/pdf` 가 200 이고 PDF 안에 `NanumGothic` 서브셋이
+  임베드되는지로 확인한다.
+- [ ] **식단 생성은 동시 1건** — CP-SAT 이 코어를 다 쓰므로 백엔드가 한 번에 1건만 푼다(`_SOLVE_LOCK`, 3초 대기 후
+  429 `solver_busy`). 락이 프로세스 단위라 **uvicorn 워커는 1개**(`--workers` 를 주지 않음)로 띄운다.
+  4코어 기준 7일 3식 약 40초, 31일은 점심만 지원.
+- [ ] **목업 스위치는 꺼 둔다** — 프론트는 생성이 실패하면 목업으로 대체하지 않고 실패 화면(백엔드 연결 실패 / DB 연결 실패
+  / 서버 오류)을 띄운다. 목업은 `VITE_USE_MOCK=true` 로 Vite 를 띄웠을 때만 쓰이며, 그때는 상단에 "목업 데이터 — 실제 생성
+  결과 아님" 배너가 계속 뜨고 저장·PDF·CSV 가 막힌다. 사이드바 상태는 `/health` 의 `db`(DB ping) 까지 본다.
+
+---
+
 ## Git 협업 방법
 
 ```bash
