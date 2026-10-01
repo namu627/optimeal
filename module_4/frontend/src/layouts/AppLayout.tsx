@@ -17,6 +17,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { colors, layout } from '../theme';
 import { LogoMark } from '../components/Logo';
 import { useHealth } from '../api/useHealth';
+import { USE_MOCK, MOCK_BANNER } from '../api/menu';
 
 const items = [
   { key: '/', icon: <HomeOutlined />, label: '홈' },
@@ -48,7 +49,10 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const ready = useHealth();
+  const health = useHealth();
+  // 사이드바 상태: 백엔드 연결 실패 / DB 연결 안 됨 / 정상. DB 가 꺼지면 식단 생성이 실패하므로 '정상'으로 두지 않는다.
+  const bad = health === 'down' || health === 'db_down';
+  const healthLabel = health === null ? '상태 확인 중' : health === 'down' ? '백엔드 연결 안 됨' : health === 'db_down' ? 'DB 연결 안 됨' : '백엔드 정상';
 
   // 저장된 식단 상세(/plans/:id)는 메뉴상 '식단 목록' 아래로 본다.
   const isPlanDetail = /^\/plans\/\d+$/.test(pathname);
@@ -146,7 +150,7 @@ export default function AppLayout() {
               height: 28,
               padding: collapsed ? 0 : '0 8px',
               borderRadius: 8,
-              background: ready === false ? colors.errorTint : colors.primaryTintSoft,
+              background: bad ? colors.errorTint : colors.primaryTintSoft,
             }}
           >
             <span
@@ -154,13 +158,13 @@ export default function AppLayout() {
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: ready === false ? colors.error : colors.primary,
+                background: bad ? colors.error : colors.primary,
                 flex: 'none',
               }}
             />
             {!collapsed && (
-              <span style={{ fontSize: 11, color: ready === false ? colors.errorText : colors.primaryActive }}>
-                {ready === false ? '백엔드 준비중' : '백엔드 정상'}
+              <span style={{ fontSize: 11, color: bad ? colors.errorText : colors.primaryActive }}>
+                {healthLabel}
               </span>
             )}
           </div>
@@ -186,7 +190,7 @@ export default function AppLayout() {
 
           <div style={{ flex: 1 }} />
 
-          <Button type="primary" icon={<PlusOutlined />} disabled={ready === false} onClick={() => navigate('/plans/new')}>
+          <Button type="primary" icon={<PlusOutlined />} disabled={health === 'down' && !USE_MOCK} onClick={() => navigate('/plans/new')}>
             새 식단
           </Button>
 
@@ -200,11 +204,21 @@ export default function AppLayout() {
           </Dropdown>
         </Layout.Header>
 
-        {ready === false && (
+        {USE_MOCK && (
+          <Alert
+            type="warning"
+            showIcon
+            message={`${MOCK_BANNER} (VITE_USE_MOCK=true) · 저장·PDF·CSV 내려받기를 막았어요`}
+            style={{ borderRadius: 0, border: 'none', fontWeight: 600 }}
+          />
+        )}
+        {bad && (
           <Alert
             type="error"
             showIcon
-            message="백엔드 준비 중입니다 — 마지막 저장 상태를 표시하고 있어요"
+            message={health === 'down'
+              ? '백엔드에 연결할 수 없어요 — 백엔드 서버(포트 8000)를 켜 주세요'
+              : <>영양성분 DB에 연결할 수 없어요 — 식단 생성·영양성분 검색이 실패해요. <code>docker start optimeal_db</code> 로 DB를 켜 주세요</>}
             style={{ borderRadius: 0, border: 'none' }}
           />
         )}

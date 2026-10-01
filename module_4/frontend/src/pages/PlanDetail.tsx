@@ -1,14 +1,14 @@
 // src/pages/PlanDetail.tsx
 // 저장된 식단 열람(/plans/:id) — 검토 화면(Step2Review)을 읽기 전용으로 재사용한다.
 import { useEffect, useState } from 'react';
-import { App, Button, Card, Dropdown, Empty, Skeleton } from 'antd';
+import { Alert, App, Button, Card, Dropdown, Empty, Skeleton } from 'antd';
 import { ArrowLeftOutlined, FilePdfOutlined, ReadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { colors } from '../theme';
 import Step2Review from './plan/Step2Review';
 import RecipeDrawer from './plan/RecipeDrawer';
 import { downloadPlanPdf, describeExportError } from './plan/planExport';
-import { formatSavedAt, getSavedPlan, recomputePlan, type SavedPlan } from '../api/menu';
+import { MOCK_BANNER, formatSavedAt, getSavedPlan, recomputePlan, type SavedPlan } from '../api/menu';
 
 type LoadState = { status: 'loading' } | { status: 'notfound' } | { status: 'error' } | { status: 'ok'; saved: SavedPlan };
 
@@ -51,6 +51,8 @@ function PlanDetailView({ id }: { id: number }) {
   }
 
   const { saved } = state;
+  // 예전 개발 모드 폴백으로 목업이 저장된 경우 — 실제 식단이 아님을 알리고 PDF 를 막는다.
+  const isMock = saved.plan.source === 'mock';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -77,9 +79,10 @@ function PlanDetailView({ id }: { id: number }) {
               .finally(() => setPdfBusy(false));
           },
         }}>
-          <Button icon={<FilePdfOutlined />} loading={pdfBusy}>PDF 받기</Button>
+          <Button icon={<FilePdfOutlined />} loading={pdfBusy} disabled={isMock}>PDF 받기</Button>
         </Dropdown>
       </div>
+      {isMock && <Alert type="warning" showIcon message={`${MOCK_BANNER} — 이 저장본은 목업 식단이라 PDF를 만들 수 없어요`} />}
       <Step2Review plan={saved.plan} readOnly />
       <RecipeDrawer plan={saved.plan} open={recipeOpen} onClose={() => setRecipeOpen(false)} />
     </div>

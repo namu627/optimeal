@@ -7,7 +7,7 @@ import StepIndicator from './StepIndicator';
 import RecipeDrawer from './RecipeDrawer';
 import KpiRow from '../../components/KpiRow';
 import BudgetSummaryCard from './BudgetSummaryCard';
-import { MEAL_TABLE, planDateRange, planTargetLabel, type MealPlan } from '../../api/menu';
+import { MEAL_TABLE, MOCK_BANNER, planDateRange, planTargetLabel, type MealPlan } from '../../api/menu';
 import { saveCsv, tableRows, recipeRows, altRecipeRows, downloadPlanPdf, describeExportError } from './planExport';
 
 const C = {
@@ -48,8 +48,11 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
   // 기본 식단 이름은 실제 조건(기간·대상·끼니)에서 만든다. 예: '9/25–10/1 · 초등학생 중식'
   const [name, setName] = useState(() => `${range} · ${planTargetLabel(plan)} ${mealsText}`);
   const allergyN = plan.alternatives.reduce((s, t) => s + t.count, 0);
+  // 목업 식단(VITE_USE_MOCK)은 실제 생성 결과가 아니므로 저장·PDF·CSV 를 막는다.
+  const isMock = plan.source === 'mock';
 
   const confirm = async () => {
+    if (isMock) { message.warning(`${MOCK_BANNER} — 내려받을 수 없어요`); return; }
     const base = (name.trim() || '식단') ;
     const jobs: { label: string; run: () => void | Promise<void> }[] = [];
     // PDF 를 맨 앞에 — 받은 뒤 새 탭으로 여는데(window.open), 클릭 직후여야 팝업 차단을 덜 받는다.
@@ -73,6 +76,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
     if (ok) message.success(`식단이 확정되고 파일 ${ok}개를 내려받았어요`);
   };
   const saveDraft = async () => {
+    if (isMock) { message.warning(`${MOCK_BANNER} — 저장할 수 없어요`); return; }
     const n = name.trim();
     if (!n) { message.warning('식단 이름을 입력해 주세요'); return; }
     setSaving(true);
@@ -145,8 +149,9 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Button onClick={onPrev}>이전</Button>
         <div style={{ flex: 1 }} />
-        <Button onClick={saveDraft} loading={saving}>초안으로 저장</Button>
-        <Button type="primary" icon={<DownloadOutlined />} onClick={confirm} loading={exporting}>확정하고 내려받기</Button>
+        {isMock && <span style={{ fontSize: 12, color: C.sub }}>{MOCK_BANNER} — 저장·내려받기를 막았어요</span>}
+        <Button onClick={saveDraft} loading={saving} disabled={isMock}>초안으로 저장</Button>
+        <Button type="primary" icon={<DownloadOutlined />} onClick={confirm} loading={exporting} disabled={isMock}>확정하고 내려받기</Button>
       </div>
     </div>
   );

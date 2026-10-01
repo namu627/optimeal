@@ -50,7 +50,36 @@ export function toWireRequest(body: MenuGenerateRequest): MenuGenerateRequest {
   return { ...body, budget_limit_per_person: perMeal * nMeals };
 }
 export async function generateMenu(body: MenuGenerateRequest): Promise<MenuGenerateRaw> {
-  const { data } = await api.post<MenuGenerateRaw>('/api/menu/generate', toWireRequest(body)); return data;
+  // silent: 실패는 공통 토스트 대신 생성 화면의 실패 안내(GenerateError)로 보여준다.
+  const { data } = await api.post<MenuGenerateRaw>('/api/menu/generate', toWireRequest(body), { silent: true }); return data;
+}
+
+// 목업 스위치 — VITE_USE_MOCK=true 일 때만 서버를 부르지 않고 mockPlan() 을 쓴다.
+// 예전에는 개발 모드에서 생성이 실패하면 조용히 목업으로 대체해, 목업을 실제 식단으로 오인하고 테스트한 일이 있었다.
+// 이제 실패는 항상 실패 화면으로 보이고, 목업은 이 스위치로만 켜지며 켜져 있으면 상단 배너 + 저장·PDF·CSV 차단.
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
+export const MOCK_BANNER = '목업 데이터 — 실제 생성 결과 아님';
+
+/** 생성 요청 실패 원인. network = 백엔드에 연결 못 함, db = 백엔드는 떴지만 영양성분 DB 연결 실패, server = 그 밖의 서버 오류. */
+export type GenerateErrorKind = 'network' | 'db' | 'server';
+export interface GenerateError { kind: GenerateErrorKind; detail: string }
+
+// 백엔드가 DB 를 못 붙었을 때 내는 503 reason(menu.py _load_menu_candidates, nutrition 라우터).
+const DB_REASONS = new Set(['menu_source_unavailable', 'db_unavailable']);
+
+export function classifyGenerateError(err: unknown): GenerateError {
+  const e = err as { code?: string; message?: string; response?: { status?: number; data?: { detail?: unknown } } };
+  if (!e?.response) {
+    if (e?.code === 'ECONNABORTED') return { kind: 'server', detail: '응답 시간 초과 — 서버가 제한 시간(90초) 안에 답하지 않았어요.' };
+    return { kind: 'network', detail: e?.message ?? '네트워크 오류' };
+  }
+  const status = e.response.status;
+  const d = e.response.data?.detail;
+  const reason = d && typeof d === 'object' ? (d as { reason?: string }).reason : undefined;
+  const full = d && typeof d === 'object' ? (d as { message?: string }).message : typeof d === 'string' ? d : undefined;
+  const msg = full?.split('\n')[0]; // 드라이버 오류는 여러 줄 — 첫 줄만 화면에 (전문은 콘솔)
+  if (status === 503 && reason && DB_REASONS.has(reason)) return { kind: 'db', detail: msg ?? reason };
+  return { kind: 'server', detail: `HTTP ${status}${reason ? ` · ${reason}` : ''}${msg ? ` — ${msg}` : ''}` };
 }
 export function isUnavailable(err: unknown): boolean {
   return (err as { response?: { status?: number } })?.response?.status === 503;
@@ -612,7 +641,7 @@ const PROFILE_LABEL: Record<string, string> = {
 };
 
 // 데모용 목업 전용 시드 난수 — 입력 조건이 같으면 항상 같은 값을 내도록 결정적으로 해싱한다.
-// (실제 CSP 응답이 붙으면 mockPlan()·이 함수는 통째로 제거)
+// (VITE_USE_MOCK=true 일 때만 쓰인다 — USE_MOCK 참고)
 function seedFrac(...nums: number[]): number {
   let h = 2166136261;
   for (const n of nums) { h ^= Math.round(n); h = Math.imul(h, 16777619); }

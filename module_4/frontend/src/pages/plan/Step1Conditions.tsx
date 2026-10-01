@@ -1,12 +1,13 @@
 // src/pages/plan/Step1Conditions.tsx
 // 식단 생성 1단계 · 조건 입력 (시안 화면 4 / 4-a 생성중 / 4-b INFEASIBLE)
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Card, Select, InputNumber, Button, Checkbox, Alert, Segmented, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import {
   PROFILE_OPTIONS, ALLERGEN_POOL, BUDGET_MODE_LABEL, listProfiles,
   type MenuGenerateRequest, type AllergyGroup, type MenuProfile, type BudgetMode,
+  type GenerateError, type GenerateErrorKind,
 } from '../../api/menu';
 
 const C = {
@@ -14,7 +15,23 @@ const C = {
   green: '#12A150', greenText: '#0B6B36', tint: '#E4F7EB', tintBorder: '#BFEACF', head: '#F7FAF8',
   red: '#E5484D', redText: '#B42318', redTint: '#FDECEC', redBorder: '#F8D0D1',
 };
-type GenState = 'idle' | 'loading' | 'infeasible' | 'timeout';
+type GenState = 'idle' | 'loading' | 'infeasible' | 'timeout' | 'error';
+
+// 생성 요청 실패 화면 — 원인별 제목·조치. 목업으로 대체하지 않는다(PlanCreate 참고).
+const GEN_ERROR_TEXT: Record<GenerateErrorKind, { title: string; action: ReactNode }> = {
+  network: {
+    title: '백엔드에 연결할 수 없어요',
+    action: <>백엔드 서버(uvicorn, 포트 8000)가 켜져 있는지 확인한 뒤 다시 시도해 주세요.</>,
+  },
+  db: {
+    title: '영양성분 DB에 연결할 수 없어요',
+    action: <>DB 컨테이너가 꺼져 있을 수 있어요. 터미널에서 <code>docker start optimeal_db</code> 를 실행한 뒤 다시 시도해 주세요.</>,
+  },
+  server: {
+    title: '서버 오류로 식단을 만들지 못했어요',
+    action: <>잠시 후 다시 시도해 주세요. 계속되면 백엔드 로그를 확인해 주세요.</>,
+  },
+};
 
 // 위저드에서 뒤로 돌아왔을 때 조건을 그대로 복원하기 위한 폼 스냅샷
 export interface Step1Form {
@@ -67,8 +84,8 @@ function CondRow({ name, on, count, onToggle, onCount }: {
   );
 }
 
-export default function Step1Conditions({ genState, onGenerate, onCancel, initial, onFormChange }: {
-  genState: GenState; onGenerate: (req: MenuGenerateRequest) => void; onCancel: () => void;
+export default function Step1Conditions({ genState, genError, onGenerate, onCancel, initial, onFormChange }: {
+  genState: GenState; genError?: GenerateError | null; onGenerate: (req: MenuGenerateRequest) => void; onCancel: () => void;
   initial?: Step1Form; onFormChange?: (f: Step1Form) => void;
 }) {
   const init = initial ?? DEFAULT_FORM;
@@ -156,6 +173,18 @@ export default function Step1Conditions({ genState, onGenerate, onCancel, initia
           message="조건을 만족하는 식단을 찾지 못했습니다"
           description="입력한 조건이 서로 충돌해 해를 찾지 못했습니다. 예산·나트륨 상한·알레르기 제외 범위·끼니 구성 같은 조건을 조정하면 다시 생성할 수 있어요."
           action={<Button danger onClick={() => submit()}>조건 수정하기</Button>}
+        />
+      )}
+      {genState === 'error' && genError && (
+        <Alert type="error" showIcon
+          message={`식단을 생성하지 못했어요 — ${GEN_ERROR_TEXT[genError.kind].title}`}
+          description={
+            <div>
+              <div>{GEN_ERROR_TEXT[genError.kind].action}</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: C.sub }}>원인: {genError.detail}</div>
+            </div>
+          }
+          action={<Button danger type="primary" onClick={() => submit()}>다시 시도</Button>}
         />
       )}
       {genState === 'timeout' && (
