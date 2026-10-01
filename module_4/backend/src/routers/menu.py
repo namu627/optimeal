@@ -46,11 +46,22 @@ SOLVER_PARAMS = {"max_presolve_iterations": 1}
 #   (탐색에 쓸 시간이 늘어서). 점심만(1식)은 presolve 가 병목이 아니고, 7일 점심은 끄면 개선이 계속 이어져
 #   정체 종료가 늦어지므로(22~24초 → 32초) 1식에는 적용하지 않는다.
 SOLVER_PARAMS_MULTI_MEAL = {"cp_model_probing_level": 0, "find_big_linear_overlap": False}
+# 긴 기간(7일 초과)·여러 끼 전용 — presolve 를 끈다(2026-10-02).
+#   31일 3식은 31일치 완성 힌트가 있어도 presolve 에 ~19초를 쓰고 그 직후 힌트 그대로 첫 해가 나왔다(CP-SAT 로그).
+#   모델 구성 ~26초 + 힌트 ~32초 뒤라 80초 총 한도를 넘겼다. presolve 를 끄면 탐색이 ~3.6초에 시작해 첫 해가 ~8초.
+#   7일 이하는 presolve 가 탐색 품질에 도움이 되고 시간도 충분해 그대로 둔다.
+SOLVER_PARAMS_LONG_MULTI_MEAL = {"cp_model_presolve": False}
 
 
-def _solver_params(meals) -> dict:
-    """끼니 수에 맞춘 CP-SAT 파라미터(요청마다 새 dict)."""
-    return {**SOLVER_PARAMS, **(SOLVER_PARAMS_MULTI_MEAL if len(meals) >= 2 else {})}
+def _is_long_multi(days: int, meals) -> bool:
+    """7일 초과 + 2식 이상 — 힌트 몫·presolve 를 따로 잡는 요청."""
+    return days > 7 and len(meals) >= 2
+
+
+def _solver_params(meals, days: int = 1) -> dict:
+    """끼니 수·기간에 맞춘 CP-SAT 파라미터(요청마다 새 dict)."""
+    return {**SOLVER_PARAMS, **(SOLVER_PARAMS_MULTI_MEAL if len(meals) >= 2 else {}),
+            **(SOLVER_PARAMS_LONG_MULTI_MEAL if _is_long_multi(days, meals) else {})}
 
 
 # ── 동시 풀이 직렬화 · 총 소요 한도 (2026-09-30) ─────────────────────────────
@@ -71,6 +82,14 @@ GUARD_RELAX_MIN_SECONDS = 10.0      # 울타리 해제 재풀이에 최소로 �
 #   하루 부분 문제 상한 2초→1초로 힌트 10~12초→약 8초, 힌트 몫 0.35→0.5 로 잘림을 막는다(3/3 완성 확인).
 HINT_PER_DAY_TIME = 1.0
 HINT_BUDGET_RATIO = 0.5
+# 7일 초과·2식 이상: 힌트가 하루 ~1초씩 31일치를 다 만들어야 첫 해가 나온다. 몫 0.5 로는 22초에 18~19일(3식)·
+#   23일(2식, 3회 중 1회)에서 잘려 UNKNOWN → 0.85(남은 시간의 85%까지). presolve 를 끄므로(SOLVER_PARAMS_LONG_MULTI_MEAL)
+#   완성 힌트면 본 풀이 첫 해까지 수 초면 된다. 하루 상한은 1.0 그대로 — 0.5 이하로 줄이면 하루치를 못 풀어 힌트가 끊긴다.
+HINT_BUDGET_RATIO_LONG_MULTI = 0.85
+
+
+def _hint_budget_ratio(days: int, meals) -> float:
+    return HINT_BUDGET_RATIO_LONG_MULTI if _is_long_multi(days, meals) else HINT_BUDGET_RATIO
 
 
 def _total_deadline(payload, started: float) -> float | None:
@@ -828,7 +847,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         relative_gap_limit=SOLVER_GAP_LIMIT,
         stall_seconds=SOLVER_STALL_SECONDS,
         stall_min_improvement=SOLVER_STALL_MIN_IMPROVEMENT,
-        solver_params=_solver_params(meals),
+        solver_params=_solver_params(meals, payload.days),
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
@@ -845,7 +864,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         req.deadline = _total_deadline(payload, started)
     if hasattr(req, "hint_per_day_time"):
         req.hint_per_day_time = HINT_PER_DAY_TIME
-        req.hint_budget_ratio = HINT_BUDGET_RATIO
+        req.hint_budget_ratio = _hint_budget_ratio(payload.days, meals)
     if not _SOLVE_LOCK.acquire(timeout=SOLVER_BUSY_WAIT_SEC):
         raise HTTPException(status_code=429, detail={
             "reason": "solver_busy",

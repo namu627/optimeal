@@ -129,26 +129,39 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
     setConds((prev) => (k in prev ? (() => { const n = { ...prev }; delete n[k]; return n; })() : { ...prev, [k]: null }));
   // 항상 아침→점심→저녁 순으로 유지 (클릭 순서와 무관하게 식단표 행 순서가 흔들리지 않도록)
   const MEAL_ORDER = ['아침', '점심', '저녁'];
-  // 31일은 점심만 — 3식은 현재 풀이 한도(총 80초) 안에 해가 나오지 않는다(2026-09-30 화면 기본 조건 2회 모두 UNKNOWN).
+  // 31일에 고를 수 있는 끼니 수. 2026-10-02 화면 기본 조건 측정(총 한도 80초, 힌트 몫 0.85·presolve 끔 — 백엔드 menu.py):
+  //   점심 FEASIBLE ~50초, 2식 세 조합 각 3/3 FEASIBLE 54~63초, 3식 3/3 FEASIBLE 이지만 77.7~79.2초(여유 1초 안팎)라
+  //   PC 부하에 시간 초과가 날 수 있어 2식까지만 허용한다(31일에서 세 번째 끼니가 잠기고, 전송 때도 잘린다).
+  //   (2026-09-30 에는 3식이 2/2 UNKNOWN 이라 점심만 허용했었다.)
   const LONG_DAYS = 31;
-  const LONG_MEALS = ['점심'];
-  const mealLocked = (m: string) => days === LONG_DAYS && !LONG_MEALS.includes(m);
+  const LONG_MAX_MEALS = 2;
+  const LONG_BLOCK_TEXT = `31일은 ${LONG_MAX_MEALS}끼까지 생성할 수 있어요(3식은 현재 시간 안에 안정적으로 생성되지 않음)`;
+  // 31일에서 잠긴 끼니를 누르거나, 31일로 바꾸며 끼니가 잘렸을 때 위 안내를 띄운다.
+  const [longBlocked, setLongBlocked] = useState(false);
+  // 개수를 넘기면 점심 → 저녁 → 아침 순으로 남긴다. 결과는 아침→점심→저녁 순.
+  const trimLong = (p: string[]) => {
+    const keep = ['점심', '저녁', '아침'].filter((x) => p.includes(x)).slice(0, LONG_MAX_MEALS);
+    return MEAL_ORDER.filter((x) => keep.includes(x));
+  };
+  const mealLocked = (m: string) => days === LONG_DAYS && !meals.includes(m) && meals.length >= LONG_MAX_MEALS;
   const toggleMeal = (m: string) => {
-    if (mealLocked(m)) return;
+    if (mealLocked(m)) { setLongBlocked(true); return; }
+    setLongBlocked(false);
     setMeals((p) => (p.includes(m) ? p.filter((x) => x !== m) : MEAL_ORDER.filter((x) => p.includes(x) || x === m)));
   };
-  // 기간을 31일로 바꾸면 끼니를 점심만 남긴다. 7일·1일로 돌아가면 아침·저녁을 다시 고를 수 있다(자동으로 켜지는 않음).
+  // 기간을 31일로 바꾸면 끼니를 LONG_MAX_MEALS 개까지만 남긴다. 7일·1일로 돌아가면 다시 고를 수 있다(자동으로 켜지는 않음).
   const pickDays = (d: number) => {
     setDays(d);
-    if (d === LONG_DAYS) setMeals((p) => p.filter((x) => LONG_MEALS.includes(x)));
+    setLongBlocked(d === LONG_DAYS && meals.length > LONG_MAX_MEALS);
+    if (d === LONG_DAYS) setMeals(trimLong);
   };
 
   // over: 시간 초과 안내의 '기간 줄이기'·'하루 단위로 생성'이 바꾼 값을 바로 반영해 보낸다(상태 갱신을 기다리지 않음).
   const submit = (over: { days?: number; budgetMode?: BudgetMode } = {}) => {
     if (genState === 'loading') return; // 중복 제출 방지
     const d = over.days ?? days, bm = over.budgetMode ?? budgetMode;
-    // 이전 폼 스냅샷이 31일·3식이어도 점심만 보낸다.
-    const sendMeals = d === LONG_DAYS ? meals.filter((x) => LONG_MEALS.includes(x)) : meals;
+    // 이전 폼 스냅샷이 31일에 허용보다 많은 끼니여도 LONG_MAX_MEALS 개까지만 보낸다.
+    const sendMeals = d === LONG_DAYS ? trimLong(meals) : meals;
     if (over.days != null) setDays(over.days);
     if (over.budgetMode) setBudgetMode(over.budgetMode);
     onFormChange?.({ profile, count, conds, days: d, meals: sendMeals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
@@ -245,13 +258,15 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
                     <Checkbox checked={on} disabled={locked} /><span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? C.text : C.sub }}>{m}</span>
                   </div>
                 );
-                return locked ? <Tooltip key={m} title="31일은 점심만 생성할 수 있어요">{box}</Tooltip> : box;
+                return locked ? <Tooltip key={m} title={LONG_BLOCK_TEXT}>{box}</Tooltip> : box;
               })}
             </div>
           </div>
-          {days === LONG_DAYS && (
-            <Alert type="info" showIcon style={{ marginTop: 10 }}
-              title="31일은 점심만 생성할 수 있어요(3식은 현재 시간 안에 생성되지 않음)" />
+          {days === LONG_DAYS && longBlocked && (
+            <Alert type="warning" showIcon style={{ marginTop: 10 }} title={LONG_BLOCK_TEXT} />
+          )}
+          {days === LONG_DAYS && meals.length >= 2 && (
+            <Alert type="info" showIcon style={{ marginTop: 10 }} title="31일 2식은 생성에 1분 가까이 걸려요" />
           )}
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label="1일 열량 목표"><InputNumber value={kcalValue} disabled={locked} onChange={(v) => setKcal(Number(v) || 0)} suffix="kcal" style={{ width: '100%' }} /></Field>
