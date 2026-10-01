@@ -194,7 +194,20 @@ class MenuGenerateRequest(BaseModel):
     )
     target_kcal_per_day: float = Field(2000.0, gt=0)
     kcal_tolerance: float = Field(0.10, ge=0, le=0.5)
-    budget_limit_per_person: Optional[float] = Field(3500.0, gt=0)
+    budget_mode: Literal["day", "carryover"] = Field(
+        "carryover",
+        description="예산 운영 방식. **carryover**(기본): 기간 총액 ≤ 1끼 예산 B × 끼니 수 × 일수 를 Hard 로 "
+                    "지키고, 한 끼가 B 를 넘거나 모자라는 것은 허용하되 B×0.8~1.2 밖·연속일 원가/나트륨 급변을 "
+                    "Soft 로 감점한다(이월). **day**: 기존 방식 — 매일 1일 상한을 Hard 로. "
+                    "B = budget_limit_per_person ÷ 끼니 수. 적용 결과는 applied_targets.budget_mode·"
+                    "budget_total·budget_per_meal, 끼니별 원가는 응답 carryover.",
+    )
+    budget_limit_per_person: Optional[float] = Field(
+        None, gt=0,
+        description="1인 **1일** 식재료비 상한(원, H-3 Hard 제약). 한 끼 예산 × 끼니 수로 보낼 것. "
+                    "**생략**하면 1인 1끼 3,500원 × 끼니 수를 적용한다(적용값은 응답 "
+                    "applied_targets.budget_limit_per_day). 명시적 null 이면 예산 미적용.",
+    )
     sodium_max_mg_per_day: Optional[float] = Field(
         2000.0, gt=0,
         description="1일 나트륨 상한 mg (H-2e Hard 제약). null이면 미적용. "
@@ -229,6 +242,11 @@ class MenuGenerateRequest(BaseModel):
         320, ge=1,
         description="배식 인원수. 조리 지시서(재료 투입량 = 1인분×인원수) 스케일에만 쓰이며 "
                     "해 탐색(결정변수)에는 영향 없다.",
+    )
+    site_id: Optional[int] = Field(
+        None, ge=1,
+        description="캘리브레이션 업장 id(/api/calibration). 주면 그 업장 보정이 있는 재료만 조리 지시서 "
+                    "총량을 스케일링 값으로 쓴다(재료마다 basis='스케일링'|'단순 비례').",
     )
     with_alternatives: bool = Field(
         False, description="알레르기 그룹별 대체식(공통식+대체식 트랙) 동반 산출"

@@ -50,3 +50,6 @@ reports/**/*.pdf
 # 로그 파일들
 data/external/*.csv
 data/processed/calibration.db
+
+# DB 백업 덤프 (DB 데이터 — 커밋 금지)
+data/backup/

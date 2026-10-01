@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
-from .routers import calibration, menu, nutrition, plans, scaling
+from .routers import calibration, export, menu, nutrition, plans, scaling
 
 # [통합테스트 수정안] 프론트(React/Vite)가 브라우저에서 이 API를 호출하려면 CORS 필수.
 # 개발 기본값은 Vite(5173)·CRA(3000). 운영은 OPTIMEAL_CORS_ORIGINS(콤마구분)로 지정.
@@ -54,6 +54,20 @@ DESCRIPTION = """
 """
 
 
+def _ping_db() -> tuple[bool, str | None]:
+    """영양성분 DB(PostgreSQL)에 SELECT 1 — 2초 안에 못 붙으면 down. (헬스 체크가 오래 걸리지 않게)"""
+    try:
+        import sqlalchemy as sa
+
+        engine = sa.create_engine(config.postgres_url(), connect_args={"connect_timeout": 2},
+                                  poolclass=sa.pool.NullPool)
+        with engine.connect() as conn:
+            conn.execute(sa.text("SELECT 1"))
+        return True, None
+    except Exception as exc:  # 드라이버 미설치·접속 거부·인증 실패 모두 'DB 연결 안 됨'
+        return False, f"{type(exc).__name__}: {str(exc).splitlines()[0][:200] if str(exc) else ''}"
+
+
 def create_app() -> FastAPI:
     """FastAPI 앱을 구성해 반환한다(테스트에서도 동일 경로로 생성)."""
     application = FastAPI(
@@ -75,13 +89,21 @@ def create_app() -> FastAPI:
     application.include_router(nutrition.router)
     application.include_router(menu.router)
     application.include_router(plans.router)
+    application.include_router(export.router)
 
     @application.get("/health", tags=["meta"], summary="헬스체크 · 선택적 의존성 상태")
     def health() -> dict:
-        """앱 상태와 선택적 의존성(모듈 3·DB) 구성 여부를 보고한다."""
+        """앱 상태와 선택적 의존성(모듈 3·DB) 구성 여부를 보고한다.
+
+        status 는 앱 자체(항상 ok)이고, 영양성분 DB 는 실제로 ping 해서 db("ok"|"down")로 따로 알린다.
+        DB 가 꺼져 있으면 식단 생성이 503 이 되므로 사이드바가 'DB 연결 안 됨'을 보여줄 수 있게 한다.
+        """
         m3 = config.module3_src_path()
+        db_ok, db_error = _ping_db()
         return {
             "status": "ok",
+            "db": "ok" if db_ok else "down",
+            "db_error": db_error,
             "calibration_db": str(config.CALIBRATION_DB),
             "module_3_csp": str(m3) if m3 else None,
             "df_b_csv": config.DF_B_CSV.exists(),

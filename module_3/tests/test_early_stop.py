@@ -142,3 +142,18 @@ class _FakeWatch:
 ])
 def test_stop_reason(status, obj, bound, watch, gap, expected):
     assert cs._stop_reason(status, watch, gap, _FakeSolver(obj, bound)) == expected
+
+
+# ── 총 소요 마감(deadline) ─────────────────────────────────────────────
+def test_deadline_defaults_off():
+    assert MealPlanRequest().deadline is None
+
+
+def test_deadline_caps_solver_time():
+    """solver_time_limit 이 넉넉해도 마감이 가까우면 그 전에 멈추고, 찾은 해(가능해)를 돌려준다."""
+    import time
+    res = build_and_solve(_menus(), MealPlanRequest(
+        days=2, meals=("아침", "점심"), composition={"주식": 1, "국": 1},
+        solver_time_limit=30.0, deadline=time.monotonic() + 1.5))
+    assert res.status in ("OPTIMAL", "FEASIBLE")
+    assert res.wall_time < 5.0

@@ -24,6 +24,7 @@ from ortools.sat.python import cp_model
 #   scd = nyc(남유찬): Soft — 다양성·제철·완제품자제·나트륨당저감 (목적함수)
 #   ws  = 롤링 웜스타트 (탐색 보조 — 해의 의미를 바꾸지 않음)
 try:
+    from . import budget_carryover as bc
     from . import csp_hard_constraints as hc
     from . import csp_warm_start as ws
     from . import menu_affinity as ma
@@ -32,6 +33,7 @@ try:
     from . import soft_constraints_diversity as scd
     from . import user_profiles as up
 except ImportError:  # `python csp_solver.py` 직접 실행 시
+    import budget_carryover as bc
     import csp_hard_constraints as hc
     import csp_warm_start as ws
     import menu_affinity as ma
@@ -75,10 +77,20 @@ DEFAULT_MENU_CATEGORIES = ["주식", "국", "찌개", "주찬", "부찬", "김�
 #   부찬 상한 3은 현장 배식 기준(영양사 확정) — 상한이 없으면 열량 밴드가 허용하는 만큼
 #   4개까지 늘어난다(8/12 1차 산출물에서 63끼니 중 6끼니가 4개였다).
 DEFAULT_COMPOSITION = {"주식": 1, "국": 1, "주찬": 1, "부찬": (2, 3), "김치": 1}
-_MENU_QUERY = """
+# 원가 출처 우선순위(2026-09-30 고정) — 재료에 여러 출처 가격이 있으면 앞 출처를 쓰고, 같은 출처 안에서만
+#   최신 날짜를 쓴다(예전: 출처 무관 최신 날짜 → 로더 실행 순서에 따라 원가가 바뀌었다).
+#   scripts/price_priority.py 와 같은 목록이어야 한다(module_4 test_price_priority 가 확인).
+PRICE_SOURCE_PRIORITY = (
+    ("KAMIS_W",), ("서울시농수산식품공사",), ("KAMIS_R",), ("참가격_R",), ("수기_참조",),
+    ("쌀 환산", "상위품목 대체", "동의어 대체"), ("정책 0원",),
+)
+_PRICE_RANK = "(CASE " + " ".join(
+    f"WHEN source IN ({', '.join(repr(s) for s in g)}) THEN {i}"
+    for i, g in enumerate(PRICE_SOURCE_PRIORITY, start=1)) + " ELSE 99 END)"
+_MENU_QUERY = f"""
 WITH latest_price AS (
     SELECT DISTINCT ON (ingredient_id) ingredient_id, price_per_g
-    FROM ingredient_price ORDER BY ingredient_id, price_date DESC
+    FROM ingredient_price ORDER BY ingredient_id, {_PRICE_RANK}, price_date DESC
 ),
 allergen AS (
     SELECT DISTINCT ingredient_id FROM constraints WHERE constraint_type = '알레르기'
@@ -146,6 +158,16 @@ class MealPlanRequest:
     # 끼니 슬롯 구성. int=정확히 그 개수 / (lo, hi)=범위(hi=None 이면 상한 없음).
     composition: dict = field(default_factory=lambda: dict(DEFAULT_COMPOSITION))
     solver_time_limit: float = 10.0
+    # 총 소요 마감(opt-in · None=미적용). time.monotonic() 기준 절대 시각. 주면 웜스타트·풀이 시간을
+    #   solver_time_limit 과 "마감까지 남은 시간" 중 작은 쪽으로 자른다 — 모델 구성(3식 7일 ~6초)처럼
+    #   solver_time_limit 밖에서 쓰인 시간까지 총 한도에 넣고 싶을 때(API 응답 시간 상한). 2026-09-30.
+    deadline: float = None
+    # 웜스타트 힌트 구성 튜닝(opt-in · None=csp_warm_start 기본값). 2026-09-30 계측(초등 저학년 3식 7일·울타리):
+    #   하루 부분 문제가 기본 2초 상한 근처(~1.7초)까지 돌아 힌트에 10~12초가 들고, 힌트 몫(남은 시간×0.35)에서
+    #   잘려 6일치만 만들어지면 본 풀이가 첫 해를 못 찾아 UNKNOWN 이 됐다(7일치면 첫 해 ~12초).
+    #   hint_per_day_time: 하루 부분 문제 시간 상한(초). hint_budget_ratio: 남은 시간 중 힌트에 쓸 비율.
+    hint_per_day_time: float = None
+    hint_budget_ratio: float = None
     # 롤링 웜스타트(초기해 hint) 사용 여부. 기본 ON.
     #   31일 풀이의 병목은 "첫 가능해 찾기"이며(나트륨 일 상한이 558슬롯을 전역 결합),
     #   순차 구성한 초기해를 넣으면 24.8~65.5초(한도 초과 발생) → 10.1~10.8초로 고정된다.
@@ -199,6 +221,11 @@ class MealPlanRequest:
     #   None/빈 목록이면 항이 자동 비활성 → 8/14 이전과 동일 동작.
     affinity_table: list = None
     affinity_weights: object = None    # ma.AffinityWeights (None=기본값)
+    # 식단가 이월(2026-09-30, opt-in · None=미적용 → 기존과 같은 모델). bc.CarryoverConfig 를 주면
+    #   끼니 밴드·연속일 균형 Soft 항을 더하고 carryover_breakdown 을 채운다. 총예산 Hard 는 여기가
+    #   아니라 hard.budget_period="total" 로 건다. 켜면 budget_floor_won(하루 하한)은 무시하고
+    #   끼니 단위 하한(밴드)만 쓴다 — 두 하한이 같은 원가를 이중으로 끌어올리지 않게.
+    carryover: object = None
 @dataclass
 class MealPlanResult:
     status: str
@@ -208,6 +235,8 @@ class MealPlanResult:
     daily_kcal: dict     # {day: 총kcal} (참고용)
     total_cost: int      # 1인 총 식재료비 (참고용)
     warm_start_seconds: float = 0.0    # 그중 초기해 구성에 쓴 시간(0=웜스타트 미사용)
+    warm_start_days: int = 0           # 초기해(힌트)를 만든 날 수 — days 보다 작으면 시간 몫에 잘린 부분 힌트
+    first_solution_seconds: float = None  # 본 풀이 시작부터 첫 가능해까지(초). 조기 종료 감시를 켠 경우만(진단용)
     hard_breakdown: dict = None        # pmy Hard 지표(칼로리·예산·알레르기 준수) — 미적용/미풀이 시 None
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
@@ -220,6 +249,8 @@ class MealPlanResult:
     #   | 'stall'(stall_seconds 동안 개선 없음) | 'time_limit' | 'unknown'.
     #   조기 종료를 켠 호출에서 "왜 이 시간에 끝났나"를 응답에 남기기 위한 필드(추가 필드).
     stop_reason: str = None
+    # 식단가 이월 리포트(req.carryover 를 줬을 때만): 끼니별 원가·최대/최소·B 초과 끼니 수 등.
+    carryover_breakdown: dict = None
 # ===========================================================================
 # (3) 모델 구성 — 결정변수 + 끼니 구성 + 목적함수
 # ===========================================================================
@@ -322,6 +353,13 @@ def _count_bounds(spec) -> tuple:
     return spec, spec
 
 
+def _time_left(req: MealPlanRequest, budget: float) -> float:
+    """budget(초)과 마감(req.deadline)까지 남은 시간 중 작은 쪽. 마감이 없으면 budget 그대로."""
+    if req.deadline is None:
+        return budget
+    return min(budget, req.deadline - time.monotonic())
+
+
 def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResult:
     model = cp_model.CpModel()
     D = range(req.days)
@@ -364,7 +402,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         days=req.days, n_meals=len(req.meals),
         weights=req.soft_weights,
         pref_scores=req.pref_scores,
-        budget_floor_won=req.budget_floor_won,
+        budget_floor_won=None if req.carryover is not None else req.budget_floor_won,
     )
     div = scd.add_diversity_soft_objective(
         model, x, menus,
@@ -380,7 +418,15 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         table=req.affinity_table,
         weights=req.affinity_weights,
     )
-    model.Maximize(soft.score + div.score + aff.score)
+    sodium_by_idx = (req.hard_nutrient_by_idx or {}).get("sodium")
+    carry = None
+    if req.carryover is not None:
+        carry = bc.add_carryover_objective(
+            model, x, menus,
+            days=req.days, n_meals=len(req.meals),
+            config=req.carryover, sodium_by_idx=sodium_by_idx,
+        )
+    model.Maximize(soft.score + div.score + aff.score + (carry.score if carry is not None else 0))
     # ---------------------- 롤링 웜스타트 (탐색 보조) ----------------------
     # 하루씩 순차로 구성한 배치를 초기해로 넣는다. 모델 자체는 그대로 풀리므로
     # 해의 의미(가능영역·최적성)는 불변 — 힌트가 틀리면 솔버가 버릴 뿐이다.
@@ -389,6 +435,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     #   그때 기본 config 로 힌트를 만들면 모델에 없는 제약(2000kcal·예산)을 혼자 지키려다
     #   시간만 버린다 → 같은 config 가 있을 때만 켠다.
     hint_seconds = 0.0
+    hint_days = 0
     if req.warm_start and req.hard is not None:
         t_hint = time.monotonic()
         # 주재료 cap 은 지평 규칙이라 힌트도 같은 cap 을 알아야 감점 0에 닿는다.
@@ -401,23 +448,29 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             main_cap=scd.scale_targets(dw.main_cap_per_week, req.days),
             affinity_table=req.affinity_table,
             affinity_weights=req.affinity_weights,
-            time_budget=req.solver_time_limit * ws.DEFAULT_BUDGET_RATIO)
+            meal_cost_bounds=(bc.guard_bounds_won(req.carryover) if req.carryover is not None else None),
+            time_budget=_time_left(req, req.solver_time_limit) * (req.hint_budget_ratio or ws.DEFAULT_BUDGET_RATIO),
+            **({"per_day_time": req.hint_per_day_time} if req.hint_per_day_time else {}))
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
+        hint_days = len({d for _, d, _ in hint})
     # ---------------------- 풀이 및 결과 추출 -----------------------------
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = max(1.0, req.solver_time_limit - hint_seconds)
+    solver.parameters.max_time_in_seconds = max(1.0, _time_left(req, req.solver_time_limit - hint_seconds))
     for name, value in (req.solver_params or {}).items():
         setattr(solver.parameters, name, value)
     if req.relative_gap_limit:
         solver.parameters.relative_gap_limit = req.relative_gap_limit
     watch = (_StallWatch(solver, req.stall_seconds, min_improvement=req.stall_min_improvement)
              if req.stall_seconds else None)
+    t_solve = time.monotonic()
     if watch is None:
         status = solver.Solve(model)
     else:
         with watch:
             status = solver.Solve(model, watch)
+    first_solution = (round(watch._history[0][0] - t_solve, 2)
+                      if watch is not None and watch._history else None)
     plan, daily_kcal, total_cost = {}, {}, 0
     plan_ids = {}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -442,6 +495,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                                if solver.Value(x[m, d, s])))
     objective, hard_breakdown, soft_breakdown = 0.0, None, None
     diversity_breakdown, affinity_breakdown = None, None
+    carryover_breakdown = None
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         objective = solver.ObjectiveValue()
         if hard is not None:
@@ -464,12 +518,23 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
                 solver, x, menus, aff,
                 days=req.days, n_meals=len(req.meals),
             )
+        if carry is not None:
+            total_budget = None
+            if req.hard is not None and req.hard.budget_limit_per_person is not None:
+                total_budget = req.hard.budget_limit_per_person * req.days
+            carryover_breakdown = bc.evaluate_carryover_breakdown(
+                solver, x, menus, carry,
+                days=req.days, n_meals=len(req.meals),
+                total_budget_won=total_budget, sodium_by_idx=sodium_by_idx,
+            )
     return MealPlanResult(
         status=solver.StatusName(status),
         objective=objective,
         # ⚠ solver.WallTime() 만 쓰면 웜스타트 구성 시간이 빠져 SLA 를 과소 보고한다.
         wall_time=solver.WallTime() + hint_seconds,
         warm_start_seconds=round(hint_seconds, 2),
+        warm_start_days=hint_days,
+        first_solution_seconds=first_solution,
         plan=plan, daily_kcal=daily_kcal, total_cost=total_cost,
         hard_breakdown=hard_breakdown,
         soft_breakdown=soft_breakdown,
@@ -477,6 +542,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         affinity_breakdown=affinity_breakdown,
         plan_ids=plan_ids,
         stop_reason=_stop_reason(status, watch, req.relative_gap_limit, solver),
+        carryover_breakdown=carryover_breakdown,
     )
 # ===========================================================================
 # (4) 출력

@@ -49,6 +49,10 @@ except ImportError:  # 스크립트 직접 실행 지원 — csp_solver 와 동�
     import menu_affinity as ma
     import soft_constraints as sc
     import soft_constraints_diversity as scd
+try:
+    from . import budget_carryover as bc
+except ImportError:
+    import budget_carryover as bc
 
 
 # 하루 부분 문제에 쓸 후보 표본 크기(카테고리 비례). 계측상 250종이 최적 구간.
@@ -91,7 +95,7 @@ def _sample_pool(by_cat: dict, total: int, *, seed: int, size: int, exclude: set
 def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
                    n_meals, time_limit, seed, food_types, commercial,
                    main_by_idx=None, main_budget=None,
-                   affinity_table=None, affinity_weights=None):
+                   affinity_table=None, affinity_weights=None, meal_cost_bounds=None):
     """하루(n_meals 끼)치 부분 문제를 푼다. 실패하면 None.
 
     main_budget: {주재료: 남은 허용 횟수}. 주면 하루 안에서 그 예산을 넘지 않게 막는다.
@@ -125,6 +129,9 @@ def _solve_one_day(menus, pool, *, config, nutrient_by_idx, composition,
     hc.add_hard_constraints(
         model, x1, sub, days=1, n_meals=n_meals, config=config,
         nutrient_by_idx=_remap_nutrients(nutrient_by_idx, remap))
+    if meal_cost_bounds is not None:  # 식단가 이월 끼니 울타리 — 본 모델과 같은 제약
+        bc.add_meal_cost_guard(model, x1, sub, days=1, n_meals=n_meals,
+                               low_won=meal_cost_bounds[0], high_won=meal_cost_bounds[1])
     obj = []
     for food_type, sign in _STEER:
         obj += [sign * y[m, s] for m in pool
@@ -164,6 +171,7 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
                        main_by_idx: dict | None = None, main_cap: int | None = None,
                        affinity_table: list | None = None,
                        affinity_weights=None,
+                       meal_cost_bounds: tuple | None = None,
                        pool_size: int = DEFAULT_POOL_SIZE,
                        per_day_time: float = DEFAULT_PER_DAY_TIME,
                        time_budget: float | None = None) -> dict:
@@ -182,6 +190,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
         pool_size: 하루 부분 문제 후보 표본 크기.
         per_day_time: 하루 부분 문제 1건의 시간 상한(초).
         time_budget: 힌트 구성 전체 시간 상한(초). 넘으면 만든 데까지 부분 힌트 반환.
+        meal_cost_bounds: (하한원|None, 상한원|None) — 식단가 이월 끼니 울타리(본 모델과 같은 값).
+            None 이면 미적용(기존 동작).
 
     Returns:
         {(메뉴인덱스, 일, 끼니): 1}. 한 건도 못 만들면 빈 dict(→ 호출부는 힌트 생략).
@@ -218,7 +228,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
                       time_limit=per_day_time, seed=day,
                       food_types=food_types, commercial=commercial,
                       main_by_idx=main_by_idx, main_budget=budget,
-                      affinity_table=affinity_table, affinity_weights=affinity_weights)
+                      affinity_table=affinity_table, affinity_weights=affinity_weights,
+                      meal_cost_bounds=meal_cost_bounds)
         picks = _solve_one_day(
             menus, _sample_pool(by_cat, len(menus), seed=day, size=pool_size,
                                 exclude=recent), **kwargs)
