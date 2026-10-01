@@ -39,6 +39,18 @@ SOLVER_GAP_LIMIT = 0.05
 SOLVER_STALL_SECONDS = 8.0
 SOLVER_STALL_MIN_IMPROVEMENT = 0.005
 SOLVER_PARAMS = {"max_presolve_iterations": 1}
+# 여러 끼(2식 이상) 전용 가벼운 presolve (2026-10-01).
+#   CP-SAT 로그상 7일 3식은 presolve 에만 ~11.5초(Probe 4.9초 + FindBig*LinearOverlap 3.7초)를 쓰고, 그 직후 0.5초 만에
+#   첫 해가 나왔다 — 첫 해까지 ~12초라 요청 기준 ~25초에야 해가 생겨, 40초 총 한도 안의 여유가 PC 부하(브라우저·테스트
+#   동시 실행)에 다 먹혀 UNKNOWN 이 났다. 두 단계를 끄면 첫 해 3.3~3.5초, 목적값도 2,950~2,989 → 3,953~3,996 으로 오른다
+#   (탐색에 쓸 시간이 늘어서). 점심만(1식)은 presolve 가 병목이 아니고, 7일 점심은 끄면 개선이 계속 이어져
+#   정체 종료가 늦어지므로(22~24초 → 32초) 1식에는 적용하지 않는다.
+SOLVER_PARAMS_MULTI_MEAL = {"cp_model_probing_level": 0, "find_big_linear_overlap": False}
+
+
+def _solver_params(meals) -> dict:
+    """끼니 수에 맞춘 CP-SAT 파라미터(요청마다 새 dict)."""
+    return {**SOLVER_PARAMS, **(SOLVER_PARAMS_MULTI_MEAL if len(meals) >= 2 else {})}
 
 
 # ── 동시 풀이 직렬화 · 총 소요 한도 (2026-09-30) ─────────────────────────────
@@ -816,7 +828,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         relative_gap_limit=SOLVER_GAP_LIMIT,
         stall_seconds=SOLVER_STALL_SECONDS,
         stall_min_improvement=SOLVER_STALL_MIN_IMPROVEMENT,
-        solver_params=dict(SOLVER_PARAMS),
+        solver_params=_solver_params(meals),
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
@@ -840,6 +852,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             "message": "다른 식단을 생성하는 중이에요. 끝난 뒤 다시 시도해 주세요.",
             "hint": "식단 생성은 한 번에 하나씩 풀어요(동시에 풀면 둘 다 시간 안에 해를 못 찾음)."})
     try:
+        lock_at = time.monotonic() - started    # 후보 조회·대상 산출에 쓴 시간(진단용)
         res = cs.build_and_solve(menus, req)
         # 안전장치: 울타리 때문에 해가 없다고 **증명**되면(INFEASIBLE) 울타리만 빼고 한 번 더 푼다.
         #   UNKNOWN(시간 안에 못 찾음)은 울타리 탓인지 알 수 없고, 총 한도 안에 다시 풀 시간도 없어 그대로 돌려준다.
@@ -856,6 +869,13 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "wall_time_sec": round(res.wall_time, 3),
         # 풀이 종료 사유(optimal·gap·stall·time_limit…). 구버전 module_3 는 필드가 없어 None.
         "stop_reason": "guard_relaxed" if guard_relaxed else getattr(res, "stop_reason", None),
+        # 진단용 풀이 시간 내역: 웜스타트(초기해) 구성 초·날 수(days 보다 적으면 시간 몫에 잘린 부분 힌트),
+        #   본 풀이 시작→첫 가능해(초), 요청 시작→응답 직전(초). 첫 해가 늦을수록 UNKNOWN 에 가깝다.
+        "timing": {"warm_start_sec": getattr(res, "warm_start_seconds", None),
+                   "warm_start_days": getattr(res, "warm_start_days", None),
+                   "first_solution_sec": getattr(res, "first_solution_seconds", None),
+                   "before_solve_sec": round(lock_at, 2),
+                   "total_sec": None},
         # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
         "applied_targets": {
             "meals": list(meals),
@@ -915,4 +935,5 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         body["alternatives"] = _derive_alternatives(
             am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
         )
+    body["timing"]["total_sec"] = round(time.monotonic() - started, 2)
     return body

@@ -235,6 +235,8 @@ class MealPlanResult:
     daily_kcal: dict     # {day: 총kcal} (참고용)
     total_cost: int      # 1인 총 식재료비 (참고용)
     warm_start_seconds: float = 0.0    # 그중 초기해 구성에 쓴 시간(0=웜스타트 미사용)
+    warm_start_days: int = 0           # 초기해(힌트)를 만든 날 수 — days 보다 작으면 시간 몫에 잘린 부분 힌트
+    first_solution_seconds: float = None  # 본 풀이 시작부터 첫 가능해까지(초). 조기 종료 감시를 켠 경우만(진단용)
     hard_breakdown: dict = None        # pmy Hard 지표(칼로리·예산·알레르기 준수) — 미적용/미풀이 시 None
     soft_breakdown: dict = None        # ksm Soft 지표(제공빈도·기호도·원가)
     diversity_breakdown: dict = None   # nyc Soft 지표(다양성·제철·나트륨당)
@@ -433,6 +435,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
     #   그때 기본 config 로 힌트를 만들면 모델에 없는 제약(2000kcal·예산)을 혼자 지키려다
     #   시간만 버린다 → 같은 config 가 있을 때만 켠다.
     hint_seconds = 0.0
+    hint_days = 0
     if req.warm_start and req.hard is not None:
         t_hint = time.monotonic()
         # 주재료 cap 은 지평 규칙이라 힌트도 같은 cap 을 알아야 감점 0에 닿는다.
@@ -450,6 +453,7 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
             **({"per_day_time": req.hint_per_day_time} if req.hint_per_day_time else {}))
         ws.apply_hint(model, x, hint, days=req.days, n_meals=len(req.meals))
         hint_seconds = time.monotonic() - t_hint
+        hint_days = len({d for _, d, _ in hint})
     # ---------------------- 풀이 및 결과 추출 -----------------------------
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(1.0, _time_left(req, req.solver_time_limit - hint_seconds))
@@ -459,11 +463,14 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         solver.parameters.relative_gap_limit = req.relative_gap_limit
     watch = (_StallWatch(solver, req.stall_seconds, min_improvement=req.stall_min_improvement)
              if req.stall_seconds else None)
+    t_solve = time.monotonic()
     if watch is None:
         status = solver.Solve(model)
     else:
         with watch:
             status = solver.Solve(model, watch)
+    first_solution = (round(watch._history[0][0] - t_solve, 2)
+                      if watch is not None and watch._history else None)
     plan, daily_kcal, total_cost = {}, {}, 0
     plan_ids = {}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -526,6 +533,8 @@ def build_and_solve(menus: list[MenuItem], req: MealPlanRequest) -> MealPlanResu
         # ⚠ solver.WallTime() 만 쓰면 웜스타트 구성 시간이 빠져 SLA 를 과소 보고한다.
         wall_time=solver.WallTime() + hint_seconds,
         warm_start_seconds=round(hint_seconds, 2),
+        warm_start_days=hint_days,
+        first_solution_seconds=first_solution,
         plan=plan, daily_kcal=daily_kcal, total_cost=total_cost,
         hard_breakdown=hard_breakdown,
         soft_breakdown=soft_breakdown,
