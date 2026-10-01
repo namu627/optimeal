@@ -26,8 +26,17 @@ docker exec optimeal_app python scripts/load_nutrition_from_recipe_db.py
 #     (레시피 화면의 조리 순서). 3) 다음에 실행. 2) API 적재 행은 원래 MANUAL 이 있어 건드리지 않는다.
 docker exec optimeal_app python scripts/load_cooking_steps_from_recipe_db.py
 # 4) 재료 맵 → 5) 메뉴↔재료보유 레시피 연결(원가 계산 경로)
-docker exec optimeal_app python scripts/load_ingredients_from_recipe_db.py
+#    1인분 양 = 원문 양 ÷ 레시피 인분. 2026-10-01 이전에 적재한 DB 는 2·4인분 레시피(44종)가 인분으로 나뉘지 않은 채
+#    들어가 있다 → 한 번 `--reload-multi-serving` 으로 그 레시피들만 지우고 다시 적재한다.
+docker exec optimeal_app python scripts/load_ingredients_from_recipe_db.py            # 기존 DB: --reload-multi-serving
 docker exec optimeal_app python scripts/connect_menus_to_recipes.py --apply
+# 5b) 그래도 재료 맵이 없는 후보 메뉴(같은 이름 xlsx 레시피가 없는 것)를 식품안전나라 원본 재료 문자열
+#     (RCP_PARTS_DTLS)로 채운다. g 로 적힌 양만 쓰고 '적당량'·단위 없는 숫자는 양을 비운다(추정 없음).
+#     원본에도 재료가 없는 메뉴는 그대로 남는다(2026-10-01 기준 4개). 미리보기 후 --apply.
+docker exec optimeal_app python scripts/load_ingredients_from_rcp_parts.py
+docker exec optimeal_app python scripts/load_ingredients_from_rcp_parts.py --apply
+# 5c) 1인분 재료량 이상치 목록(DB 수정 없음) — 원본 값이면 목록만, 로더 버그면 로더를 고친다
+docker exec optimeal_app python scripts/check_recipe_serving_outliers.py
 # 6) 점검 — 카테고리별 후보가 다중일 식단에 충분한지(부족하면 exit 1)
 docker exec optimeal_app python scripts/check_menu_candidates.py
 # 7) 원가 — 가락시장(청과·수산 도매, GARAK_ID/PASSWD) → KAMIS(도매 우선, 축산은 소매, KAMIS_CERT_ID/KEY).

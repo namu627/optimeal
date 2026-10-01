@@ -120,6 +120,9 @@ def main() -> int:
     """적재 진입점."""
     ap = argparse.ArgumentParser(description="로컬 xlsx → ingredient / recipe_ingredient_map")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--reload-multi-serving", action="store_true",
+                    help="여러 인분 레시피(serving_size>1)의 기존 맵을 지우고 다시 적재 — 2026-10-01 이전 적재분은 "
+                         "per_serving_grams 를 인분으로 나누지 않아 2~4배로 들어가 있다")
     args = ap.parse_args()
 
     long_df = flatten(load_rows())
@@ -132,6 +135,16 @@ def main() -> int:
     engine = get_engine()
     with engine.begin() as conn:
         rid_map = recipe_id_map(conn)
+        # 1인분 양 = 원문 양 ÷ 레시피 인분(serving_size). 예전에는 나누지 않아 2·4인분 레시피 44종(593행)이
+        #   1인분 원가·영양에 2~4배로 잡혔다(2026-10-01 수정 — 예: 맛살 미역줄기전 4인분 미역줄기 200g → 1인분 50g).
+        servings = {rid: max(1, int(sv or 1)) for rid, sv in conn.execute(text(
+            "SELECT recipe_id, serving_size FROM recipe WHERE notes LIKE '[orig:%'")).all()}
+        if args.reload_multi_serving:
+            removed = conn.execute(text("""
+                DELETE FROM recipe_ingredient_map
+                WHERE recipe_id IN (SELECT recipe_id FROM recipe WHERE serving_size > 1 AND notes LIKE '[orig:%')
+            """)).rowcount
+            print(f"[재적재] 여러 인분 레시피의 기존 맵 {removed}행 삭제")
         rep_role = long_df.groupby("name")["role"].agg(lambda s: s.mode().iat[0]).to_dict()
         ing_map = upsert_ingredients(conn, rep_role)
         done = {r[0] for r in conn.execute(text(
@@ -157,8 +170,9 @@ def main() -> int:
                     INSERT INTO recipe_ingredient_map
                         (recipe_id, ingredient_id, amount, unit, amount_in_grams,
                          per_serving_grams, ingredient_role, cooking_step_order)
-                    VALUES (:rid, :iid, :amt, :unit, :amt, :amt, :role, :step)
+                    VALUES (:rid, :iid, :amt, :unit, :amt, :per, :role, :step)
                 """), {"rid": rid, "iid": ing_map[r["name"]], "amt": r["amount"],
+                       "per": round(float(r["amount"]) / servings.get(rid, 1), 2),
                        "unit": r["unit"], "role": r["role"], "step": int(r["step"])})
                 inserted += 1
 
