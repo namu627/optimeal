@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace as dc_replace
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -39,6 +39,64 @@ SOLVER_GAP_LIMIT = 0.05
 SOLVER_STALL_SECONDS = 8.0
 SOLVER_STALL_MIN_IMPROVEMENT = 0.005
 SOLVER_PARAMS = {"max_presolve_iterations": 1}
+# 여러 끼(2식 이상) 전용 가벼운 presolve (2026-10-01).
+#   CP-SAT 로그상 7일 3식은 presolve 에만 ~11.5초(Probe 4.9초 + FindBig*LinearOverlap 3.7초)를 쓰고, 그 직후 0.5초 만에
+#   첫 해가 나왔다 — 첫 해까지 ~12초라 요청 기준 ~25초에야 해가 생겨, 40초 총 한도 안의 여유가 PC 부하(브라우저·테스트
+#   동시 실행)에 다 먹혀 UNKNOWN 이 났다. 두 단계를 끄면 첫 해 3.3~3.5초, 목적값도 2,950~2,989 → 3,953~3,996 으로 오른다
+#   (탐색에 쓸 시간이 늘어서). 점심만(1식)은 presolve 가 병목이 아니고, 7일 점심은 끄면 개선이 계속 이어져
+#   정체 종료가 늦어지므로(22~24초 → 32초) 1식에는 적용하지 않는다.
+SOLVER_PARAMS_MULTI_MEAL = {"cp_model_probing_level": 0, "find_big_linear_overlap": False}
+# 긴 기간(7일 초과)·여러 끼 전용 — presolve 를 끈다(2026-10-02).
+#   31일 3식은 31일치 완성 힌트가 있어도 presolve 에 ~19초를 쓰고 그 직후 힌트 그대로 첫 해가 나왔다(CP-SAT 로그).
+#   모델 구성 ~26초 + 힌트 ~32초 뒤라 80초 총 한도를 넘겼다. presolve 를 끄면 탐색이 ~3.6초에 시작해 첫 해가 ~8초.
+#   7일 이하는 presolve 가 탐색 품질에 도움이 되고 시간도 충분해 그대로 둔다.
+SOLVER_PARAMS_LONG_MULTI_MEAL = {"cp_model_presolve": False}
+
+
+def _is_long_multi(days: int, meals) -> bool:
+    """7일 초과 + 2식 이상 — 힌트 몫·presolve 를 따로 잡는 요청."""
+    return days > 7 and len(meals) >= 2
+
+
+def _solver_params(meals, days: int = 1) -> dict:
+    """끼니 수·기간에 맞춘 CP-SAT 파라미터(요청마다 새 dict)."""
+    return {**SOLVER_PARAMS, **(SOLVER_PARAMS_MULTI_MEAL if len(meals) >= 2 else {}),
+            **(SOLVER_PARAMS_LONG_MULTI_MEAL if _is_long_multi(days, meals) else {})}
+
+
+# ── 동시 풀이 직렬화 · 총 소요 한도 (2026-09-30) ─────────────────────────────
+#   원인: 7일 3식 기본 조건이 단독으로는 FEASIBLE 인데, 요청 두 개가 겹치면 CP-SAT 둘이 4코어를 나눠 써서
+#   둘 다 30초 안에 첫 해를 못 찾고 UNKNOWN 이 됐다(실서버 재현: 동시 2회 → UNKNOWN 2회, 단독 → FEASIBLE).
+#   · 풀이는 한 번에 하나만 돈다. SOLVER_BUSY_WAIT_SEC 안에 차례가 안 오면 429(solver_busy)로 바로 알린다
+#     — 줄 세워 기다리게 하면 두 번째 요청은 90초 클라이언트 타임아웃을 넘긴다.
+#   · 요청에 solver_time_limit 이 없으면 **요청 시작부터의 총 한도**를 module_3 deadline 으로 건다.
+#     3식 7일은 모델 구성에만 ~6초를 써서 풀이 30초 + 구성·후처리로 응답이 39~46초였다 → 7일 이하 34초로 시작했으나,
+#     브라우저·Vite·도커가 함께 도는 PC(4코어)에서 화면 생성 3회 중 1회 UNKNOWN 이 나와 40초로 늘렸다(2026-09-30).
+#     7일 초과는 프론트 axios 타임아웃(90초) 안에 들어오도록 80초(풀이 자체 상한 60초는 그대로).
+_SOLVE_LOCK = threading.Lock()
+SOLVER_BUSY_WAIT_SEC = 3.0
+TOTAL_TIME_BUDGET_SHORT = 40.0      # 7일 이하
+TOTAL_TIME_BUDGET_LONG = 80.0       # 7일 초과
+GUARD_RELAX_MIN_SECONDS = 10.0      # 울타리 해제 재풀이에 최소로 보장하는 시간
+# 웜스타트 힌트: 본 풀이는 **7일치 완성 힌트**가 있어야 시간 안에 첫 해를 찾는다(6일치로 잘리면 UNKNOWN).
+#   하루 부분 문제 상한 2초→1초로 힌트 10~12초→약 8초, 힌트 몫 0.35→0.5 로 잘림을 막는다(3/3 완성 확인).
+HINT_PER_DAY_TIME = 1.0
+HINT_BUDGET_RATIO = 0.5
+# 7일 초과·2식 이상: 힌트가 하루 ~1초씩 31일치를 다 만들어야 첫 해가 나온다. 몫 0.5 로는 22초에 18~19일(3식)·
+#   23일(2식, 3회 중 1회)에서 잘려 UNKNOWN → 0.85(남은 시간의 85%까지). presolve 를 끄므로(SOLVER_PARAMS_LONG_MULTI_MEAL)
+#   완성 힌트면 본 풀이 첫 해까지 수 초면 된다. 하루 상한은 1.0 그대로 — 0.5 이하로 줄이면 하루치를 못 풀어 힌트가 끊긴다.
+HINT_BUDGET_RATIO_LONG_MULTI = 0.85
+
+
+def _hint_budget_ratio(days: int, meals) -> float:
+    return HINT_BUDGET_RATIO_LONG_MULTI if _is_long_multi(days, meals) else HINT_BUDGET_RATIO
+
+
+def _total_deadline(payload, started: float) -> float | None:
+    """요청 시작 시각 기준 총 소요 마감(time.monotonic). solver_time_limit 을 명시한 요청은 None(기존 동작)."""
+    if payload.solver_time_limit is not None:
+        return None
+    return started + (TOTAL_TIME_BUDGET_SHORT if payload.days <= 7 else TOTAL_TIME_BUDGET_LONG)
 
 
 def _solver_time_limit(payload) -> float:
@@ -46,6 +104,53 @@ def _solver_time_limit(payload) -> float:
     if payload.solver_time_limit is not None:
         return payload.solver_time_limit
     return 30.0 if payload.days <= 7 else 60.0
+
+
+# 예산을 요청에서 아예 빼면 쓰는 기본값 — "1인 1끼" 기준. 솔버(H-3)는 1인 1일 상한을 받으므로
+#   × 끼니 수로 넘긴다. 예전 기본값 3,500원은 1일 값으로 넘어가 3식이면 끼니당 약 1,167원이 되어,
+#   실제 시세 원가(2026-09-30 KAMIS 적재 후)로는 3식 7일이 INFEASIBLE 로 증명됐다.
+DEFAULT_BUDGET_PER_MEAL_WON = 3500.0
+
+# 이월(carryover) 모드 끼니 원가 울타리(1끼 예산 B 배수, Hard). None 이면 울타리 없음.
+#   2026-09-30 폭 스윕(없음 / 0.5~1.5 / 0.6~1.4 / 0.7~1.3 × 7일3식 B3,500·3,000 각 2회, 7일1식, 31일1식):
+#   모든 폭에서 INFEASIBLE·UNKNOWN 0, 7일 ≤30.3초·31일 ≤47.9초 → 기준을 만족하는 가장 좁은 0.7~1.3 채택.
+#   7일3식 B3,500 끼니 원가 1,337~5,789 → 2,460~4,520, Soft 밴드 밖 10 → 5~6끼, 연속일 최대 원가 차 2,238~3,266 → 1,110~1,746.
+#   연속일 균형 Soft 를 끈 비교는 7일3식에서 지표가 나빠져(밴드 밖 7~8, 원가 차 1,650~1,938) 켠 채로 둔다.
+CARRYOVER_GUARD: tuple[float, float] | None = (0.7, 1.3)
+
+
+def _budget_limit_per_day(payload, meals) -> float | None:
+    """요청 예산 → 솔버에 넘길 1인 1일 상한.
+
+    필드를 **생략**했을 때만 기본값(1끼 3,500원 × 끼니 수)을 쓴다. 명시한 값은 그대로(프론트는
+    이미 한 끼 예산 × 끼니 수를 1일 값으로 보낸다 — toWireRequest), 명시한 null 은 예산 미적용.
+    """
+    if "budget_limit_per_person" not in payload.model_fields_set:
+        return DEFAULT_BUDGET_PER_MEAL_WON * len(meals)
+    return payload.budget_limit_per_person
+
+
+def _budget_plan(payload, meals, cs) -> dict:
+    """예산 모드 해석 → {mode, per_day, per_meal, total, carryover_on}.
+
+    · day      : 기존 그대로 — 1일 상한 per_day 를 매일 Hard 로.
+    · carryover: 기간 총액 Hard(per_day × 일수 = B×M×D, budget_period="total") + 끼니 밴드·연속일
+                 균형 Soft(module_3 budget_carryover). B(1끼 예산) = per_day ÷ 끼니 수.
+    예산이 없으면(명시적 null) 어느 모드든 예산 항을 걸지 않는다. module_3 가 이월 모듈이 없는
+    구버전이면 day 로 떨어진다(응답 budget_mode 에 실제 적용 모드가 남는다).
+    """
+    per_day = _budget_limit_per_day(payload, meals)
+    mode = payload.budget_mode
+    if mode == "carryover" and getattr(cs, "bc", None) is None:
+        mode = "day"
+    on = mode == "carryover" and per_day is not None
+    return {
+        "mode": mode,
+        "per_day": per_day,
+        "per_meal": (per_day / len(meals)) if per_day is not None else None,
+        "total": (per_day * payload.days) if per_day is not None else None,
+        "carryover_on": on,
+    }
 
 
 def _load_module3():
@@ -284,7 +389,7 @@ def _canonical_rank(m) -> tuple:
 
 
 def _nutrition_by_id(menus) -> dict:
-    """menu_id -> {name, kcal, protein, sodium, cost}. 전 후보(동명 행 각각)를 id 로 구분해 싣는다.
+    """menu_id -> {name, kcal, protein, sodium, cost, cost_exact}. 전 후보(동명 행 각각)를 id 로 구분해 싣는다.
     calories·cost 는 후보(MenuItem)에 이미 있고, protein·sodium 은 nutrition_recipe 에서 보강한다.
     조회에 실패해도 kcal·cost 는 채우고 protein·sodium 만 None 으로 둔다 — 응답은 항상 나간다.
     """
@@ -314,6 +419,8 @@ def _nutrition_by_id(menus) -> dict:
             "protein": prot.get(m.menu_id),
             "sodium": sod.get(m.menu_id),
             "cost": round(float(getattr(m, "cost_won", 0) or 0)),
+            # 반올림 전 원가 — 프론트가 합계를 반올림 전 값으로 더해 서버 총액(total_cost_won)과 맞추게 한다.
+            "cost_exact": round(float(getattr(m, "cost_won", 0) or 0), 4),
         }
     return out
 
@@ -388,8 +495,89 @@ def _make_recipe_of_by_id(engine):
     return recipe_of
 
 
-def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
-    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서용).
+def _steps_by_id(engine, ids) -> dict[int, list[str]]:
+    """menu_id(nutrition_id) -> 조리 단계 문장 목록(원본 순서).
+
+    출처는 nutrition_recipe.original_data 의 MANUAL01~20 뿐이다 — API 적재분은 식품안전나라 원본,
+    소규모 레시피 xlsx 적재분은 scripts/load_cooking_steps_from_recipe_db.py 가 옮긴 cooking_step 원문.
+    원문을 다듬거나 만들어 내지 않고, 빈 칸만 건너뛴다. 단계가 없는 메뉴(식약처 영양DB 등)는
+    키가 없다 → 호출부에서 빈 목록.
+    """
+    from sqlalchemy import bindparam, text
+
+    ids = [i for i in ids if i is not None]
+    if not ids:
+        return {}
+    query = text("""
+        SELECT nr.nutrition_id AS nid, kv.key AS k, kv.value AS v
+        FROM nutrition_recipe nr
+        CROSS JOIN LATERAL jsonb_each_text(nr.original_data) kv
+        WHERE nr.nutrition_id IN :ids
+          AND kv.key ~ '^MANUAL[0-9]+$'
+          AND btrim(kv.value) <> ''
+    """).bindparams(bindparam("ids", expanding=True))
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"ids": ids}).mappings().all()
+    ordered: dict[int, list[tuple[int, str]]] = {}
+    for r in rows:
+        ordered.setdefault(r["nid"], []).append((int(r["k"][len("MANUAL"):]), r["v"].strip()))
+    return {nid: [v for _, v in sorted(steps)] for nid, steps in ordered.items()}
+
+
+BASIS_SCALED, BASIS_LINEAR = "스케일링", "단순 비례"
+
+
+def _apply_scaling(engine, recipes: dict, ids: dict, servings: int, site_id: int | None) -> None:
+    """메뉴별 재료 총량에 스케일링 API(/api/scaling/predict)와 같은 규칙을 입히고 값마다 기준을 단다.
+
+    레시피 화면·CSV·PDF 조리 지시서가 모두 이 결과(menu_recipes)를 쓰므로 기준은 여기 한 곳에서 정한다.
+      - 스케일링: site_id 업장에 그 (레시피, 재료) 캘리브레이션 추정이 있으면 est_ratio × 1인분 × 인원수.
+      - 단순 비례: 그 밖 전부(업장 미지정·추정 없음·스케일링 레지스트리에 없는 레시피/재료) — 1인분 × 인원수.
+    스케일링 레지스트리 키는 df_B.csv 의 small_recipe_id(= recipe.notes 의 '[orig:A0330]')다. 식약처 API 로만
+    적재된 레시피는 키가 없어 늘 단순 비례다. 재료마다 base_g(1인분)·basis 를 붙인다(1인분 = 총량÷인원 이 아님).
+    module_2 CalibrationStore 를 읽기만 한다(수정 없음).
+    """
+    for rec in recipes.values():
+        for ing in rec.get("ingredients") or []:
+            amt = ing.get("amount")
+            ing["base_g"] = None if amt is None else round(float(amt) / servings, 2)
+            ing["basis"] = None if amt is None else BASIS_LINEAR
+    if site_id is None or not recipes:
+        return
+    from sqlalchemy import bindparam, text
+
+    from .. import repositories
+    from ..deps import _db_path
+
+    nids = [v for v in ids.values() if v is not None]
+    if not nids:
+        return
+    q = text("SELECT nutrition_recipe_id AS nid, substring(notes from '\\[orig:([^\\]]+)\\]') AS k FROM recipe "
+             "WHERE nutrition_recipe_id IN :ids AND notes LIKE '[orig:%'").bindparams(bindparam("ids", expanding=True))
+    with engine.connect() as conn:
+        key_of = {r["nid"]: r["k"] for r in conn.execute(q, {"ids": nids}).mappings()}
+    from calibration_store import CalibrationStore  # module_2 (deps.py 가 경로를 잡는다)
+
+    store = CalibrationStore(_db_path())
+    try:
+        for key, rec in recipes.items():
+            rid = repositories.recipe_id_of(key_of.get(ids.get(key)) or "")
+            if rid is None:
+                continue
+            for ing in rec.get("ingredients") or []:
+                iid = repositories.ingredient_id_of(ing.get("name") or "")
+                if iid is None or ing.get("base_g") is None:
+                    continue
+                pred = store.predict(site_id, rid, iid, ing["base_g"], servings)
+                if pred.method == "calibrated":
+                    ing["amount"] = round(pred.scaled_g, 1)
+                    ing["basis"] = BASIS_SCALED
+    finally:
+        store.close()
+
+
+def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id, site_id: int | None = None) -> dict:
+    """확정 plan에 등장하는 메뉴별 재료 투입량(총량)·조리순서(Step3 조리 지시서·레시피 화면용).
 
     module_3.cooking_sheet.build_cooking_sheet 는 day/meal/menu 단위로 행을 내지만,
     재료 구성은 메뉴(행)에만 의존하므로 여기서 plan 값(키) 기준으로 한 번만 접어 돌려준다
@@ -400,6 +588,7 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
         key_to_id: plan 값 -> menu_id (plan_ids 면 항등, 이름 plan 이면 대표행 id 조회).
 
     레시피(recipe_ingredient_map)가 없는 메뉴는 note만 채운 항목으로 남긴다.
+    steps 는 원본 조리 단계(_steps_by_id)이며 원본에 없으면 빈 목록이다(임의 생성하지 않음).
     실패해도(DB 미구성 등) 조리 지시서 없이 응답은 나가야 하므로 빈 dict로 저하한다.
     """
     if not plan or not servings:
@@ -407,7 +596,8 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
     try:
         import cooking_sheet as csheet
 
-        recipe_of_id = _make_recipe_of_by_id(cs.get_engine())
+        engine = cs.get_engine()
+        recipe_of_id = _make_recipe_of_by_id(engine)
         rows = csheet.build_cooking_sheet(plan, lambda key: recipe_of_id(key_to_id(key)), servings)
     except Exception:
         return {}
@@ -418,6 +608,17 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id) -> dict:
             "ingredients": r["ingredients"],
             "note": r["note"],
         })
+    ids = {key: key_to_id(key) for key in out}
+    try:
+        steps = _steps_by_id(engine, set(ids.values()))
+    except Exception:
+        steps = {}  # 단계 조회 실패는 재료 표시를 막지 않는다
+    for key, rec in out.items():
+        rec["steps"] = steps.get(ids[key], [])
+    try:
+        _apply_scaling(engine, out, ids, servings, site_id)
+    except Exception:
+        pass  # 캘리브레이션 조회 실패 → 단순 비례 그대로(기준 표기는 _apply_scaling 첫 단계에서 이미 붙었다)
     return out
 
 
@@ -445,6 +646,35 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
                                        sodium_by_id=sodium_by_id)
     return [_to_jsonable(a) for a in alts]
+
+
+def _alt_plan_ids(alt_plan: dict | None, common_plan: dict | None, common_ids: dict | None,
+                  canon: dict) -> dict:
+    """대체식 plan(메뉴명만)과 같은 모양의 plan_ids 를 만든다 — 검토 화면 교체 팝오버·영양 조회용.
+
+    alternative_menu 는 메뉴명만 돌려준다. 이름만으로는 교체 후보(/candidates, id 기반)를 부를 수 없어
+    대체식 칸은 '교체 후보를 불러올 수 없어요'가 떴다. 칸마다 id 를 이렇게 붙인다.
+      ① 본식단 같은 자리와 이름이 같으면(바뀌지 않은 메뉴) 솔버가 고른 행 id 그대로
+      ② 재료 치환 접시 '메뉴(대체: …)' 는 원래 메뉴의 id(같은 메뉴·같은 자리)
+      ③ 다른 메뉴로 대체된 칸은 이름당 대표행(canon) id
+    못 찾으면 None(프론트는 그 칸만 교체 불가로 표시).
+    """
+    out: dict = {}
+    for day, meals in (alt_plan or {}).items():
+        out[day] = {}
+        for meal, names in (meals or {}).items():
+            base = ((common_plan or {}).get(day) or {}).get(meal) or []
+            bids = ((common_ids or {}).get(day) or {}).get(meal) or []
+            ids = []
+            for i, name in enumerate(names):
+                key = name.split("(대체:")[0].strip()
+                if i < len(base) and i < len(bids) and base[i] in (name, key):
+                    ids.append(bids[i])
+                    continue
+                m = canon.get(name) or canon.get(key)
+                ids.append(m.menu_id if m is not None else None)
+            out[day][meal] = ids
+    return out
 
 
 # 교체 후보 풀 캐시 — 후보 조회(가격·재료 조인)가 무거워 팝오버를 열 때마다 다시 읽지 않는다.
@@ -477,8 +707,20 @@ def swap_candidates(
     nutrition_id: int = Query(..., description="교체하려는 칸의 메뉴 id(응답 plan_ids 의 값)"),
     exclude_ids: str = Query("", description="제외할 메뉴 id 들(쉼표 구분) — 보통 현재 식단에 이미 있는 메뉴"),
     limit: int = Query(8, ge=1, le=30),
+    exclude_allergens: str = Query(
+        "", description="제외할 알레르겐(쉼표 구분) — 대체식 칸 교체 시 그 그룹의 알레르겐. 교차반응까지 확장해 거른다"),
     enforce_menu_structure: bool = Query(
         True, description="generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"),
+    plan_total_cost: float | None = Query(
+        None, ge=0, description="carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)"),
+    total_budget: float | None = Query(
+        None, gt=0, description="carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)"),
+    meal_cost: float | None = Query(
+        None, ge=0, description="carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)"),
+    guard_min: float | None = Query(
+        None, ge=0, description="carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)"),
+    guard_max: float | None = Query(
+        None, gt=0, description="carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)"),
 ) -> dict:
     """현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).
 
@@ -488,7 +730,14 @@ def swap_candidates(
     자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.
     정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.
 
-    ⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체
+    예산(carryover): plan_total_cost·total_budget 를 함께 주면 후보마다 교체 후 기간 총액
+    (`period_total_after` = 현재 총액 − 현재 메뉴 원가 + 후보 원가)과 `within_total_budget`(≤ 총예산)을 싣는다.
+    carryover 모드에서는 한 끼가 B 를 넘어도 기간 총액 안이면 교체 가능하다. 둘 중 하나라도 없으면
+    예산 필드를 싣지 않는다(day 모드 한 끼 예산 판정은 프론트 checkSwap 이 한다).
+    울타리: meal_cost 와 guard_min/guard_max(하나 이상)를 주면 후보마다 교체 후 끼니 원가(`meal_cost_after`)와
+    `within_meal_guard`(울타리 안)를 싣는다.
+
+    ⚠ 그 밖의 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체
     재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.
 
     Raises:
@@ -505,6 +754,13 @@ def swap_candidates(
     excluded_names = {by_id[i].name for i in excluded if i in by_id}
     pool = [m for m in menus
             if m.category == cur.category and m.menu_id not in excluded and m.name not in excluded_names]
+    # 대체식 칸: 그 그룹이 피해야 할 알레르겐(교차반응 포함)이 든 메뉴는 후보에서 뺀다
+    # (alternative_menu 가 대체 메뉴를 고를 때와 같은 기준).
+    allergens = {a.strip() for a in exclude_allergens.split(",") if a.strip()}
+    if allergens:
+        _, _, am = _load_module3()
+        unsafe = am._expand_cross_reactive(allergens)
+        pool = [m for m in pool if not (set(getattr(m, "allergens", set()) or set()) & unsafe)]
     if enforce_menu_structure and cur.category == "주식":
         import menu_taxonomy as mt
 
@@ -514,13 +770,55 @@ def swap_candidates(
     picked = ranked[:limit]
     nut = _nutrition_by_id(picked + [cur])
 
+    judge_total = plan_total_cost is not None and total_budget is not None
+    judge_guard = meal_cost is not None and (guard_min is not None or guard_max is not None)
+
     def out(m) -> dict:
         n = nut[m.menu_id]
-        return {"menu_id": m.menu_id, "name": n["name"], "kcal": n["kcal"],
-                "protein": n["protein"], "sodium": n["sodium"], "cost": n["cost"]}
+        row = {"menu_id": m.menu_id, "name": n["name"], "kcal": n["kcal"],
+               "protein": n["protein"], "sodium": n["sodium"], "cost": n["cost"], "cost_exact": n["cost_exact"]}
+        if judge_total:
+            after = plan_total_cost - float(cur.cost_won or 0) + float(m.cost_won or 0)
+            row["period_total_after"] = round(after)
+            row["within_total_budget"] = after <= total_budget
+        if judge_guard:
+            meal_after = meal_cost - float(cur.cost_won or 0) + float(m.cost_won or 0)
+            row["meal_cost_after"] = round(meal_after)
+            row["within_meal_guard"] = ((guard_min is None or meal_after >= guard_min)
+                                        and (guard_max is None or meal_after <= guard_max))
+        return row
 
     return {"category": cur.category, "current": out(cur), "candidates": [out(m) for m in picked],
             "total_in_category": len(ranked)}
+
+
+@router.get("/recipes", summary="메뉴 레시피 조회 (재료 투입량·원본 조리 단계)")
+def menu_recipes(
+    ids: list[int] = Query([], description="메뉴 id(nutrition_id) — 본식단·교체한 메뉴"),
+    names: list[str] = Query([], description="메뉴명 — id 가 없는 대체식 칸. generate 와 같은 대표행으로 해석"),
+    servings: int = Query(..., ge=1, description="인원수 — 투입량은 1인분 × 인원수 총량"),
+    site_id: int | None = Query(None, ge=1, description="캘리브레이션 업장 id — 보정 있는 재료만 스케일링 총량"),
+) -> dict:
+    """레시피 화면에서 생성 응답에 레시피가 없는 메뉴(검토에서 교체한 메뉴·대체식)를 채운다.
+
+    generate 의 menu_recipes 와 같은 빌더(_build_menu_recipes)를 쓰므로 모양·값이 같다.
+    재료는 recipe_ingredient_map, 조리 단계는 식품안전나라 원본(MANUAL01~20)에 있는 것만 온다.
+
+    Raises:
+        HTTPException(422): 요청 메뉴가 100개 초과. 503: 모듈 3·DB 미구성.
+    """
+    if len(ids) + len(names) > 100:
+        raise HTTPException(status_code=422, detail={
+            "reason": "too_many_menus", "message": "한 번에 100개 메뉴까지 조회할 수 있습니다."})
+    cs, _, _ = _load_module3()
+    by_id = _build_menu_recipes(cs, {"1": {"점심": list(dict.fromkeys(ids))}}, servings, lambda mid: mid, site_id) if ids else {}
+    by_name: dict = {}
+    if names:
+        canon = _canonical_by_name(_candidate_pool(cs))
+        by_name = _build_menu_recipes(
+            cs, {"1": {"점심": list(dict.fromkeys(names))}}, servings,
+            lambda name: canon[name].menu_id if name in canon else None, site_id)
+    return {"by_id": {str(k): v for k, v in by_id.items()}, "by_name": by_name}
 
 
 @router.get("/profiles", response_model=list[schemas.UserProfileOut],
@@ -559,15 +857,19 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     Raises:
         HTTPException(503): 모듈 3 또는 영양성분 DB 미구성.
     """
+    started = time.monotonic()
     cs, hc, am = _load_module3()
     menus = _load_menu_candidates(cs, payload.month)
     meals, kcal, sodium_max, ratios, basis, protein_g = _resolve_targets(payload)
     # H-2e 나트륨 상한: 값을 주입할 수 있을 때만 켠다(결측=배제 정책 → 미주입 시 전 메뉴 배제).
     sodium_by_idx = _load_sodium(menus) if sodium_max else None
+    budget = _budget_plan(payload, meals, cs)
+    budget_per_day = budget["per_day"]
     cfg = hc.HardConstraintConfig(
         target_kcal_per_day=kcal,
         kcal_tolerance=payload.kcal_tolerance,
-        budget_limit_per_person=payload.budget_limit_per_person,
+        budget_limit_per_person=budget_per_day,
+        budget_period="total" if budget["carryover_on"] else "day",
         excluded_allergens=set(payload.excluded_allergens),
         nutrient_max_per_day=({"sodium": sodium_max} if sodium_by_idx else {}),
         enable_staple_main=payload.enforce_menu_structure,
@@ -583,23 +885,69 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         relative_gap_limit=SOLVER_GAP_LIMIT,
         stall_seconds=SOLVER_STALL_SECONDS,
         stall_min_improvement=SOLVER_STALL_MIN_IMPROVEMENT,
-        solver_params=dict(SOLVER_PARAMS),
+        solver_params=_solver_params(meals, payload.days),
         hard_nutrient_by_idx=({"sodium": sodium_by_idx} if sodium_by_idx else None),
         main_by_idx=_load_main_ingredients(menus),
         affinity_table=_load_affinity_table(),
     )
-    res = cs.build_and_solve(menus, req)
+    guard = None
+    guard_relaxed = False
+    if budget["carryover_on"]:
+        guard = CARRYOVER_GUARD
+        req.carryover = cs.bc.CarryoverConfig(
+            per_meal_budget_won=budget["per_meal"],
+            sodium_max_per_day=sodium_max if sodium_by_idx else None,
+            guard_low=guard[0] if guard else None, guard_high=guard[1] if guard else None)
+    if hasattr(req, "deadline"):   # 구버전 module_3 에는 필드가 없다
+        req.deadline = _total_deadline(payload, started)
+    if hasattr(req, "hint_per_day_time"):
+        req.hint_per_day_time = HINT_PER_DAY_TIME
+        req.hint_budget_ratio = _hint_budget_ratio(payload.days, meals)
+    if not _SOLVE_LOCK.acquire(timeout=SOLVER_BUSY_WAIT_SEC):
+        raise HTTPException(status_code=429, detail={
+            "reason": "solver_busy",
+            "message": "다른 식단을 생성하는 중이에요. 끝난 뒤 다시 시도해 주세요.",
+            "hint": "식단 생성은 한 번에 하나씩 풀어요(동시에 풀면 둘 다 시간 안에 해를 못 찾음)."})
+    try:
+        lock_at = time.monotonic() - started    # 후보 조회·대상 산출에 쓴 시간(진단용)
+        res = cs.build_and_solve(menus, req)
+        # 안전장치: 울타리 때문에 해가 없다고 **증명**되면(INFEASIBLE) 울타리만 빼고 한 번 더 푼다.
+        #   UNKNOWN(시간 안에 못 찾음)은 울타리 탓인지 알 수 없고, 총 한도 안에 다시 풀 시간도 없어 그대로 돌려준다.
+        if guard is not None and res.status == "INFEASIBLE":
+            req.carryover = dc_replace(req.carryover, guard_low=None, guard_high=None)
+            if getattr(req, "deadline", None) is not None:
+                req.deadline = max(req.deadline, time.monotonic() + GUARD_RELAX_MIN_SECONDS)
+            res = cs.build_and_solve(menus, req)
+            guard_relaxed = True
+    finally:
+        _SOLVE_LOCK.release()
     body = {
         "status": res.status,
         "wall_time_sec": round(res.wall_time, 3),
         # 풀이 종료 사유(optimal·gap·stall·time_limit…). 구버전 module_3 는 필드가 없어 None.
-        "stop_reason": getattr(res, "stop_reason", None),
+        "stop_reason": "guard_relaxed" if guard_relaxed else getattr(res, "stop_reason", None),
+        # 진단용 풀이 시간 내역: 웜스타트(초기해) 구성 초·날 수(days 보다 적으면 시간 몫에 잘린 부분 힌트),
+        #   본 풀이 시작→첫 가능해(초), 요청 시작→응답 직전(초). 첫 해가 늦을수록 UNKNOWN 에 가깝다.
+        "timing": {"warm_start_sec": getattr(res, "warm_start_seconds", None),
+                   "warm_start_days": getattr(res, "warm_start_days", None),
+                   "first_solution_sec": getattr(res, "first_solution_seconds", None),
+                   "before_solve_sec": round(lock_at, 2),
+                   "total_sec": None},
         # 어떤 기준으로 풀었는지 응답에 남긴다 — 영양사가 화면에서 근거를 볼 수 있어야 한다.
         "applied_targets": {
             "meals": list(meals),
             "target_kcal_per_day": kcal,
             "sodium_max_mg_per_day": sodium_max,
             "protein_g": protein_g,  # 프로파일 기준 단백질 목표(제약 아님, 표시용). 프로파일 없으면 None
+            # 실제로 적용한 1인 1일 예산 상한(원). 요청에서 생략했으면 1끼 기본값 × 끼니 수. None=미적용
+            "budget_limit_per_day": budget_per_day,
+            # 예산 모드(실제 적용값)·기간 총예산·끼니당 기준 B. carryover 면 총예산이 Hard 상한이다.
+            "budget_mode": budget["mode"],
+            "budget_total": budget["total"],
+            "budget_per_meal": budget["per_meal"],
+            # 끼니 원가 울타리(원, carryover 만). 울타리를 풀고 다시 풀었으면(guard_relaxed) None.
+            "guard_min_won": (budget["per_meal"] * guard[0] if guard and not guard_relaxed else None),
+            "guard_max_won": (budget["per_meal"] * guard[1] if guard and not guard_relaxed else None),
             "profile": basis,
         },
         "plan": _to_jsonable(res.plan),
@@ -609,6 +957,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         "soft_breakdown": _to_jsonable(res.soft_breakdown),
         "diversity_breakdown": _to_jsonable(res.diversity_breakdown),
         "affinity_breakdown": _to_jsonable(res.affinity_breakdown),
+        # 식단가 이월 리포트(carryover 모드만): 끼니별 원가 배열·최대/최소·B 초과 끼니 수·연속일 최대 원가 차.
+        "carryover": _to_jsonable(getattr(res, "carryover_breakdown", None)),
     }
 
     # Level 2: module_3 가 plan 과 같은 모양의 plan_ids(솔버가 고른 menu_id)를 주면 본식단은 id 로
@@ -625,7 +975,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     # 프론트 확정 화면(Step3) 조리 지시서: 재료 투입량(총량)·조리순서.
     # recipe_ingredient_map 미보강 메뉴는 note만 채워져 온다("연동 예정" 대신 실사유 표시 가능).
     if plan_ids is not None:
-        recipes_by_id = _build_menu_recipes(cs, plan_ids, payload.serving_count, lambda mid: mid)
+        recipes_by_id = _build_menu_recipes(cs, plan_ids, payload.serving_count, lambda mid: mid, payload.site_id)
         body["menu_recipes_by_id"] = _to_jsonable(recipes_by_id)
         # 이름 키(호환): 본식단에 오른 행의 레시피. 같은 이름 두 행이 함께 오르면 먼저 나온 행.
         by_name: dict = {}
@@ -636,10 +986,14 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         body["menu_recipes_by_id"] = None
         body["menu_recipes"] = _build_menu_recipes(
             cs, res.plan, payload.serving_count,
-            lambda name: canon[name].menu_id if name in canon else None)
+            lambda name: canon[name].menu_id if name in canon else None, payload.site_id)
 
     if payload.with_alternatives and res.plan:
-        body["alternatives"] = _derive_alternatives(
+        alts = _derive_alternatives(
             am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
         )
+        for a in alts:
+            a["plan_ids"] = _alt_plan_ids(a.get("plan"), body["plan"], body["plan_ids"], canon)
+        body["alternatives"] = alts
+    body["timing"]["total_sec"] = round(time.monotonic() - started, 2)
     return body

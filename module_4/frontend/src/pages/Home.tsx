@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Button, Tag, Skeleton } from 'antd';
 import { FileTextOutlined, PlusOutlined, CalendarOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { colors } from '../theme';
 import Gauge from '../components/Gauge';
 import {
@@ -23,11 +23,11 @@ interface HomePlan {
 
 const pct = (m: MetricValue) => (m.target > 0 ? (m.value / m.target) * 100 : 0);
 
-// 저장된 식단(MealPlan 뷰모델) → 홈 카드. 확정 개념이 아직 없어 저장본은 모두 '초안'이다.
+// 저장된 식단(MealPlan 뷰모델) → 홈 카드. 확정 화면에서 저장한 식단은 plan.status='확정'이다(시안 02e).
 function toHomePlan({ id, name, created_at, plan }: SavedPlan): HomePlan {
   const firstWeek = plan.weeks[0]?.days ?? [];
   return {
-    id, name, status: '초안',
+    id, name, status: plan.status === '확정' ? '확정' : '초안',
     target: planTargetLabel(plan), people: plan.headcount, days: plan.periodText,
     meal: plan.meals.map((m) => MEAL_TABLE[m]).join('·'), allergyGroups: plan.alternatives.length,
     budget: plan.budgetPerPerson, cost: plan.costPerPerson,
@@ -99,9 +99,24 @@ function PersonTrayIllust() {
   );
 }
 
+// 확정 직후 토스트(시안 02e) — 식단 생성 3단계 '확정하고 CSV 내려받기'가 { confirmedId } 로 넘어온다.
+function useConfirmedToast(): [number | null, () => void] {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [id, setId] = useState<number | null>(() => (location.state as { confirmedId?: number } | null)?.confirmedId ?? null);
+  useEffect(() => {
+    if (id == null) return;
+    navigate(location.pathname, { replace: true, state: null }); // 새로고침 시 다시 뜨지 않게
+    const t = setTimeout(() => setId(null), 6000);
+    return () => clearTimeout(t);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return [id, () => setId(null)];
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const recent = useRecentPlan();
+  const [toastId, closeToast] = useConfirmedToast();
   const loading = recent === 'loading';
   const plan = recent === 'loading' || recent === 'failed' ? null : recent;
 
@@ -261,9 +276,21 @@ export default function Home() {
             <Button type="primary" icon={<PlusOutlined />} style={{ marginTop: 16, width: '100%', height: 40 }} onClick={() => navigate('/plans/new')}>
               식단 생성 시작
             </Button>
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.borderSubtle}` }}>
+              <span style={{ fontSize: 13, color: colors.textSecondary, cursor: 'pointer' }} onClick={goPlans}>지난 식단 복제해서 만들기 →</span>
+            </div>
           </Card>
         </div>
       </div>
+
+      {toastId != null && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 30, transform: 'translateX(-50%)', zIndex: 30, display: 'flex', alignItems: 'center', gap: 12,
+          background: '#16211C', color: '#fff', borderRadius: 12, padding: '13px 18px', font: '400 13px Pretendard,sans-serif', boxShadow: '0 12px 32px rgba(22,33,28,0.18)' }}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#6FE0A0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8.5 6.5 12 13 4.5" /></svg>
+          식단이 확정되고 식단표 · 조리 지시서 CSV가 내려받아졌어요
+          <span style={{ color: '#6FE0A0', cursor: 'pointer' }} onClick={() => { closeToast(); navigate(`/plans/${toastId}`); }}>보기</span>
+        </div>
+      )}
     </div>
   );
 }

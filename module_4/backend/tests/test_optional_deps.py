@@ -67,6 +67,20 @@ def test_nutrition_search_reports_db_unavailable(client, monkeypatch):
     assert client.get("/health").status_code == 200
 
 
+def test_health_reports_db_down(client, monkeypatch):
+    """DB 가 꺼져 있으면 /health 는 200 이지만 db='down' — 사이드바가 'DB 연결 안 됨'을 띄운다."""
+    from module_4.backend.src import config
+
+    monkeypatch.setattr(config, "postgres_url",
+                        lambda: "postgresql+psycopg2://x:x@127.0.0.1:1/none")
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["db"] == "down"
+    assert body["db_error"]
+
+
 def test_openapi_schema_lists_all_routers(client):
     """Swagger(OpenAPI) 문서에 4개 라우터가 모두 노출된다 (FR-12 Swagger 완비)."""
     paths = client.get("/openapi.json").json()["paths"]

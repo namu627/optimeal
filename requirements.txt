@@ -2,6 +2,8 @@
 # Python: 3.12.13  (docker exec optimeal_app python --version 결과)
 # Snapshot date: 2026-08-04
 # 생성: docker exec optimeal_app pip freeze
+# 리눅스 전용 휠만 있는 패키지(nvidia-nccl-cu12·pexpect·ptyprocess)는 `; sys_platform == "linux"` 마커 —
+# Windows 호스트 venv 에서도 `pip install -r requirements.txt` 가 된다(2026-10-01, --dry-run 확인). 컨테이너는 그대로 설치.
 #
 # --- 직접 사용 핵심 패키지 ---
 # pandas==2.2.3
@@ -16,6 +18,7 @@
 # fastapi==0.115.6            # 모듈 4 REST API
 # uvicorn==0.34.0             # 모듈 4 ASGI 서버
 # ortools==9.11.4210          # 모듈 3 CSP Solver (CP-SAT)
+# reportlab==4.4.10           # 모듈 4 PDF 내보내기 (2026-09-29 추가, 한글 폰트는 이미지의 fonts-nanum)
 # --- 이하 의존성 자동 포함 (pip freeze) ---
 absl-py==2.5.0
 annotated-types==0.8.0
@@ -95,7 +98,7 @@ nest-asyncio2==1.7.2
 notebook==7.6.0
 notebook_shim==0.2.4
 numpy==1.26.4
-nvidia-nccl-cu12==2.30.7
+nvidia-nccl-cu12==2.30.7 ; sys_platform == "linux"
 openpyxl==3.1.5
 ortools==9.11.4210
 packaging==26.2
@@ -104,7 +107,7 @@ pandocfilters==1.5.1
 parso==0.8.7
 pathspec==1.1.1
 patsy==1.0.2
-pexpect==4.9.0
+pexpect==4.9.0 ; sys_platform == "linux"
 pillow==12.3.0
 platformdirs==4.10.0
 pluggy==1.6.0
@@ -113,7 +116,7 @@ prompt_toolkit==3.0.52
 protobuf==5.26.1
 psutil==7.2.2
 psycopg2-binary==2.9.10
-ptyprocess==0.7.0
+ptyprocess==0.7.0 ; sys_platform == "linux"
 pure_eval==0.2.3
 pycodestyle==2.12.1
 pycparser==3.0
@@ -130,6 +133,7 @@ pytz==2026.2
 PyYAML==6.0.3
 pyzmq==27.1.0
 referencing==0.37.0
+reportlab==4.4.10
 requests==2.32.3
 rfc3339-validator==0.1.4
 rfc3986-validator==0.1.1

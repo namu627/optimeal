@@ -492,13 +492,58 @@ def test_live_hard_budget_respected(live):
     if _table_count("SELECT count(*) FROM ingredient_price") == 0 or \
        _table_count("SELECT count(*) FROM recipe_ingredient_map") == 0:
         pytest.skip("ingredient_price/recipe_ingredient_map 미적재 — 예산 검증 불가")
+    # 1일 상한 = 1끼 3,500원 × 3식. 예전 값(1일 3,500원)은 시세 원가 적재 후 3식에서 INFEASIBLE 이라
+    #   풀이가 UNKNOWN → skip 되어 예산 준수를 검증하지 못했다(2026-09-30).
+    #   budget_mode 기본값이 carryover(기간 총액)라 일별 상한을 보려면 day 를 명시한다.
     r = live.post("/api/menu/generate", json={
-        "days": 3, "budget_limit_per_person": 3500, "solver_time_limit": 25}).json()
+        "days": 3, "budget_mode": "day", "budget_limit_per_person": 3500 * 3, "solver_time_limit": 25}).json()
     if r["status"] not in {"OPTIMAL", "FEASIBLE"}:
         pytest.skip(f"solver {r['status']}")
     assert r["total_cost_won"] and r["total_cost_won"] > 0
     for day in r["hard_breakdown"]["per_day"]:
         assert day["budget_ok"] is True
+
+
+@requires_infra
+def test_live_budget_carryover_total_respected(live):
+    """식단가 이월(기본 모드) — 기간 총액 ≤ B×끼니 수×일수 를 지키고 끼니별 원가·통계를 싣는다."""
+    if _table_count("SELECT count(*) FROM ingredient_price") == 0 or \
+       _table_count("SELECT count(*) FROM recipe_ingredient_map") == 0:
+        pytest.skip("ingredient_price/recipe_ingredient_map 미적재 — 예산 검증 불가")
+    r = live.post("/api/menu/generate", json={
+        "days": 3, "budget_limit_per_person": 3500 * 3, "solver_time_limit": 25}).json()
+    if r["status"] not in {"OPTIMAL", "FEASIBLE"}:
+        pytest.skip(f"solver {r['status']}")
+    at = r["applied_targets"]
+    assert at["budget_mode"] == "carryover"
+    assert at["budget_total"] == 3500 * 3 * 3 and at["budget_per_meal"] == 3500
+    bt = r["hard_breakdown"]["budget_total"]
+    assert bt["ok"] is True and bt["total"] <= bt["limit"] == at["budget_total"]
+    co = r["carryover"]
+    assert len(co["meal_costs"]) == 3 * 3
+    assert co["total_cost"] == bt["total"]
+    # 끼니 원가 울타리(기본 0.7~1.3B) — 적용값이 응답에 있고 모든 끼니가 그 안이다.
+    from module_4.backend.src.routers import menu as menu_router
+    g = menu_router.CARRYOVER_GUARD
+    if g is not None and r["stop_reason"] != "guard_relaxed":
+        assert at["guard_min_won"] == 3500 * g[0] and at["guard_max_won"] == 3500 * g[1]
+        assert co["guard"]["meals_outside"] == 0
+        assert all(at["guard_min_won"] <= m["cost"] + 0.5 and m["cost"] - 0.5 <= at["guard_max_won"] for m in co["meal_costs"])
+
+
+@requires_infra
+def test_live_carryover_guard_relaxed_when_infeasible(live, monkeypatch):
+    """울타리로 해가 없다고 증명되면 울타리만 빼고 다시 풀고 stop_reason='guard_relaxed' 를 남긴다."""
+    if _table_count("SELECT count(*) FROM ingredient_price") == 0:
+        pytest.skip("ingredient_price 미적재 — 원가 울타리 검증 불가")
+    from module_4.backend.src.routers import menu as menu_router
+    monkeypatch.setattr(menu_router, "CARRYOVER_GUARD", (5.0, 6.0))   # 끼니 17,500~21,000원 — 불가능
+    r = live.post("/api/menu/generate", json={
+        "days": 1, "meals": ["점심"], "budget_limit_per_person": 3500, "solver_time_limit": 20}).json()
+    if r["status"] not in {"OPTIMAL", "FEASIBLE"}:
+        pytest.skip(f"solver {r['status']}")
+    assert r["stop_reason"] == "guard_relaxed"
+    assert r["applied_targets"]["guard_min_won"] is None and r["carryover"]["guard"] is None
 
 
 @requires_infra

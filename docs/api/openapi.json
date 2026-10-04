@@ -721,7 +721,7 @@
           "menu"
         ],
         "summary": "메뉴 교체 후보 (같은 자리의 실메뉴)",
-        "description": "현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).\n\n카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해\n김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정\n(menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.\n자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.\n정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.\n\n⚠ 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체\n재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.\n\nRaises:\n    HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.",
+        "description": "현재 메뉴와 같은 자리(카테고리)의 실제 후보를 돌려준다(검토 화면 교체 팝오버용).\n\n카테고리는 generate 와 같은 기준이다 — DB 의 '반찬'은 메뉴명으로 주찬/부찬/김치로 나눈 뒤 비교해\n김치 자리에 주찬이 오지 않게 한다. 주식 자리는 솔버의 H-4b(주식 자격)와 같은 판정\n(menu_taxonomy.is_staple)으로 거른다 — DB '주식'에는 스테이크 같은 일품요리도 섞여 있다.\n자기 자신·제외 목록의 메뉴(같은 이름의 다른 행 포함)는 빼고, 동명 메뉴는 대표행 하나로 줄인다.\n정렬: 원가 있는 행 → 현재 메뉴와 열량이 가까운 순 → id.\n\n예산(carryover): plan_total_cost·total_budget 를 함께 주면 후보마다 교체 후 기간 총액\n(`period_total_after` = 현재 총액 − 현재 메뉴 원가 + 후보 원가)과 `within_total_budget`(≤ 총예산)을 싣는다.\ncarryover 모드에서는 한 끼가 B 를 넘어도 기간 총액 안이면 교체 가능하다. 둘 중 하나라도 없으면\n예산 필드를 싣지 않는다(day 모드 한 끼 예산 판정은 프론트 checkSwap 이 한다).\n울타리: meal_cost 와 guard_min/guard_max(하나 이상)를 주면 후보마다 교체 후 끼니 원가(`meal_cost_after`)와\n`within_meal_guard`(울타리 안)를 싣는다.\n\n⚠ 그 밖의 제약 재검증은 하지 않는다(열량 밴드·나트륨 상한·3일 중복·H-4c 국 궁합 등). 교체 후 전체\n재검증은 include/exclude_menu_ids 로 다시 푸는 '재생성'이 후속 과제다.\n\nRaises:\n    HTTPException(404): 후보 풀에 없는 nutrition_id. 503: 모듈 3·DB 미구성.",
         "operationId": "swap_candidates_api_menu_candidates_get",
         "parameters": [
           {
@@ -770,6 +770,101 @@
               "title": "Enforce Menu Structure"
             },
             "description": "generate 와 같은 H-4b: 주식 자리는 밥·면·죽·빵만 후보로"
+          },
+          {
+            "name": "plan_total_cost",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)",
+              "title": "Plan Total Cost"
+            },
+            "description": "carryover 예산 판정용: 현재 식단의 기간 총원가(원, 응답 total_cost_won)"
+          },
+          {
+            "name": "total_budget",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)",
+              "title": "Total Budget"
+            },
+            "description": "carryover 예산 판정용: 기간 총예산(원, 응답 applied_targets.budget_total)"
+          },
+          {
+            "name": "meal_cost",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)",
+              "title": "Meal Cost"
+            },
+            "description": "carryover 울타리 판정용: 교체하려는 칸이 속한 끼니의 현재 1인 원가(원)"
+          },
+          {
+            "name": "guard_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)",
+              "title": "Guard Min"
+            },
+            "description": "carryover 울타리 판정용: 끼니 원가 하한(원, applied_targets.guard_min_won)"
+          },
+          {
+            "name": "guard_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)",
+              "title": "Guard Max"
+            },
+            "description": "carryover 울타리 판정용: 끼니 원가 상한(원, applied_targets.guard_max_won)"
           }
         ],
         "responses": {
@@ -781,6 +876,84 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Swap Candidates Api Menu Candidates Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/menu/recipes": {
+      "get": {
+        "tags": [
+          "menu"
+        ],
+        "summary": "메뉴 레시피 조회 (재료 투입량·원본 조리 단계)",
+        "description": "레시피 화면에서 생성 응답에 레시피가 없는 메뉴(검토에서 교체한 메뉴·대체식)를 채운다.\n\ngenerate 의 menu_recipes 와 같은 빌더(_build_menu_recipes)를 쓰므로 모양·값이 같다.\n재료는 recipe_ingredient_map, 조리 단계는 식품안전나라 원본(MANUAL01~20)에 있는 것만 온다.\n\nRaises:\n    HTTPException(422): 요청 메뉴가 100개 초과. 503: 모듈 3·DB 미구성.",
+        "operationId": "menu_recipes_api_menu_recipes_get",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "메뉴 id(nutrition_id) — 본식단·교체한 메뉴",
+              "default": [],
+              "title": "Ids"
+            },
+            "description": "메뉴 id(nutrition_id) — 본식단·교체한 메뉴"
+          },
+          {
+            "name": "names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "메뉴명 — id 가 없는 대체식 칸. generate 와 같은 대표행으로 해석",
+              "default": [],
+              "title": "Names"
+            },
+            "description": "메뉴명 — id 가 없는 대체식 칸. generate 와 같은 대표행으로 해석"
+          },
+          {
+            "name": "servings",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "인원수 — 투입량은 1인분 × 인원수 총량",
+              "title": "Servings"
+            },
+            "description": "인원수 — 투입량은 1인분 × 인원수 총량"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Menu Recipes Api Menu Recipes Get"
                 }
               }
             }
@@ -1040,6 +1213,44 @@
         }
       }
     },
+    "/api/menu/export/pdf": {
+      "post": {
+        "tags": [
+          "export"
+        ],
+        "summary": "식단표·조리 지시서 PDF 내보내기 (한글 폰트 임베드)",
+        "description": "프론트가 만든 표(CSV 와 같은 행)를 A4 PDF 로 조판해 내려준다.\n\nRaises:\n    HTTPException(503): reportlab 미설치 또는 한글 폰트 없음.",
+        "operationId": "export_pdf_api_menu_export_pdf_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportPdfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PDF 파일",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1283,6 +1494,186 @@
         "title": "EstimateOut",
         "description": "셀(업장×레시피×재료) 추정 상태."
       },
+      "ExportPdfRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "description": "문서 제목(식단 이름)"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "File Name",
+            "description": "내려받을 파일명(확장자 제외). 비면 title",
+            "default": ""
+          },
+          "summary": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryItem"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "title": "Summary"
+          },
+          "grids": {
+            "items": {
+              "$ref": "#/components/schemas/PdfGrid"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Grids",
+            "description": "식단표 그리드(행=날짜, 열=끼니)"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/PdfTable"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Tables",
+            "description": "일반 표(행 나열)"
+          },
+          "recipes_title": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Recipes Title",
+            "default": "조리 지시서"
+          },
+          "recipes_note": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Recipes Note",
+            "default": ""
+          },
+          "recipes": {
+            "items": {
+              "$ref": "#/components/schemas/PdfRecipe"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Recipes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "ExportPdfRequest",
+        "description": "PDF 내보내기 요청 — 프론트 planExport.ts 가 만든다.",
+        "example": {
+          "file_name": "9/29 · 초등학생 중식_식단표",
+          "grids": [
+            {
+              "columns": [
+                "중식"
+              ],
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "kcal": 612,
+                      "menus": [
+                        "잡곡밥",
+                        "미역국"
+                      ],
+                      "protein": 24.3
+                    }
+                  ],
+                  "label": "9/29 (월)",
+                  "sub": "1주차"
+                }
+              ],
+              "title": "식단표"
+            }
+          ],
+          "recipes": [],
+          "summary": [
+            {
+              "label": "대상",
+              "value": "초등학생 저학년(남) · 100명"
+            }
+          ],
+          "title": "9/29 · 초등학생 중식"
+        }
+      },
+      "GridCell": {
+        "properties": {
+          "menus": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Menus"
+          },
+          "kcal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kcal"
+          },
+          "protein": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protein"
+          }
+        },
+        "type": "object",
+        "title": "GridCell",
+        "description": "그리드 한 칸(그 날·그 끼니) — 메뉴 이름들 + 1인 기준 열량·단백질."
+      },
+      "GridRow": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Label",
+            "description": "예: '9/30 (화)'"
+          },
+          "sub": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Sub",
+            "description": "보조 표기(예: '1주차')",
+            "default": ""
+          },
+          "cells": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GridCell"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "maxItems": 7,
+            "title": "Cells"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "GridRow",
+        "description": "그리드 한 행 = 하루. cells 는 PdfGrid.columns 와 같은 순서(끼니)."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1360,6 +1751,16 @@
             "title": "Kcal Tolerance",
             "default": 0.1
           },
+          "budget_mode": {
+            "type": "string",
+            "enum": [
+              "day",
+              "carryover"
+            ],
+            "title": "Budget Mode",
+            "description": "예산 운영 방식. **carryover**(기본): 기간 총액 ≤ 1끼 예산 B × 끼니 수 × 일수 를 Hard 로 지키고, 한 끼가 B 를 넘거나 모자라는 것은 허용하되 B×0.8~1.2 밖·연속일 원가/나트륨 급변을 Soft 로 감점한다(이월). **day**: 기존 방식 — 매일 1일 상한을 Hard 로. B = budget_limit_per_person ÷ 끼니 수. 적용 결과는 applied_targets.budget_mode·budget_total·budget_per_meal, 끼니별 원가는 응답 carryover.",
+            "default": "carryover"
+          },
           "budget_limit_per_person": {
             "anyOf": [
               {
@@ -1371,7 +1772,7 @@
               }
             ],
             "title": "Budget Limit Per Person",
-            "default": 3500.0
+            "description": "1인 **1일** 식재료비 상한(원, H-3 Hard 제약). 한 끼 예산 × 끼니 수로 보낼 것. **생략**하면 1인 1끼 3,500원 × 끼니 수를 적용한다(적용값은 응답 applied_targets.budget_limit_per_day). 명시적 null 이면 예산 미적용."
           },
           "sodium_max_mg_per_day": {
             "anyOf": [
@@ -1417,11 +1818,18 @@
             "description": "이 메뉴들을 지평 안에 최소 1회 편성한다(영양사가 넣은 메뉴). 날짜·끼니 지정은 아직 지원하지 않는다 — 열량 밴드·중복 창과 충돌해 INFEASIBLE 이 되기 쉬워서다. 같은 id 를 배제와 함께 주면 배제가 이긴다."
           },
           "solver_time_limit": {
-            "type": "number",
-            "maximum": 120.0,
-            "exclusiveMinimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 120.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Solver Time Limit",
-            "default": 30.0
+            "description": "풀이 시간 **상한**(초). 미지정 시 일수로 정한다: 7일 이하 30초 · 그 이상 60초. 상한 전에 조기 종료(상한 대비 gap 5% · 최근 8초 개선 0.5% 미만)로 먼저 끝나는 경우가 많다. 어느 쪽으로 끝나든 반환 식단은 Hard 제약을 지키는 가능해이며, 종료 사유는 응답 stop_reason. 프론트 axios 타임아웃(90초)보다 작게 둘 것."
           },
           "serving_count": {
             "type": "integer",
@@ -1577,6 +1985,149 @@
         ],
         "title": "ObservationOut",
         "description": "보정 적재 결과 — 갱신된 셀 추정과 그 추정으로 재계산한 제안량."
+      },
+      "PdfGrid": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title"
+          },
+          "corner": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Corner",
+            "description": "왼쪽 위 머리칸",
+            "default": "날짜"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Columns",
+            "description": "끼니 이름(실제 생성된 끼니만)"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GridRow"
+            },
+            "type": "array",
+            "maxItems": 400,
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "columns"
+        ],
+        "title": "PdfGrid",
+        "description": "식단표 그리드 — 행 = 날짜, 열 = 끼니(웹 식단표와 같은 읽기 흐름)."
+      },
+      "PdfRecipe": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name"
+          },
+          "meta": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Meta",
+            "default": ""
+          },
+          "ingredients": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Ingredients"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PdfRecipe",
+        "description": "조리 지시서의 메뉴 하나 — 재료 표 + 조리 순서(원문). 비어 있으면 빈 상태 문구만 찍는다."
+      },
+      "PdfTable": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title"
+          },
+          "header": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Header"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "header"
+        ],
+        "title": "PdfTable",
+        "description": "표 하나. rows 의 각 행은 header 와 길이가 같아야 한다(짧으면 빈 칸으로 채움)."
       },
       "SavePlanRequest": {
         "properties": {
@@ -1839,6 +2390,26 @@
           "site_name": "○○중학교",
           "site_type": "학교"
         }
+      },
+      "SummaryItem": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Label"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "SummaryItem"
       },
       "UserProfileOut": {
         "properties": {
