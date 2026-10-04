@@ -3,14 +3,15 @@
 // 저장본에는 생성 요청 원본이 없어서 뷰모델에 남은 값만 복원한다.
 //  · 복원: 대상 프로파일(라벨 역매핑), 인원, 기간, 끼니, 1인 1식 예산, 나트륨 상한, 열량 목표
 //  · 복원 불가: 기저질환, 알레르기 항목(대체식 트랙에는 그룹 이름·인원만 남음) → 빈 값으로 두고 화면에서 안내
-import { MEAL_KR, PROFILE_OPTIONS, type MealPlan } from '../../api/menu';
+import { MEAL_KR, PROFILE_OPTIONS, profileKeyOfLabel, type MealPlan } from '../../api/menu';
 import type { Step1Form } from './Step1Conditions';
 
 const DAY_OPTIONS = [1, 7, 31];
 
 export function planToStep1Form(plan: MealPlan): Step1Form {
   const target = plan.conditionText.split(' · ')[0];
-  const profile = PROFILE_OPTIONS.find((p) => p.label === target)?.value ?? PROFILE_OPTIONS[0].value;
+  // 예전 저장본의 라벨('초등학생'·'노인' 등)도 profileKeyOfLabel 이 받아 준다
+  const profile = profileKeyOfLabel(target) ?? PROFILE_OPTIONS[0].value;
   const days = DAY_OPTIONS.includes(plan.totalDays) ? plan.totalDays : 7;
   const meals = plan.meals.length ? plan.meals.map((m) => MEAL_KR[m]) : ['점심'];
   return {

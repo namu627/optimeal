@@ -17,8 +17,12 @@ const C = {
 };
 const GRID = '96px 1fr 70px 66px 84px 96px 92px 248px';
 const PAGE_SIZE = 6;
-// 대상별 점 색 — 시안 카테고리 색(초등 청록 · 중학 보라 · 유치원/고등 노랑 · 노인 연두)
-const DOT: Record<string, string> = { 초등학생: '#06B6D4', 중학생: '#8B5CF6', 고등학생: '#F5B301', 유치원: '#F5B301', 노인: '#84CC16' };
+// 대상별 점 색 — 시안 카테고리 색(초등 청록 · 중학 보라 · 유치원/고등 노랑 · 성인 파랑 · 노인 연두).
+// 라벨이 '초등 저학년'·'성인(30–49세)'처럼 나뉘어 있어 앞 글자로 묶는다(예전 저장본의 '초등학생'·'노인'도 같은 색).
+const DOT: [string, string][] = [
+  ['초등', '#06B6D4'], ['중학', '#8B5CF6'], ['고등', '#F5B301'], ['유치원', '#F5B301'], ['성인', '#3B82F6'], ['노인', '#84CC16'],
+];
+const dotColor = (target: string) => DOT.find(([prefix]) => target.startsWith(prefix))?.[1] ?? C.muted;
 const BADGE: Record<PlanStatus, { c: string; bg: string }> = {
   확정: { c: '#0B6B36', bg: '#E4F7EB' },
   초안: { c: '#5D6B64', bg: '#EEF2F0' },
@@ -192,7 +196,7 @@ export default function PlanList() {
                   font: '400 14px Pretendard,sans-serif', color: C.text, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', background: hover === k ? C.head : '#fff' }}>
                 <div style={{ color: C.sub }}>{mmdd(p.created_at)}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }} title={p.name}>
-                  <span style={{ width: 8, height: 8, borderRadius: 3, background: DOT[targetOf(p)] ?? C.muted, flex: 'none' }} />
+                  <span style={{ width: 8, height: 8, borderRadius: 3, background: dotColor(targetOf(p)), flex: 'none' }} />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetOf(p)} {mealOf(p)}</span>
                 </div>
                 <div style={{ textAlign: 'right' }}>{p.headcount == null ? '–' : p.headcount.toLocaleString()}</div>

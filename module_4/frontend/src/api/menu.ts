@@ -451,10 +451,32 @@ function buildWeeks(meals: MealKind[], days: number, alt: boolean): WeekBlock[] 
   return blocks.filter(Boolean);
 }
 
+// 대상 프로파일 선택지 — 백엔드 영양 기준 표(data/processed/user_group_profiles.csv)의 혼성(_mix) 프로파일과 1:1.
+// label 은 화면 선택지·조건 요약(conditionText 맨 앞)·식단 목록 대상 필터에 그대로 쓰이므로 선택지끼리 겹치면 안 된다.
+// age 는 GET /api/menu/profiles 조회가 실패했을 때만 보이는 대체 문구다(성공하면 백엔드 값이 표시된다).
+export const PROFILE_OPTIONS = [
+  { value: 'elem_low_mix', label: '초등 저학년', age: '만 6–8세(1~3학년) · 2025 한국인 영양소 섭취기준' },
+  { value: 'elem_high_mix', label: '초등 고학년', age: '만 9–11세(4~6학년) · 2025 한국인 영양소 섭취기준' },
+  { value: 'middle_mix', label: '중학생', age: '만 12–14세 · 2025 한국인 영양소 섭취기준' },
+  { value: 'high_mix', label: '고등학생', age: '만 15–18세 · 2025 한국인 영양소 섭취기준' },
+  { value: 'univ_mix', label: '성인(19–29세)', age: '만 19–29세 · 2025 한국인 영양소 섭취기준' },
+  { value: 'office_mix', label: '성인(30–49세)', age: '만 30–49세 · 2025 한국인 영양소 섭취기준' },
+  { value: 'senior_mix', label: '노인(65–74세)', age: '만 65–74세 · 2025 한국인 영양소 섭취기준' },
+  { value: 'senior75_mix', label: '노인(75세 이상)', age: '만 75세 이상 · 2025 한국인 영양소 섭취기준' },
+];
+// profile_key → 화면 라벨. 선택지에 없는 키(환자 일반식)는 백엔드에만 있는 프로파일이다.
 const PROFILE_LABEL: Record<string, string> = {
-  elem_low_mix: '초등학생', elem_high_mix: '초등학생', middle_mix: '중학생', high_mix: '고등학생',
-  univ_mix: '대학생', office_mix: '직장인', senior_mix: '노인', patient_general_mix: '환자',
+  ...Object.fromEntries(PROFILE_OPTIONS.map((p) => [p.value, p.label])),
+  patient_general_mix: '환자',
 };
+// 선택지를 백엔드 기준으로 나누기 전(2026-10-04 이전)에 저장된 식단의 대상 라벨 → profile_key.
+const LEGACY_PROFILE_LABEL: Record<string, string> = {
+  초등학생: 'elem_low_mix', 노인: 'senior_mix', 대학생: 'univ_mix', 직장인: 'office_mix', 성인: 'office_mix',
+};
+/** 대상 라벨(조건 요약 맨 앞) → profile_key. 예전 저장본의 라벨도 받는다. 모르는 라벨이면 undefined. */
+export function profileKeyOfLabel(label: string): string | undefined {
+  return PROFILE_OPTIONS.find((p) => p.label === label)?.value ?? LEGACY_PROFILE_LABEL[label];
+}
 
 // 데모용 목업 전용 시드 난수 — 입력 조건이 같으면 항상 같은 값을 내도록 결정적으로 해싱한다.
 // (실제 CSP 응답이 붙으면 mockPlan()·이 함수는 통째로 제거)
@@ -558,10 +580,4 @@ export function checkSwap(plan: Pick<MealPlan, 'budgetPerPerson' | 'sodiumCapPer
   };
 }
 
-export const PROFILE_OPTIONS = [
-  { value: 'elem_low_mix', label: '초등학생', age: '만 6–11세 · 2020 한국인 영양섭취기준' },
-  { value: 'middle_mix', label: '중학생', age: '만 12–14세 · 2020 한국인 영양섭취기준' },
-  { value: 'high_mix', label: '고등학생', age: '만 15–17세 · 2020 한국인 영양섭취기준' },
-  { value: 'senior_mix', label: '노인', age: '만 65세 이상 · 2020 한국인 영양섭취기준' },
-];
 export const ALLERGEN_POOL = ['난류', '우유', '땅콩', '대두', '밀', '갑각류', '고등어', '새우', '복숭아', '토마토'];
