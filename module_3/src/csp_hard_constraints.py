@@ -543,8 +543,17 @@ def evaluate_hard_breakdown(
             solver.Value(x[m, d, s]) for m in hard.excluded_idx for d in D for s in S
         )
 
+    # total 모드 예산 준수(기간 총액) — day 모드에서는 per_day[].budget_ok 가 이 역할을 한다.
+    budget_total = None
+    if cfg.budget_limit_per_person is not None and cfg.budget_period == "total":
+        total = sum(menus[m].cost_won for m in M for d in D for s in S if solver.Value(x[m, d, s]))
+        limit = cfg.budget_limit_per_person * days
+        budget_total = {"total": round(total), "limit": round(limit),
+                        "headroom": round(limit - total), "ok": total <= limit}
+
     return {
         "per_day": per_day,
+        "budget_total": budget_total,
         "kcal_bounds": (lo, hi) if cfg.enable_energy else None,
         "excluded_menu_count": len(hard.excluded_idx),
         "excluded_clean": allergen_clean,   # 배제 대상(배제식품·알레르기) 편성 안 됨

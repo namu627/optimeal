@@ -548,12 +548,12 @@ CREATE TABLE ingredient_price (
     ingredient_id  INT           NOT NULL,
     price_per_g    DECIMAL(10,4) NOT NULL,
     price_date     DATE          NOT NULL,
-    source         VARCHAR(100)  DEFAULT '서울시농수산식품공사',
+    source         VARCHAR(100)  NOT NULL DEFAULT '서울시농수산식품공사',
     notes          TEXT          NULL,
     created_at     TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (ingredient_id) REFERENCES ingredient(ingredient_id),
-    UNIQUE (ingredient_id, price_date)
+    UNIQUE (ingredient_id, price_date, source)   -- 출처별로 행을 따로 둔다(migrations/v5, 출처 우선순위로 선택)
 );
 
 CREATE INDEX idx_price_ingredient ON ingredient_price(ingredient_id);

@@ -1,0 +1,66 @@
+ingredient_id,ingredient_name,product_name,package_amount,package_unit,price_won,density_g_per_ml,source_site,url,surveyed_on,note
+814,생크림,칸디아 휘핑크림(동물성),1000,ml,9890,1.0,푸드스프링,https://www.foodspring.co.kr/goods/detail/490659,2026-09-30,동물성 생크림
+814,생크림,앵커 쉐프스 휘핑크림(동물성),1000,ml,10900,1.0,11번가,https://www.11st.co.kr/products/7426774148,2026-09-30,동물성 생크림. 혼합(동물+식물) 제품은 제외
+276,올리브유,보베다 엑스트라버진 올리브유,1000,ml,10500,0.91,푸드스프링,https://www.foodspring.co.kr/goods/detail/887166,2026-09-30,
+276,올리브유,데체코 엑스트라버진 올리브유,5000,ml,89000,0.91,푸드스프링,https://www.foodspring.co.kr/goods/detail/459322,2026-09-30,
+69,전분,뚜레반 감자전분,1000,g,12860,,푸드스프링,https://www.foodspring.co.kr/goods/detail/460559,2026-09-30,
+69,전분,금하 감자전분,1000,g,10710,,푸드스프링,https://www.foodspring.co.kr/goods/detail/1062870,2026-09-30,
+775,빵가루,정희 습식 일본식 빵가루,2000,g,6520,,푸드스프링,https://www.foodspring.co.kr/goods/detail/459291,2026-09-30,
+775,빵가루,FO 냉동빵가루(업소용),2000,g,9480,,푸드스프링,https://www.foodspring.co.kr/goods/detail/460514,2026-09-30,
+1186,튀김가루,백설 튀김가루,2000,g,6000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/493159,2026-09-30,
+1186,튀김가루,백설 튀김가루 2kg×6,12000,g,42790,,푸드스프링,https://www.foodspring.co.kr/goods/detail/19076,2026-09-30,
+132,두유,매일두유 고단백 플레인 190ml×24,4560,ml,17990,1.03,코스트코,https://www.costco.co.kr/Foods/Beverages/Soy-MilkMilk/Maeil-Soymilk-Protein-Plain-190ml-x-24/p/693917,2026-09-30,단일 출처(고단백 제품이라 일반 두유보다 비쌀 수 있음)
+866,실곤약,사조대림 실곤약,200,g,960,,푸드스프링,https://www.foodspring.co.kr/goods/detail/401855,2026-09-30,포장 중량(물 포함)
+866,실곤약,한미 엄선 실곤약,1000,g,3360,,푸드스프링,https://www.foodspring.co.kr/goods/detail/995229,2026-09-30,포장 중량(물 포함)
+866,실곤약,한성기업 실곤약,1000,g,3870,,푸드스프링,https://www.foodspring.co.kr/goods/detail/400584,2026-09-30,포장 중량(물 포함)
+866,실곤약,한미 실곤약,1000,g,3200,,푸드스프링,https://www.foodspring.co.kr/goods/detail/627378,2026-09-30,포장 중량(물 포함)
+427,곤약,한성기업 판곤약,600,g,1600,,푸드스프링,https://www.foodspring.co.kr/goods/detail/636412,2026-09-30,
+427,곤약,모노링크 곤약(흑),250,g,1350,,푸드스프링,https://www.foodspring.co.kr/goods/detail/402302,2026-09-30,
+180,발사믹식초,구르메 발사믹(화이트와인),500,g,5600,,푸드스프링,https://www.foodspring.co.kr/goods/detail/401950,2026-09-30,단일 출처. 화이트 발사믹
+438,광어,광어필렛 초밥집용 1.5kg,1500,g,111000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/989196,2026-09-30,필렛·냉동
+438,광어,완도 대광어 필렛 250g,250,g,26500,,11번가,https://www.11st.co.kr/products/8509947673,2026-09-30,필렛·소포장 소매가
+18,들깨가루,한가네 들깨가루 1kg,1000,g,6050,,푸드스프링,https://www.foodspring.co.kr/goods/detail/880938,2026-09-30,중국산
+18,들깨가루,들깨가루(고운) 1kg,1000,g,8750,,푸드스프링,https://www.foodspring.co.kr/goods/detail/619380,2026-09-30,
+1093,찹쌀가루,한승 찹쌀가루(국산) 1kg,1000,g,6630,,푸드스프링,https://www.foodspring.co.kr/goods/detail/563807,2026-09-30,
+1093,찹쌀가루,한울식품 찹쌀가루 5kg,5000,g,34230,,푸드스프링,https://www.foodspring.co.kr/goods/detail/400518,2026-09-30,업소용
+251,숙주나물,숙주나물(재우농산) 3.5kg,3500,g,5670,,푸드스프링,https://www.foodspring.co.kr/goods/detail/781216,2026-09-30,
+251,숙주나물,맑은물 숙주나물 3.5kg,3500,g,4400,,푸드스프링,https://www.foodspring.co.kr/goods/detail/762054,2026-09-30,국내산
+840,순두부,하늘찬 순두부 1kg,1000,g,1550,,푸드스프링,https://www.foodspring.co.kr/goods/detail/103634,2026-09-30,
+840,순두부,진선 순두부 400g,400,g,520,,푸드스프링,https://www.foodspring.co.kr/goods/detail/997034,2026-09-30,
+592,레몬즙,엘막 레몬쥬스 946ml,946,ml,4750,1.03,푸드스프링,https://www.foodspring.co.kr/goods/detail/541301,2026-09-30,100% 과즙 여부 미확인
+592,레몬즙,골드크라운 레몬주스 946ml,946,ml,12850,1.03,푸드스프링,https://www.foodspring.co.kr/goods/detail/103760,2026-09-30,100% 과즙 여부 미확인
+436,관자,가리비 관자 1kg(냉동),1000,g,14620,,푸드스프링,https://www.foodspring.co.kr/goods/detail/587432,2026-09-30,글레이징 표기 없음
+436,관자,손질 가리비 관자 500g×20(냉동),10000,g,119000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/653765,2026-09-30,글레이징 표기 없음
+1022,장어,통영 붕장어 손질 후 약 750g,750,g,14000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/818904,2026-09-30,단일 출처(양념 장어 상품은 제외)
+71,떡볶이떡,떡볶이떡(쌀) 1.5kg,1500,g,3720,,푸드스프링,https://www.foodspring.co.kr/goods/detail/368366,2026-09-30,소스 없음
+71,떡볶이떡,떡볶이떡(밀) 2kg,2000,g,4550,,푸드스프링,https://www.foodspring.co.kr/goods/detail/371445,2026-09-30,소스 없음
+328,토마토홀통조림,안젤라미아 토마토홀 2.89kg,2890,g,12410,,푸드스프링,https://www.foodspring.co.kr/goods/detail/565699,2026-09-30,내용량 기준(고형량 1.83kg)
+328,토마토홀통조림,헌트 토마토 홀 2.89kg,2890,g,13730,,푸드스프링,https://www.foodspring.co.kr/goods/detail/368192,2026-09-30,내용량 기준
+940,연두부,댓골 연두부 300g,300,g,480,,푸드스프링,https://www.foodspring.co.kr/goods/detail/953590,2026-09-30,
+940,연두부,연두부 300g×40 박스,12000,g,16800,,푸드스프링,https://www.foodspring.co.kr/goods/detail/103619,2026-09-30,
+1131,칵테일새우,칵테일 새우 900g(21/25),900,g,18340,,푸드스프링,https://www.foodspring.co.kr/goods/detail/876223,2026-09-30,냉동·글레이징 표기 없음
+1131,칵테일새우,칵테일 새우(71-90) 200g×8,1600,g,52590,,푸드스프링,https://www.foodspring.co.kr/goods/detail/15389,2026-09-30,냉동·글레이징 표기 없음
+867,쌀가루,쌀가루(국산) 1kg,1000,g,3930,,푸드스프링,https://www.foodspring.co.kr/goods/detail/563797,2026-09-30,
+867,쌀가루,새롬푸드 쌀가루(강력) 3kg,3000,g,17730,,푸드스프링,https://www.foodspring.co.kr/goods/detail/882367,2026-09-30,제빵용
+575,라면,신라면 120g×30 박스,3600,g,26030,,푸드스프링,https://www.foodspring.co.kr/goods/detail/620759,2026-09-30,업소용 박스
+575,라면,삼양라면 120g×10,1200,g,8490,,푸드스프링,https://www.foodspring.co.kr/goods/detail/989681,2026-09-30,
+167,모차렐라치즈,PA 모짜렐라 피자치즈 2.5kg,2500,g,27300,,푸드스프링,https://www.foodspring.co.kr/goods/detail/454929,2026-09-30,자연치즈 100%
+167,모차렐라치즈,썬리취 모짜렐라 슈레드 2.5kg,2500,g,24580,,푸드스프링,https://www.foodspring.co.kr/goods/detail/102764,2026-09-30,자연치즈 100%
+1140,코다리,코다리 절단 10kg(러시아),10000,g,54710,,푸드스프링,https://www.foodspring.co.kr/goods/detail/564178,2026-09-30,냉동
+1140,코다리,코다리 소제·절단 1kg(러시아),1000,g,6530,,푸드스프링,https://www.foodspring.co.kr/goods/detail/636404,2026-09-30,냉동
+285,유자청,파낙스F&B 유자청(고흥) 1kg,1000,g,6920,,푸드스프링,https://www.foodspring.co.kr/goods/detail/399905,2026-09-30,
+285,유자청,광야식품 유자청 970g,970,g,6530,,푸드스프링,https://www.foodspring.co.kr/goods/detail/728945,2026-09-30,
+163,메밀면,면다해 메밀면 건면 1kg,1000,g,3780,,푸드스프링,https://www.foodspring.co.kr/goods/detail/508123,2026-09-30,소스 없음·할인 폭 큼
+163,메밀면,메밀면 5kg,5000,g,23800,,푸드스프링,https://www.foodspring.co.kr/goods/detail/94296,2026-09-30,소스 없음
+268,훈제연어,건염 훈제연어 슬라이스 1.5kg,1500,g,44000,,푸드스프링,https://www.foodspring.co.kr/goods/detail/591244,2026-09-30,평균 중량
+268,훈제연어,굿딜 훈제연어 슬라이스 1kg,1000,g,29640,,푸드스프링,https://www.foodspring.co.kr/goods/detail/868079,2026-09-30,
+1009,인삼,수삼(대) 750g,750,g,54220,,푸드스프링,https://www.foodspring.co.kr/goods/detail/564488,2026-09-30,
+1009,인삼,수삼(소) 100g,100,g,6900,,푸드스프링,https://www.foodspring.co.kr/goods/detail/488644,2026-09-30,
+982,요거트,푸르밀 플레인요거트 2kg,2000,g,6200,,푸드스프링,https://www.foodspring.co.kr/goods/detail/1015662,2026-09-30,
+982,요거트,푸르밀 플레인 요거트 5kg,5000,g,20480,,푸드스프링,https://www.foodspring.co.kr/goods/detail/449506,2026-09-30,
+280,청주,백화수복 1.8L,1800,ml,11140,0.98,푸드스프링,https://www.foodspring.co.kr/goods/detail/565194,2026-09-30,
+280,청주,아지플러스 요리용 청주 1.8L,1800,ml,9000,0.98,푸드스프링,https://www.foodspring.co.kr/goods/detail/985990,2026-09-30,요리용
+58,밤,깐밤(국내산) 1kg,1000,g,40790,,푸드스프링,https://www.foodspring.co.kr/goods/detail/386343,2026-09-30,
+58,밤,깐밤(국산·냉장) 1kg,1000,g,27400,,푸드스프링,https://www.foodspring.co.kr/goods/detail/693886,2026-09-30,
+891,아몬드가루,비앤지 아몬드가루 1kg,1000,g,21090,,푸드스프링,https://www.foodspring.co.kr/goods/detail/457760,2026-09-30,업소용
+891,아몬드가루,비앤지 아몬드가루 1kg×10,10000,g,186410,,푸드스프링,https://www.foodspring.co.kr/goods/detail/475281,2026-09-30,업소용

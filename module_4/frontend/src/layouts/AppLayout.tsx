@@ -3,12 +3,14 @@
 //  · 사이드바: 주 메뉴(홈/식단 생성/식단 목록) → "도구" 라벨+구분선 → 도구 메뉴 → 설정 → 하단(프로필·백엔드 상태·접기)
 //  · 활성 메뉴: 내용 폭만 감싸는 알약(높이 34, 라운드 17, 틴트 배경)
 //  · 상단 바: 제목·보조 설명 / + 새 식단 / 프로필 아바타(클릭 시 드롭다운). 알림·전역 검색은 범위 밖(컨벤션 §3)
-//  · 백엔드 준비중(503): 상단 바 아래 코럴 배너 + 상태 점 준비중 + 새 식단 비활성(컨벤션 §5)
+//  · 백엔드 상태(정상 / 백엔드 연결 안 됨 / DB 연결 안 됨): 상단 바 아래 코럴 배너 + 사이드바 상태 점,
+//    백엔드에 닿지 않으면 새 식단 비활성(컨벤션 §5). 목업 스위치(VITE_USE_MOCK)가 켜지면 머스터드 배너.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { colors, layout } from '../theme';
 import { LogoMark } from '../components/Logo';
 import { useHealth } from '../api/useHealth';
+import { USE_MOCK, MOCK_BANNER } from '../api/menu';
 
 // 로그인·계정 API가 아직 없어 사용자·소속 정보가 없다(컨벤션 §6 — 계정은 목업). 가짜 이름 대신 중립 표기.
 // TODO: 로그인 연동 시 실제 사용자명·소속 업장으로 교체
@@ -69,8 +71,12 @@ export default function AppLayout() {
   const ddRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const ready = useHealth();
-  const down = ready === false;
+  const health = useHealth();
+  // 사이드바 상태: 백엔드 연결 실패 / DB 연결 안 됨 / 정상. DB 가 꺼지면 식단 생성이 실패하므로 '정상'으로 두지 않는다.
+  const bad = health === 'down' || health === 'db_down';
+  const healthLabel = health === null ? '상태 확인 중' : health === 'down' ? '백엔드 연결 안 됨' : health === 'db_down' ? 'DB 연결 안 됨' : '백엔드 정상';
+  // '새 식단' 비활성: 백엔드에 닿지 않을 때만(목업 스위치를 켠 개발 실행은 서버 없이도 화면을 볼 수 있다).
+  const down = health === 'down' && !USE_MOCK;
 
   // 저장된 식단 상세(/plans/:id)는 메뉴상 '식단 목록' 아래로 본다.
   const isPlanDetail = /^\/plans\/\d+$/.test(pathname);
@@ -159,9 +165,9 @@ export default function AppLayout() {
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: collapsed ? 0 : '0 8px', borderRadius: 8, justifyContent: collapsed ? 'center' : 'flex-start', background: down ? C.redTint : C.tint }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: down ? C.redText : C.greenText, flex: 'none' }} />
-            {!collapsed && <span style={{ font: '400 11px Pretendard,sans-serif', color: down ? C.redText : C.greenText }}>{down ? '백엔드 준비중' : '백엔드 정상'}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: collapsed ? 0 : '0 8px', borderRadius: 8, justifyContent: collapsed ? 'center' : 'flex-start', background: bad ? C.redTint : C.tint }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: bad ? C.redText : C.greenText, flex: 'none' }} />
+            {!collapsed && <span style={{ font: '400 11px Pretendard,sans-serif', color: bad ? C.redText : C.greenText }}>{healthLabel}</span>}
           </div>
           <div onClick={() => setCollapsed((c) => !c)} onMouseEnter={() => setHover('fold')} onMouseLeave={() => setHover(null)}
             style={{ display: 'flex', alignItems: 'center', gap: 11, height: 30, padding: collapsed ? 0 : '0 8px', borderRadius: 8, justifyContent: collapsed ? 'center' : 'flex-start', color: C.sub, cursor: 'pointer', background: hover === 'fold' ? C.hover : 'transparent' }}>
@@ -216,10 +222,20 @@ export default function AppLayout() {
           </div>
         </header>
 
-        {down && (
+        {USE_MOCK && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 28px', background: colors.warningTint, borderBottom: `1px solid ${colors.warning}`, flex: 'none' }}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke={colors.warningText} strokeWidth="1.6" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><path d="M8 5v3.5M8 11h.01" /></svg>
+            <span style={{ font: '600 13px Pretendard,sans-serif', color: colors.warningText }}>{MOCK_BANNER} (VITE_USE_MOCK=true) · 저장·PDF·CSV 내려받기를 막았어요</span>
+          </div>
+        )}
+        {bad && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 28px', background: C.redTint, borderBottom: `1px solid ${C.redBorder}`, flex: 'none' }}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke={C.red} strokeWidth="1.6" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><path d="M8 5v3.5M8 11h.01" /></svg>
-            <span style={{ font: '400 13px Pretendard,sans-serif', color: C.redText }}>백엔드 준비 중입니다 — 마지막 저장 상태를 표시하고 있어요</span>
+            <span style={{ font: '400 13px Pretendard,sans-serif', color: C.redText }}>
+              {health === 'down'
+                ? '백엔드에 연결할 수 없어요 — 백엔드 서버(포트 8000)를 켜 주세요'
+                : <>영양성분 DB에 연결할 수 없어요 — 식단 생성·영양성분 검색이 실패해요. <code>docker start optimeal_db</code> 로 DB를 켜 주세요</>}
+            </span>
           </div>
         )}
 

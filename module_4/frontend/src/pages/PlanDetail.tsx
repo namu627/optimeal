@@ -1,12 +1,14 @@
 // src/pages/PlanDetail.tsx
 // 저장된 식단 열람(/plans/:id) — 검토 화면(Step2Review)을 읽기 전용으로 재사용한다.
 import { useEffect, useState } from 'react';
-import { Button, Card, Empty, Skeleton } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Card, Dropdown, Empty, Skeleton } from 'antd';
+import { ArrowLeftOutlined, FilePdfOutlined, ReadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { colors } from '../theme';
 import Step2Review from './plan/Step2Review';
-import { formatSavedAt, getSavedPlan, type SavedPlan } from '../api/menu';
+import RecipeDrawer from './plan/RecipeDrawer';
+import { downloadPlanPdf, describeExportError } from './plan/planExport';
+import { MOCK_BANNER, formatSavedAt, getSavedPlan, recomputePlan, type SavedPlan } from '../api/menu';
 
 type LoadState = { status: 'loading' } | { status: 'notfound' } | { status: 'error' } | { status: 'ok'; saved: SavedPlan };
 
@@ -18,12 +20,16 @@ export default function PlanDetail() {
 function PlanDetailView({ id }: { id: number }) {
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>(Number.isInteger(id) ? { status: 'loading' } : { status: 'notfound' });
+  const [recipeOpen, setRecipeOpen] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const { message } = App.useApp();
 
   useEffect(() => {
     if (!Number.isInteger(id)) return;
     let alive = true;
     getSavedPlan(id)
-      .then((saved) => { if (alive) setState({ status: 'ok', saved }); })
+      // 저장 당시 규칙으로 박힌 경고(예: 예전 칸 단위 나트륨)를 현재 규칙으로 다시 계산해서 보여 준다.
+      .then((saved) => { if (alive) setState({ status: 'ok', saved: { ...saved, plan: recomputePlan(saved.plan) } }); })
       .catch((e) => {
         console.error('[식단상세] 조회 실패:', e);
         if (alive) setState({ status: e?.response?.status === 404 ? 'notfound' : 'error' });
@@ -45,6 +51,8 @@ function PlanDetailView({ id }: { id: number }) {
   }
 
   const { saved } = state;
+  // 예전 개발 모드 폴백으로 목업이 저장된 경우 — 실제 식단이 아님을 알리고 PDF 를 막는다.
+  const isMock = saved.plan.source === 'mock';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -53,8 +61,30 @@ function PlanDetailView({ id }: { id: number }) {
           <div style={{ fontSize: 17, fontWeight: 700, color: colors.text }}>{saved.name}</div>
           <div style={{ fontSize: 12, color: colors.textTertiary }}>{formatSavedAt(saved.created_at)} 저장 · 읽기 전용</div>
         </div>
+        <div style={{ flex: 1 }} />
+        <Button icon={<ReadOutlined />} onClick={() => setRecipeOpen(true)}>레시피 보기</Button>
+        <Dropdown menu={{
+          // 알레르기 그룹이 있으면 '대체식 포함' 변형(그룹별 대체 메뉴 표 + 조리 지시서 선택 시 대체식 조리 지시서)도 준다.
+          items: [
+            { key: 'table', label: '식단표 PDF' }, { key: 'recipes', label: '식단표 + 조리 지시서 PDF' },
+            ...(saved.plan.alternatives.length ? [
+              { key: 'table+alt', label: '식단표 + 대체식 PDF' },
+              { key: 'recipes+alt', label: '식단표 + 조리 지시서 + 대체식 PDF' },
+            ] : []),
+          ],
+          onClick: ({ key }) => {
+            setPdfBusy(true);
+            downloadPlanPdf(saved.plan, saved.name, { recipes: key.startsWith('recipes'), alternatives: key.endsWith('+alt') })
+              .catch(async (e) => { console.error('[식단상세] PDF 실패:', e); message.error(`PDF를 만들지 못했어요 — ${await describeExportError(e)}`); })
+              .finally(() => setPdfBusy(false));
+          },
+        }}>
+          <Button icon={<FilePdfOutlined />} loading={pdfBusy} disabled={isMock}>PDF 받기</Button>
+        </Dropdown>
       </div>
+      {isMock && <Alert type="warning" showIcon message={`${MOCK_BANNER} — 이 저장본은 목업 식단이라 PDF를 만들 수 없어요`} />}
       <Step2Review plan={saved.plan} readOnly />
+      <RecipeDrawer plan={saved.plan} open={recipeOpen} onClose={() => setRecipeOpen(false)} />
     </div>
   );
 }

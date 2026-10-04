@@ -65,6 +65,10 @@ UNIT_MULTIPLIER = {
 # 재료명 정규화 매칭용 상태·산지 수식어 (단어 단위/접두어 제거 대상)
 MODIFIER_WORDS = ["국산", "수입", "냉동", "활", "선", "냉", "깐", "햇", "건", "저장", "생"]
 
+# 품목명(pum_nm)이 우리 재료명과 달라 정규화로 못 잡던 품목 → 재료명(2026-09-30 확인).
+#   갯장어(≠ 민물·붕장어)·가리비(≠ 관자) 는 다른 상품이라 넣지 않는다.
+GARAK_ALIASES = {"생표고": "표고버섯", "생표고 수입": "표고버섯", "새우수입": "새우"}
+
 # confidence 등급별 미리보기 CSV 정렬 우선순위 (낮을수록 검수 우선)
 CONFIDENCE_SORT_ORDER = {"low": 0, "high": 1, "synonym": 2, "exact": 3}
 
@@ -422,6 +426,14 @@ def match_ingredient_id(conn, pum_nm, match_cache, lookup_cache):
     if name in match_cache:
         return match_cache[name]
 
+    # 0차: 명시 별칭(GARAK_ALIASES) — 검수된 대응이라 가장 먼저
+    if name in GARAK_ALIASES:
+        found = _lookup_exact_name(conn, GARAK_ALIASES[name], lookup_cache)
+        if found:
+            result = (found[0], found[1], "alias")
+            match_cache[name] = result
+            return result
+
     # 1차: ingredient_name 완전일치 (exact)
     row = conn.execute(
         text("SELECT ingredient_id, ingredient_name FROM ingredient WHERE ingredient_name = :n"),
@@ -562,7 +574,8 @@ def load_ingredient_price(engine, matched_results):
     ingredient_id 기준으로 묶는다.)
 
     ── (3) ON CONFLICT upsert 처리 ──
-    (ingredient_id, price_date) UNIQUE 제약을 이용해 upsert. 재실행해도 안전(idempotent).
+    (ingredient_id, price_date, source) UNIQUE 제약(migrations/v5)으로 upsert — 같은 날 다른 출처 행은 건드리지 않는다.
+    재실행해도 안전(idempotent). 어느 출처 가격을 쓸지는 scripts/price_priority.py 우선순위가 정한다.
     """
     price_date = date.today()
     grouped = defaultdict(list)  # {ingredient_id: [matched_result, ...]}
@@ -596,9 +609,8 @@ def load_ingredient_price(engine, matched_results):
                     ) VALUES (
                         :ing_id, :price, :pdate, :source, :notes
                     )
-                    ON CONFLICT (ingredient_id, price_date) DO UPDATE
+                    ON CONFLICT (ingredient_id, price_date, source) DO UPDATE
                         SET price_per_g = EXCLUDED.price_per_g,
-                            source      = EXCLUDED.source,
                             notes       = EXCLUDED.notes
                     RETURNING (xmax = 0) AS is_insert
                 """),
@@ -695,7 +707,7 @@ def main():
         confidence_counts[r["confidence"]] += 1
 
     print("\n  매칭 결과 요약 (confidence 등급별):")
-    for tier in ("exact", "synonym", "high", "low"):
+    for tier in ("alias", "exact", "synonym", "high", "low"):
         print(f"    - {tier:<8}: {confidence_counts.get(tier, 0)}건")
     print(f"    - 매칭 실패 : {len(unmatched_names)}건")
 
