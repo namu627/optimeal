@@ -115,6 +115,13 @@ class HardConstraintConfig:
     #   "같은 날 점심·저녁 중복"도 함께 막힌다. 0 이면 미적용.
     #   추가 변수 없이 선형 제약만 쓰므로 비용이 싸다(|M|×(days-w+1) 제약).
     menu_repeat_window_days: int = 3
+    # 지평 전체 사용 횟수 상한 (2026-10-05 영양사 검토: 31일 2식에 같은 귀리밥 5끼).
+    #   창만으로는 31일에 한 메뉴가 3일 간격 최대 11회까지 나온다. "30일당 N회"로 받아
+    #   지평에 비례시킨다 → 31일 2회 · 7·14일 1회(round, 최소 1). 0 이면 미적용.
+    #   김치는 현장에서 소수 종이 자주 도는 게 정상이라 상한에서 빼고 창만 적용한다.
+    #   창을 0으로 끄면 이 상한도 꺼진다(menu_max_uses).
+    menu_max_uses_per_30d: float = 2.0
+    menu_max_uses_exempt_categories: tuple = ("김치",)
 
     # ── H-5 영양사 수동 지정 (2026-08-15) ──────────────────────────
     #   영양사가 특정 메뉴를 손으로 넣거나 빼는 통로. 프론트(모듈4)의 식단 편집 화면이
@@ -151,6 +158,18 @@ class HardConstraint:
     forced_idx: set = field(default_factory=set)             # 필수 편성이 걸린 메뉴 인덱스
     conflicting_menu_ids: set = field(default_factory=set)   # 추가·제거에 동시 지정된 id(배제 우선)
     unknown_menu_ids: set = field(default_factory=set)       # 후보 목록에 없는 id
+
+
+def menu_max_uses(cfg: HardConstraintConfig, days: int) -> int | None:
+    """지평 days 일에 한 메뉴가 나올 수 있는 최대 횟수. 상한 미적용이면 None.
+
+    메뉴 중복 회피의 일부라 창(menu_repeat_window_days)을 0으로 끄면 함께 꺼진다 —
+    창을 끄는 호출부(예산 단위 테스트·demo_budget)는 "반복 무제한"을 뜻한다.
+    """
+    rate = float(cfg.menu_max_uses_per_30d or 0)
+    if rate <= 0 or days <= 0 or int(cfg.menu_repeat_window_days or 0) <= 0:
+        return None
+    return max(1, round(rate * days / 30))
 
 
 # ===========================================================================
@@ -478,6 +497,16 @@ def add_hard_constraints(
                 )
     active["menu_repeat_window"] = w > 0
 
+    # 지평 전체 사용 횟수 상한 — 창이 막지 못하는 "3일 간격 반복"을 막는다.
+    cap = menu_max_uses(cfg, days)
+    if cap is not None:
+        exempt = set(cfg.menu_max_uses_exempt_categories or ())
+        for m in M:
+            if getattr(menus[m], "category", None) in exempt:
+                continue
+            model.Add(sum(x[m, d, s] for d in D for s in S) <= cap)
+    active["menu_max_uses"] = cap is not None
+
     # =======================================================================
     # 식단가(예산) — 커트라인. 초과 식단은 무조건 후보에서 제외(Hard).
     # =======================================================================
@@ -683,8 +712,15 @@ def _repeat_report(solver, x, menus, hard, *, days, n_meals) -> dict:
         for a, b in zip(ds, ds[1:]):
             if b - a < span:
                 violations.append({"menu": menus[m].name, "days": [a + 1, b + 1]})
+    cap = menu_max_uses(hard.config, days) if hard.active_terms.get("menu_max_uses") else None
+    exempt = set(hard.config.menu_max_uses_exempt_categories or ())
+    cap_violations = [] if cap is None else [
+        {"menu": menus[m].name, "count": len(ds)} for m, ds in placed.items()
+        if len(ds) > cap and getattr(menus[m], "category", None) not in exempt]
     return {
         "window_days": span,
         "violations": violations,
         "max_same_menu_count": max((len(v) for v in placed.values()), default=0),
+        "max_uses_cap": cap,
+        "max_uses_violations": cap_violations,
     }

@@ -77,8 +77,9 @@ def test_no_repeat_within_window():
 
 def test_repeat_allowed_outside_window():
     """창 밖(4일 간격 이상)에서는 재등장이 허용된다 — 과도한 금지가 아니다."""
+    # 창 동작만 본다 — 지평 사용 상한은 끈다(켜면 재사용 자체가 막힌다).
     cfg = hc.HardConstraintConfig(target_kcal_per_day=2000.0, budget_limit_per_person=None,
-                                  menu_repeat_window_days=2)
+                                  menu_repeat_window_days=2, menu_max_uses_per_30d=0)
     # 후보를 빡빡하게 주면 재사용이 불가피해진다(카테고리당 4종 × 끼니 슬롯 요구).
     res = build_and_solve(pool(n_per_cat=6), MealPlanRequest(days=5, meals=MEALS, hard=cfg,
                                                             solver_time_limit=40.0))
@@ -97,6 +98,39 @@ def test_repeat_window_can_be_disabled():
     assert res.plan
     assert res.hard_breakdown["active_terms"]["menu_repeat_window"] is False
     assert res.hard_breakdown["menu_repeat"]["window_days"] == 0
+
+
+def test_max_uses_scales_with_horizon():
+    """30일당 2회 → 31일 2회 · 7·14일 1회 · 0 이면 미적용."""
+    cfg = hc.HardConstraintConfig()
+    assert hc.menu_max_uses(cfg, 31) == 2
+    assert hc.menu_max_uses(cfg, 14) == 1
+    assert hc.menu_max_uses(cfg, 7) == 1
+    assert hc.menu_max_uses(hc.HardConstraintConfig(menu_max_uses_per_30d=0), 31) is None
+
+
+def test_max_uses_caps_repeats_except_exempt():
+    """창 밖 재등장도 지평 상한을 넘지 않는다 — 김치(면제)만 예외."""
+    # 1식 9일, 창 2일: 창만이면 한 메뉴가 최대 5회. 상한 30일당 6회 → 9일 2회.
+    cfg = hc.HardConstraintConfig(target_kcal_per_day=700.0, budget_limit_per_person=None,
+                                  menu_repeat_window_days=2, menu_max_uses_per_30d=6.0)
+    # 김치만 4종 — 상한 2회가 걸리면 9끼를 못 채운다(4×2=8). 면제여야 풀린다.
+    menus = [m for m in pool(n_per_cat=5) if m.name != "김치4"]
+    res = build_and_solve(menus, MealPlanRequest(days=9, meals=("점심",), hard=cfg,
+                                                solver_time_limit=40.0))
+    assert res.plan, f"해가 있어야 한다: {res.status}"
+    rp = res.hard_breakdown["menu_repeat"]
+    assert rp["max_uses_cap"] == 2
+    assert rp["max_uses_violations"] == []
+
+    cat = {m.name: m.category for m in menus}
+    counts: dict = {}
+    for meals in res.plan.values():
+        for names in meals.values():
+            for n in names:
+                counts[n] = counts.get(n, 0) + 1
+    assert all(c <= 2 for n, c in counts.items() if cat[n] != "김치"), counts
+    assert max(c for n, c in counts.items() if cat[n] == "김치") >= 3
 
 
 # ---------------------------------------------------------------------------
