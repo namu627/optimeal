@@ -57,6 +57,7 @@ class MenuItem:
     allergens: set = field(default_factory=set)  # 알레르기 표시 19종 이름 집합(난류·우유…) ← H-3·대체식
     season_score: float = 0.0          # 제철 빈도 점수 (0~1) ← 제철 목적함수
     ingredients: set = field(default_factory=set)  # 전체 재료명 집합 ← R90 대체식 재료 공유용
+    main_ingredients: set = field(default_factory=set)  # 역할이 '주재료'인 재료명 집합 ← 대체식 재료 치환 제외 판정
     ingredient_allergens: dict = field(default_factory=dict)  # 재료명 → 알레르겐 이름 집합 ← 대체식 재료 치환
     allergen_unknown: bool = False     # 레시피 재료 정보가 없어 알레르기 판정 불가(allergens=∅ 이 '없음'이 아님)
     allergens_from_text: set = field(default_factory=set)  # 표시 없이 원문(조리 순서·재료명·메뉴명)에서만 잡힌 알레르겐(allergens 에도 포함)
@@ -152,7 +153,9 @@ SELECT
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.color_category), NULL) AS colors,
     ma.pairs AS allergen_pairs,
     stx.txt AS step_text,
-    ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name), NULL) AS ingredients
+    ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name), NULL) AS ingredients,
+    ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name)
+                 FILTER (WHERE rim.ingredient_role = '주재료'), NULL) AS main_ingredients
 FROM nutrition_recipe nr
 LEFT JOIN recipe r               ON r.nutrition_recipe_id = nr.nutrition_id
 LEFT JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
@@ -189,6 +192,7 @@ def load_menus(month: int | None = None,
                 allergens_from_text=from_text,
                 season_score=float(r["season_score"] or 0),
                 ingredients=set(r["ingredients"] or []),
+                main_ingredients=set(r["main_ingredients"] or []),
                 ingredient_allergens=ing_allergens,
                 allergen_unknown=not r["ingredients"],
             ))

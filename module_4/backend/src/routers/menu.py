@@ -643,10 +643,10 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
                      if i < len(menus)} if sodium_by_idx else None)
     alt_menus = list(canon.values()) if canon else menus
-    # 재료 치환(방식2)은 쓰지 않는다 — 이름만 '(대체: 달걀→두부)'로 바뀌고 레시피·조리 순서·분량은 원래 메뉴라
-    # 계란찜의 달걀을 두부로 바꾸는 식의 조리 불가 지시서가 나왔다(2026-10-06 결정). 알레르기 자리는 늘 다른 메뉴로 바꾼다.
+    # 재료 치환(방식2)을 쓴다 — 단, 달걀·콩처럼 주재료를 바꾸면 음식이 안 되는 경우는 치환하지 않고 메뉴를 교체한다
+    # (alternative_menu.NO_SUBSTITUTE_WHEN_MAIN). 치환한 접시의 재료명·조리 순서는 프론트 recipeView.substitutedRecipe 가 바꿔 보여 준다.
     alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
-                                       sodium_by_id=sodium_by_id, ingredient_substitution=False)
+                                       sodium_by_id=sodium_by_id)
     return [_to_jsonable(a) for a in alts]
 
 

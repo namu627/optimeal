@@ -185,6 +185,13 @@ SUBSTITUTE_MAP = {
     "밀가루": ("쌀가루", "감자", "전분"),
 }
 
+# 주재료일 때 치환하지 않는 재료 — 이 재료가 접시의 주재료(recipe_ingredient_map.ingredient_role='주재료')면
+#   SUBSTITUTE_MAP 의 대체 재료로 바꿔도 같은 음식이 되지 않는다(계란말이의 달걀→두부, 콩조림의 콩→김).
+#   이런 접시는 재료 치환(방식2)을 건너뛰고 메뉴 교체(방식1)로 넘긴다. 안전한 메뉴가 없으면 '영양사 확인'.
+#   여기에 없는 재료(돼지고기→닭고기, 우유→두유)는 주재료여도 음식이 성립하므로 그대로 치환한다.
+#   ※ SUBSTITUTE_MAP 에 재료를 추가할 때는 이 목록도 함께 검토한다.
+NO_SUBSTITUTE_WHEN_MAIN = frozenset({"난류", "계란", "달걀", "대두", "콩"})
+
 
 @dataclass
 class _SubstitutedMenu:
@@ -207,6 +214,7 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None, allergen_
 
     같은 메뉴를 유지하므로 재료 공유율이 최대(알레르겐 자리만 바뀜)다 — 간트 R90 목적의 극한.
     성공 조건: 접시 안 '모든' 위험 재료가 (map 에 있고) 그룹에 안전한 대체를 가질 때.
+    위험 재료가 그 접시의 주재료이고 NO_SUBSTITUTE_WHEN_MAIN 에 있으면(계란말이의 달걀) 치환하지 않는다.
     하나라도 대체 불가면 None → 호출부는 방식1(메뉴 교체)로 폴백.
 
     allergen_index(재료명 → 알레르겐 이름)로 재료의 위험 여부를 판정한다 — 우유 그룹이면 우유뿐 아니라
@@ -224,8 +232,11 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None, allergen_
     hits = {i for i in orig_ings if risky(i)}      # 이 접시에서 위험한 재료들
     if not hits:
         return None                                # 바꿀 게 없음(정상 접시)
+    main_ings = set(getattr(orig, "main_ingredients", None) or set())   # 이 접시의 주재료(없으면 빈 집합)
     chosen = {}
     for h in hits:
+        if h in main_ings and h in NO_SUBSTITUTE_WHEN_MAIN:
+            return None                            # 주재료라 치환하면 음식이 안 됨 → 폴백(메뉴 교체)
         cands = smap.get(h)
         if not cands:
             return None                            # 이 알레르겐 재료엔 등록된 치환 없음 → 폴백
