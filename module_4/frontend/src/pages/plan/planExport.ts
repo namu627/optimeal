@@ -6,7 +6,7 @@ import {
   type MealPlan, type MealKind, type MealCell, type PdfExportRequest, type PdfRecipe, type WeekBlock,
 } from '../../api/menu';
 import {
-  amountBasis, changedAltTracks, changedNames, collectEntries, perServing, resolveRecipes, type RecipeEntry,
+  amountBasis, changedAltTracks, changedNames, collectEntries, entryKey, perServing, resolveRecipes, type RecipeEntry,
 } from './recipeView';
 import { allergyCheckText, altFollowText, altReviewText } from './altSync';
 
@@ -81,7 +81,7 @@ function pushRecipeRows(rows: Cell[][], prefix: Cell[], weeksSrc: WeekBlock[], e
   const byKey = new Map(entries.map((e) => [e.key, e]));
   weeksSrc.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => {
     c.items.forEach((it) => {
-      const e = byKey.get(it.nutritionId != null ? `id:${it.nutritionId}` : `name:${it.name}`)!;
+      const e = byKey.get(entryKey(it))!;
       const rec = recipeOf(e);
       const meal = MEAL_TABLE[c.kind as MealKind];
       if (rec && rec.ingredients.length) {

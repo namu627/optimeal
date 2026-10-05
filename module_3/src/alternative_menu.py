@@ -226,6 +226,8 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None, allergen_
     def risky(ing):
         return bool(_labels_of(ing, allergen_index) & unsafe)
 
+    if set(getattr(orig, "allergens_from_text", None) or set()) & unsafe:
+        return None                                # 재료 목록에 없는 위험(원문에만 나옴) — 재료 치환으론 못 없앤다 → 폴백
     orig_ings = _ingredients_of(orig)
     hits = {i for i in orig_ings if risky(i)}      # 이 접시에서 위험한 재료들
     if not hits:
