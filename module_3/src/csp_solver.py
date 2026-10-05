@@ -12,6 +12,7 @@
 from __future__ import annotations
 import argparse
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -58,6 +59,28 @@ class MenuItem:
     ingredients: set = field(default_factory=set)  # 전체 재료명 집합 ← R90 대체식 재료 공유용
     ingredient_allergens: dict = field(default_factory=dict)  # 재료명 → 알레르겐 이름 집합 ← 대체식 재료 치환
     allergen_unknown: bool = False     # 레시피 재료 정보가 없어 알레르기 판정 불가(allergens=∅ 이 '없음'이 아님)
+    allergens_from_text: set = field(default_factory=set)  # 표시 없이 원문(조리 순서·재료명·메뉴명)에서만 잡힌 알레르겐(allergens 에도 포함)
+# 원문 키워드 → 알레르기 표시 19종 이름. recipe_ingredient_map 에 재료가 빠졌거나(조리 순서엔 '달걀'이 있는데
+#   재료 목록엔 없음) 재료에 알레르기 표시가 안 된 경우를 보완한다 — 2026-10-06 측정: 조리 순서 원문에
+#   달걀류가 나오는데 난류 표시가 없는 메뉴 33개, 우유류 56개(두부 달걀전·치즈감자크로켓 등).
+#   안전 쪽으로 넓게 잡는다(오탐 = 그 그룹 대체식에서 빠질 뿐, 미탐 = 알레르기 사고).
+#   ※ '게'·'밀'·'굴'처럼 다른 낱말·어미에 흔히 섞이는 한 글자는 쓰지 않는다. 아황산류는 원문으로 판정 불가.
+STEP_ALLERGEN_KEYWORDS = {
+    "난류": r"계란|달걀|노른자|흰자|메추리알|마요네즈",
+    "우유": r"우유|(?<!땅콩)버터|치즈|생크림|요거트|요구르트|연유",
+    "밀": r"밀가루|부침가루|튀김가루|빵가루|간장|고추장",
+    "대두": r"두부|된장|두유|대두|간장|고추장",
+    "땅콩": r"땅콩", "호두": r"호두", "잣": r"잣", "메밀": r"메밀",
+    "새우": r"새우", "게": r"꽃게|대게|게살|크래미", "고등어": r"고등어", "오징어": r"오징어",
+    "조개류": r"조개|바지락|홍합|전복|가리비",
+    "쇠고기": r"쇠고기|소고기", "돼지고기": r"돼지고기|베이컨|삼겹살", "닭고기": r"닭",
+    "복숭아": r"복숭아", "토마토": r"토마토",
+}
+_STEP_ALLERGEN_RE = {label: re.compile(p) for label, p in STEP_ALLERGEN_KEYWORDS.items()}
+def text_allergens(*texts) -> set:
+    """원문(조리 순서·재료명·메뉴명)에 키워드가 나오는 알레르겐 이름 집합."""
+    blob = " ".join(t for t in texts if t)
+    return {label for label, rx in _STEP_ALLERGEN_RE.items() if rx.search(blob)} if blob else set()
 def get_engine():
     """DB 접속 엔진(PostgreSQL). 접속 정보는 환경변수(POSTGRES_*)에서 읽는다.
     - 컨테이너 실행(docker exec): compose가 POSTGRES_HOST=db 주입 → 'db'.
@@ -107,6 +130,14 @@ menu_allergen AS (
                                   AND c.constraint_type = '알레르기' AND c.group_id IS NULL
                                   AND c.description IS NOT NULL
     GROUP BY r.nutrition_recipe_id
+),
+step_text AS (
+    -- 조리 순서 원문(MANUAL01~20) — 표시 누락 알레르겐 보완용(text_allergens). 따로 모아 원가 SUM 을 부풀리지 않는다.
+    SELECT nr.nutrition_id, STRING_AGG(kv.value, ' ') AS txt
+    FROM nutrition_recipe nr
+    CROSS JOIN LATERAL jsonb_each_text(nr.original_data) kv
+    WHERE nr.menu_category = ANY(:categories) AND kv.key ~ '^MANUAL[0-9]+$'
+    GROUP BY nr.nutrition_id
 )
 SELECT
     nr.nutrition_id AS menu_id, nr.recipe_name AS name, nr.menu_category AS category,
@@ -115,6 +146,7 @@ SELECT
     COALESCE(AVG(si.freq_score), 0) AS season_score,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.color_category), NULL) AS colors,
     ma.pairs AS allergen_pairs,
+    stx.txt AS step_text,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name), NULL) AS ingredients
 FROM nutrition_recipe nr
 LEFT JOIN recipe r               ON r.nutrition_recipe_id = nr.nutrition_id
@@ -123,8 +155,9 @@ LEFT JOIN ingredient ing         ON ing.ingredient_id = rim.ingredient_id
 LEFT JOIN latest_price lp        ON lp.ingredient_id = ing.ingredient_id
 LEFT JOIN menu_allergen ma       ON ma.nutrition_id = nr.nutrition_id
 LEFT JOIN seasonal_ingredient si ON si.ingredient_id = ing.ingredient_id AND si.month = :month
+LEFT JOIN step_text stx          ON stx.nutrition_id = nr.nutrition_id
 WHERE nr.menu_category = ANY(:categories)
-GROUP BY nr.nutrition_id, nr.recipe_name, nr.menu_category, nr.calories, ma.pairs
+GROUP BY nr.nutrition_id, nr.recipe_name, nr.menu_category, nr.calories, ma.pairs, stx.txt
 """
 def load_menus(month: int | None = None,
                categories: list[str] | None = None) -> list[MenuItem]:
@@ -141,11 +174,14 @@ def load_menus(month: int | None = None,
             for pair in r["allergen_pairs"] or []:
                 ing, label = pair.rsplit("|", 1)   # 알레르겐 이름엔 | 가 없다
                 ing_allergens.setdefault(ing, set()).add(label)
+            labeled = set().union(*ing_allergens.values()) if ing_allergens else set()
+            from_text = text_allergens(r["name"], r["step_text"], " ".join(r["ingredients"] or [])) - labeled
             menus.append(MenuItem(
                 menu_id=r["menu_id"], name=r["name"], category=r["category"],
                 calories=float(r["calories"] or 0), cost_won=float(r["cost_won"] or 0),
                 colors=set(r["colors"] or []),
-                allergens=set().union(*ing_allergens.values()) if ing_allergens else set(),
+                allergens=labeled | from_text,
+                allergens_from_text=from_text,
                 season_score=float(r["season_score"] or 0),
                 ingredients=set(r["ingredients"] or []),
                 ingredient_allergens=ing_allergens,

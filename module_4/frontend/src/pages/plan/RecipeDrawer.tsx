@@ -7,7 +7,7 @@ import { Drawer, Empty, Grid, Segmented, Select, Spin, Table, Button } from 'ant
 import { colors } from '../../theme';
 import { type MealPlan, type MenuRecipe, type RecipeIngredient } from '../../api/menu';
 import {
-  collectEntries, storedRecipe, fetchedRecipe, missingRecipes, fetchMissingRecipes, amountBasis, perServing, BASIS_LINEAR,
+  collectEntries, storedRecipe, fetchedRecipe, missingRecipes, fetchMissingRecipes, substitutedRecipe, amountBasis, perServing, BASIS_LINEAR,
   type RecipeEntry as Entry, type FetchedRecipes as Fetched,
 } from './recipeView';
 
@@ -42,7 +42,7 @@ export default function RecipeDrawer({ plan, open, onClose }: { plan: MealPlan; 
 
   const entries = tracks[trackIdx]?.entries ?? [];
   const current = entries.find((e) => e.key === selected) ?? entries[0];
-  const recipeOf = (e: Entry) => storedRecipe(plan, e) ?? fetchedRecipe(fetched, e);
+  const recipeOf = (e: Entry) => substitutedRecipe(storedRecipe(plan, e) ?? fetchedRecipe(fetched, e), e.name);
 
   const list = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
