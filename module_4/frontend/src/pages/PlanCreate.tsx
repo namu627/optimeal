@@ -9,7 +9,7 @@ import { App, Card, Skeleton } from 'antd';
 import Step1Conditions, { type Step1Form } from './plan/Step1Conditions';
 import Step2Review from './plan/Step2Review';
 import Step3Confirm from './plan/Step3Confirm';
-import { planToStep1Form } from './plan/cloneForm';
+import { planToStep1Form, attachInputs, hasInputs } from './plan/cloneForm';
 import {
   generateMenu, toMealPlan, mockPlan, isInfeasibleResponse, isTimeoutResponse, isSolverBusy, savePlan, getSavedPlan,
   classifyGenerateError, USE_MOCK,
@@ -41,7 +41,10 @@ function ClonedWizard({ cloneId }: { cloneId: number }) {
       .then((saved) => {
         if (!alive) return;
         setInit({ form: planToStep1Form(saved.plan), name: saved.name });
-        message.info(`'${saved.name}' 조건을 불러왔어요. 기저질환·알레르기 그룹은 저장되지 않아 다시 입력해 주세요.`);
+        // 기저질환·알레르기 입력값은 2026-10-05 이후 저장본에만 들어 있다. 그 전 저장본은 다시 입력해야 한다.
+        message.info(hasInputs(saved.plan)
+          ? `'${saved.name}' 조건을 불러왔어요.`
+          : `'${saved.name}' 조건을 불러왔어요. 예전에 저장한 식단이라 기저질환·알레르기 그룹은 다시 입력해 주세요.`);
       })
       .catch((e) => {
         console.error('[식단복제] 저장본 조회 실패:', e);
@@ -64,6 +67,9 @@ function PlanWizard({ initialForm }: { initialForm?: Step1Form }) {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [form, setForm] = useState<Step1Form | undefined>(initialForm); // 조건 수정·복제 시 입력값 복원용
   const [genError, setGenError] = useState<GenerateError | null>(null);
+  // 생성 버튼을 누른 순간의 입력값. setForm 은 다음 렌더에야 반영되므로, 같은 클릭 안에서 쓰려고 ref 에도 담는다.
+  const lastForm = useRef<Step1Form | undefined>(initialForm);
+  const keepForm = (f: Step1Form) => { lastForm.current = f; setForm(f); };
 
   const onGenerate = async (req: MenuGenerateRequest) => {
     if (genState === 'loading') return; // 중복 요청 방지 — 겹치면 서버에서 두 풀이가 CPU 를 나눠 둘 다 시간 초과
@@ -108,8 +114,10 @@ function PlanWizard({ initialForm }: { initialForm?: Step1Form }) {
       setGenState('idle');
     }
   };
+  // 기저질환·알레르기 그룹 입력값을 식단에 같이 담아 둔다 — 저장본에서 '복제해서 만들기'가 되살릴 수 있게.
   const showPlan = (result: MealPlan) => {
-    setPlan(result);
+    const f = lastForm.current;
+    setPlan(f ? attachInputs(result, f) : result);
     setGenState('idle');
     setStep(2);
   };
@@ -146,7 +154,7 @@ function PlanWizard({ initialForm }: { initialForm?: Step1Form }) {
   return (
     <div>
       {step === 1 && (
-        <Step1Conditions genState={genState} genError={genError} onGenerate={onGenerate} onCancel={() => navigate('/')} initial={form} onFormChange={setForm} />
+        <Step1Conditions genState={genState} genError={genError} onGenerate={onGenerate} onCancel={() => navigate('/')} initial={form} onFormChange={keepForm} />
       )}
       {step === 2 && plan && (
         <Step2Review
