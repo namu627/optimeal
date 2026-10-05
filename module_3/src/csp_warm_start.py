@@ -210,6 +210,10 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
     window = max(1, int(getattr(config, "menu_repeat_window_days", 0) or 1))
     ledger_on = bool(main_by_idx) and main_cap is not None and main_cap > 0
     used_main: dict = defaultdict(int)
+    # 메뉴 사용 횟수 원장 — 지평 상한(menu_max_uses)도 주재료 cap 처럼 순차 배제로 근사한다.
+    use_cap = hc.menu_max_uses(config, days) if config is not None else None
+    cap_exempt = set(getattr(config, "menu_max_uses_exempt_categories", ()) or ())
+    used_menu: dict = defaultdict(int)
     started = time.monotonic()
     history: list[set] = []
     chosen: dict = {}
@@ -217,6 +221,9 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
         if time_budget is not None and time.monotonic() - started > time_budget:
             break
         recent: set = set().union(*history[-(window - 1):]) if window > 1 and history else set()
+        if use_cap is not None:
+            recent |= {m for m, c in used_menu.items()
+                       if c >= use_cap and menus[m].category not in cap_exempt}
         budget = None
         if ledger_on:
             # 남은 예산을 하루 부분 문제에 그대로 넘긴다. cap 에 닿은 주재료는 예산 0이
@@ -248,6 +255,7 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
             break
         for m, s in picks:
             chosen[m, day, s] = 1
+            used_menu[m] += 1
             if ledger_on and main_by_idx.get(m):
                 used_main[main_by_idx[m]] += 1
         history.append({m for m, _ in picks})
