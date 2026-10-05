@@ -68,7 +68,7 @@ export async function resolveRecipes(plan: MealPlan, entries: RecipeEntry[]): Pr
    module_3 alternative_menu 의 재료 치환은 메뉴 이름에 '(대체: 달걀→두부, 우유→두유)' 만 붙이고 id 는 원래 메뉴 것을
    쓴다(backend _alt_plan_ids ②). 그래서 레시피는 원래 메뉴 그대로 와서 재료·조리 순서에 알레르겐이 남았다.
    레시피 화면·CSV·PDF 가 모두 이 함수를 거쳐 치환을 반영한다. 치환 이름은 재료 목록과 같은 ingredient_name 이다.
-   ※ 2026-10-06 부터 생성은 재료 치환을 쓰지 않는다(backend _derive_alternatives) — 이 처리는 그 전 저장본용. */
+   ※ 주재료(달걀·콩)는 치환하지 않고 메뉴를 교체한다(alternative_menu.NO_SUBSTITUTE_WHEN_MAIN). */
 const SUB_RE = /\(대체: ([^)]+)\)\s*$/;
 
 /** '메뉴(대체: 달걀→두부, 우유→두유)' → [['달걀','두부'], ['우유','두유']]. 치환 접시가 아니면 []. */
