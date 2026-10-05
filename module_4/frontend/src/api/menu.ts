@@ -153,6 +153,9 @@ export interface ItemNutri { kcal: number; protein: number | null; sodium: numbe
 export interface MealItem {
   menuId?: number; nutritionId?: number; name: string; flag?: CellFlag; alt?: boolean;
   nutri?: ItemNutri; orig?: string; origNutritionId?: number; origNutri?: ItemNutri;
+  /** 대체식 칸 전용 — 서버가 알레르기 대체를 못 한 메뉴(alternatives[].unresolved)의 사유. 영양사 확인 필요.
+   *  안전한 메뉴로 교체하면 걷히고(origAllergyCheck 에 보관) 되돌리면 다시 붙는다(altSync.applyEdit). */
+  allergyCheck?: string; origAllergyCheck?: string;
 }
 // cost: 이 끼니 1인 원가(칸 영양 합, recomputePlan) — 반올림 전 값. 화면에 쓸 때만 반올림한다.
 // band: 이월 모드에서 기준 B×0.8~1.2 밖이면 'low'|'high'.
@@ -287,6 +290,8 @@ interface GenerateResponse {
     plan?: Record<string, Record<string, string[]>>;
     /** plan 과 같은 모양의 메뉴 id(백엔드가 본식단 id·대표행으로 붙임). 구버전 백엔드는 없음 */
     plan_ids?: PlanIds | null;
+    /** 대체를 못 한 접시(module_3 Substitution) — reason: '안전한 대체 메뉴 없음' | '재료 정보 없음 — …' */
+    unresolved?: Array<{ day: number; meal: string; original: string; hit_allergens?: string[]; reason?: string }>;
   }>;
 }
 // module_3 evaluate_hard_breakdown 의 리포트(풀린 해를 실측한 제약 충족 여부). 미적용 항목은 null·빈 값.
@@ -339,6 +344,16 @@ function buildRationale(hb: HardBreakdown, kcalTarget: number, budgetPerMeal: nu
 const MEAL_FROM_KR: Record<string, MealKind> = { 아침: 'breakfast', 점심: 'lunch', 저녁: 'dinner' };
 const MEAL_ORDER = ['아침', '점심', '저녁'];
 
+/** 알레르기 대체를 못 한 접시 → {일: {끼니: {메뉴명: 사유}}}. 사유 = '난류 · 안전한 대체 메뉴 없음' 처럼 걸린 알레르겐 + 서버 사유. */
+export function unresolvedChecks(list?: NonNullable<GenerateResponse['alternatives']>[number]['unresolved']) {
+  const out: Record<string, Record<string, Record<string, string>>> = {};
+  (list ?? []).forEach((u) => {
+    const why = [(u.hit_allergens ?? []).join('·'), u.reason || '안전한 대체 메뉴 없음'].filter(Boolean).join(' · ');
+    ((out[String(u.day)] ??= {})[u.meal] ??= {})[u.original] = why;
+  });
+  return out;
+}
+
 export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): MealPlan {
   const r = raw as unknown as GenerateResponse;
   const plan = r.plan;
@@ -365,19 +380,23 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   // 칸마다 1인분 영양·원가(nutri)만 싣는다. 셀 합계·경고·달성률·원가는 recomputePlan 이 계산한다
   // (생성 직후와 교체·삭제 후가 같은 계산을 쓰도록).
   // baseNames: 대체식 칸일 때 본식단 같은 자리의 메뉴명 — 실제로 바뀐 메뉴에만 '대체' 배지를 단다.
-  const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: (number | null)[], baseNames?: string[]): MealCell => {
+  // checks: 대체식 칸에서 알레르기 대체를 못 한 메뉴명 → 사유(allergyCheck).
+  const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: (number | null)[], baseNames?: string[],
+    checks?: Record<string, string>): MealCell => {
     const items: MealItem[] = names.map((name, i) => {
       const nutritionId = ids?.[i] ?? undefined; // plan_ids 는 plan 과 같은 위치
       const n = nutriOf(name, nutritionId);
       const itemNutri: ItemNutri = { kcal: n.kcal ?? 0, protein: n.protein ?? null, sodium: n.sodium ?? null, cost: n.cost_exact ?? n.cost ?? null };
       const changed = alt && baseNames?.[i] !== name;
-      return { menuId: ++_mid, nutritionId, name, alt: changed || undefined, nutri: itemNutri };
+      return { menuId: ++_mid, nutritionId, name, alt: changed || undefined, nutri: itemNutri,
+        ...(checks?.[name] ? { allergyCheck: checks[name] } : {}) };
     });
     return { kind, items, kcal: 0, protein: 0 };
   };
 
   // idsObj: 본식단은 plan_ids, 대체식은 alternatives[].plan_ids(백엔드가 붙임 — 없으면 교체 불가 칸).
-  const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean, idsObj?: PlanIds | null): WeekBlock[] => {
+  const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean, idsObj?: PlanIds | null,
+    checks?: Record<string, Record<string, Record<string, string>>>): WeekBlock[] => {
     const keys = Object.keys(planObj).sort((a, b) => Number(a) - Number(b));
     const blocks: WeekBlock[] = [];
     keys.forEach((dayKey, i) => {
@@ -386,7 +405,8 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
       const dayPlan = planObj[dayKey] ?? {};
       const cells = meals.map((k) => {
         const kr = MEAL_ORDER.find((o) => MEAL_FROM_KR[o] === k)!;
-        return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr], alt ? plan[dayKey]?.[kr] : undefined);
+        return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr], alt ? plan[dayKey]?.[kr] : undefined,
+          checks?.[dayKey]?.[kr]);
       });
       blocks[week].days.push({ date: label, dow, cells });
     });
@@ -398,7 +418,7 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   const weeks = weeksFrom(plan, false, planIds);
   const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => ({
     label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, allergens: a.group?.allergens ?? [],
-    weeks: weeksFrom(a.plan ?? {}, true, a.plan_ids),
+    weeks: weeksFrom(a.plan ?? {}, true, a.plan_ids, unresolvedChecks(a.unresolved)),
   }));
 
   // 목표값만 여기서 정한다(값은 recomputePlan 이 칸 영양으로 채움).
@@ -827,4 +847,9 @@ export function checkSwap(plan: Pick<MealPlan, 'budgetPerPerson' | 'sodiumCapPer
   };
 }
 
-export const ALLERGEN_POOL = ['난류', '우유', '땅콩', '대두', '밀', '갑각류', '고등어', '새우', '복숭아', '토마토'];
+// 알레르기 표시 대상 19종(NEIS 급식 알레르기 코드 1~19 순). 서버 메뉴 알레르겐이 이 이름들이다
+// (scripts/load_allergen_constraints.py). 구버전 저장본의 '갑각류'는 서버가 게·새우로 펼친다.
+export const ALLERGEN_POOL = [
+  '난류', '우유', '메밀', '땅콩', '대두', '밀', '고등어', '게', '새우', '돼지고기',
+  '복숭아', '토마토', '아황산류', '호두', '닭고기', '쇠고기', '오징어', '조개류', '잣',
+];

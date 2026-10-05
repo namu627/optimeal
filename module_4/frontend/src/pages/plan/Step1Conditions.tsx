@@ -304,7 +304,7 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>알레르기 그룹</span>
           <span style={{ fontSize: 12, color: C.sub, background: C.line, borderRadius: 8, padding: '2px 8px' }}>{groups.length}그룹 · {totalAllergy}명</span>
-          <span style={{ fontSize: 12, color: C.muted }}>{ALLERGEN_POOL.join(' · ')} 중 선택</span>
+          <span style={{ fontSize: 12, color: C.muted }}>표시 대상 {ALLERGEN_POOL.length}종 중 선택</span>
           <div style={{ flex: 1 }} />
           <Button size="small" icon={<PlusOutlined />} onClick={() => setGroups((g) => [...g, { label: `그룹 ${g.length + 1}`, allergens: [], count: 0 }])}>그룹 추가</Button>
         </div>

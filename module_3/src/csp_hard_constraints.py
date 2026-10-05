@@ -424,7 +424,8 @@ def add_hard_constraints(
     if cfg.excluded_allergens:
         for m in M:
             al = getattr(menus[m], "allergens", None) or set()
-            if set(al) & cfg.excluded_allergens:
+            # 재료 정보가 없는 메뉴는 알레르겐을 판정할 수 없다 → 안전 쪽으로 배제
+            if set(al) & cfg.excluded_allergens or getattr(menus[m], "allergen_unknown", False):
                 excluded_idx.add(m)
                 ban(m)
     active["allergen"] = bool(cfg.excluded_allergens)

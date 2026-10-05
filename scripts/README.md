@@ -60,7 +60,21 @@ docker exec optimeal_app python scripts/load_ingredient_price_manual.py --apply
 # 7c) 규칙 파생 원가(밥류÷2.3, 부위=상위품목, 동의어 대체, 물·육수 정책 0원). 맨 마지막에,
 #     가격이 갱신될 때마다 다시 실행(파생 행은 매번 지우고 현재 원천 가격으로 다시 만든다).
 docker exec optimeal_app python scripts/derive_ingredient_price.py --apply
+# 8) 알레르기 — 표시 대상 19종 → 재료 매핑(data/manual/allergen_ingredient_map.csv, 저장소에 커밋)을
+#    constraints(constraint_type='알레르기', group_id NULL, description=19종 이름)에 적재. 없으면 대체식이 일반식과 같다.
+#    CSV 의 id·이름이 DB 와 하나라도 다르면 아무것도 쓰지 않고 멈춘다. 재료 마스터가 바뀌면 CSV 를 고치고 다시 실행(멱등).
+docker exec optimeal_app python scripts/load_allergen_constraints.py            # DB 대조·요약(미반영)
+docker exec optimeal_app python scripts/load_allergen_constraints.py --apply
 ```
+
+알레르기 매핑 요점(`allergen_ingredient_map.csv`):
+- 화면 선택값·메뉴 `allergens` 는 19종 이름(난류·우유·메밀·땅콩·대두·밀·고등어·게·새우·돼지고기·복숭아·토마토·아황산류·
+  호두·닭고기·쇠고기·오징어·조개류·잣). 구버전 '갑각류'·'계란' 등은 서버가 `alternative_menu.normalize_allergens` 로 바꾼다.
+- `basis`: `직접`(재료 자체) / `가공품`(원재료로 들어감 — 간장·된장·고추장→대두·밀, 마요네즈→난류·대두, 햄→돼지고기 등) /
+  `보수적`(종류 불명이라 위험 쪽으로 포함 — 견과류·젓갈·해물육수·안심·찜갈비, 김치류→새우젓).
+- 카테고리 코드(조개류·난류 등)는 묶인 재료를 **전부** 넣는다. 제철 분석의 "카테고리 코드 제외" 기준과 반대다(여기는 누락=사고).
+- 매핑하지 않은 것: 총칭 `육수`·`채소국물`(재료 불명), 피시소스·우스터소스(19종 해당 원료가 표준 레시피에 없음).
+- 교체 대상은 그룹이 고른 알레르겐만으로 판정하고, 교차반응(`CROSS_REACTIVE_GROUPS`)은 대체 후보를 거를 때만 넓힌다.
 
 ⚠ 2)는 2026-09 이전 버전에서 조리법 `RCP_WAY2='기타'`(김치·무침·샐러드 등 비가열 310건)를 통째로
 skip 해 김치 후보가 1종만 남았다 → 3일 반복 금지 제약과 충돌해 2일 이상 식단이 항상 INFEASIBLE.

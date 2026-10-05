@@ -8,7 +8,7 @@ import {
 import {
   amountBasis, changedAltTracks, changedNames, collectEntries, perServing, resolveRecipes, type RecipeEntry,
 } from './recipeView';
-import { altFollowText, altReviewText } from './altSync';
+import { allergyCheckText, altFollowText, altReviewText } from './altSync';
 
 type Cell = string | number;
 
@@ -108,7 +108,8 @@ export async function altRecipeRows(plan: MealPlan): Promise<Cell[][]> {
   const recipeOf = await resolveRecipes(plan, entries);
   // 비고: 일반식 교체·삭제가 알레르기 대체 자리에 걸린 칸이면 '대체식 재검토 필요(원인)'(altSync).
   const rows: Cell[][] = [['그룹', ...RECIPE_HEADER, '비고']];
-  tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, entries, recipeOf, (c) => [altReviewText(c)]));
+  tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, entries, recipeOf,
+    (c) => [[allergyCheckText(c), altReviewText(c)].filter(Boolean).join(' / ')]));
   return rows;
 }
 
@@ -151,7 +152,7 @@ export function altTables(plan: MealPlan): PdfExportRequest['tables'] {
     t.weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
       const changed = changedNames(plan.weeks, t.weeks, w, di, c.kind);
       const follow = altFollowText(c);
-      const notes = [altReviewText(c), follow].filter(Boolean);
+      const notes = [allergyCheckText(c), altReviewText(c), follow].filter(Boolean);
       if (!changed.size && !notes.length) return;
       if (changed.size) substituted += 1;
       if (follow) followed += 1;

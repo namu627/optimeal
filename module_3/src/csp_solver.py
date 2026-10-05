@@ -53,9 +53,11 @@ class MenuItem:
     calories: float                    # nutrition_recipe.calories (kcal)
     cost_won: float = 0.0              # 1인분 식재료비 (원)
     colors: set = field(default_factory=set)     # 색감 집합 ← 색감 목적함수
-    allergens: set = field(default_factory=set)  # 알레르겐 재료명 집합 (Hard 태스크에서 사용)
+    allergens: set = field(default_factory=set)  # 알레르기 표시 19종 이름 집합(난류·우유…) ← H-3·대체식
     season_score: float = 0.0          # 제철 빈도 점수 (0~1) ← 제철 목적함수
     ingredients: set = field(default_factory=set)  # 전체 재료명 집합 ← R90 대체식 재료 공유용
+    ingredient_allergens: dict = field(default_factory=dict)  # 재료명 → 알레르겐 이름 집합 ← 대체식 재료 치환
+    allergen_unknown: bool = False     # 레시피 재료 정보가 없어 알레르기 판정 불가(allergens=∅ 이 '없음'이 아님)
 def get_engine():
     """DB 접속 엔진(PostgreSQL). 접속 정보는 환경변수(POSTGRES_*)에서 읽는다.
     - 컨테이너 실행(docker exec): compose가 POSTGRES_HOST=db 주입 → 'db'.
@@ -92,8 +94,19 @@ WITH latest_price AS (
     SELECT DISTINCT ON (ingredient_id) ingredient_id, price_per_g
     FROM ingredient_price ORDER BY ingredient_id, {_PRICE_RANK}, price_date DESC
 ),
-allergen AS (
-    SELECT DISTINCT ingredient_id FROM constraints WHERE constraint_type = '알레르기'
+menu_allergen AS (
+    -- 메뉴별 (재료명, 알레르겐) 쌍. 알레르겐 = 재료 자체 표시(group_id NULL, description=19종 이름) —
+    -- scripts/load_allergen_constraints.py 가 적재. 본 쿼리와 따로 모으는 건 재료 행이 늘어 원가 SUM 이
+    -- 부풀지 않게 하려는 것이다(재료 하나가 여러 알레르겐 — 간장=대두·밀).
+    SELECT r.nutrition_recipe_id AS nutrition_id,
+           ARRAY_AGG(DISTINCT ing.ingredient_name || '|' || c.description) AS pairs
+    FROM recipe r
+    JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
+    JOIN ingredient ing            ON ing.ingredient_id = rim.ingredient_id
+    JOIN constraints c             ON c.ingredient_id = ing.ingredient_id
+                                  AND c.constraint_type = '알레르기' AND c.group_id IS NULL
+                                  AND c.description IS NOT NULL
+    GROUP BY r.nutrition_recipe_id
 )
 SELECT
     nr.nutrition_id AS menu_id, nr.recipe_name AS name, nr.menu_category AS category,
@@ -101,18 +114,17 @@ SELECT
     COALESCE(SUM(lp.price_per_g * rim.per_serving_grams), 0) AS cost_won,
     COALESCE(AVG(si.freq_score), 0) AS season_score,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.color_category), NULL) AS colors,
-    ARRAY_REMOVE(ARRAY_AGG(DISTINCT CASE WHEN al.ingredient_id IS NOT NULL
-                                         THEN ing.ingredient_name END), NULL) AS allergens,
+    ma.pairs AS allergen_pairs,
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT ing.ingredient_name), NULL) AS ingredients
 FROM nutrition_recipe nr
 LEFT JOIN recipe r               ON r.nutrition_recipe_id = nr.nutrition_id
 LEFT JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id
 LEFT JOIN ingredient ing         ON ing.ingredient_id = rim.ingredient_id
 LEFT JOIN latest_price lp        ON lp.ingredient_id = ing.ingredient_id
-LEFT JOIN allergen al            ON al.ingredient_id = ing.ingredient_id
+LEFT JOIN menu_allergen ma       ON ma.nutrition_id = nr.nutrition_id
 LEFT JOIN seasonal_ingredient si ON si.ingredient_id = ing.ingredient_id AND si.month = :month
 WHERE nr.menu_category = ANY(:categories)
-GROUP BY nr.nutrition_id, nr.recipe_name, nr.menu_category, nr.calories
+GROUP BY nr.nutrition_id, nr.recipe_name, nr.menu_category, nr.calories, ma.pairs
 """
 def load_menus(month: int | None = None,
                categories: list[str] | None = None) -> list[MenuItem]:
@@ -125,12 +137,19 @@ def load_menus(month: int | None = None,
         rows = conn.execute(text(_MENU_QUERY),
                             {"month": month, "categories": categories}).mappings()
         for r in rows:
+            ing_allergens: dict = {}
+            for pair in r["allergen_pairs"] or []:
+                ing, label = pair.rsplit("|", 1)   # 알레르겐 이름엔 | 가 없다
+                ing_allergens.setdefault(ing, set()).add(label)
             menus.append(MenuItem(
                 menu_id=r["menu_id"], name=r["name"], category=r["category"],
                 calories=float(r["calories"] or 0), cost_won=float(r["cost_won"] or 0),
-                colors=set(r["colors"] or []), allergens=set(r["allergens"] or []),
+                colors=set(r["colors"] or []),
+                allergens=set().union(*ing_allergens.values()) if ing_allergens else set(),
                 season_score=float(r["season_score"] or 0),
                 ingredients=set(r["ingredients"] or []),
+                ingredient_allergens=ing_allergens,
+                allergen_unknown=not r["ingredients"],
             ))
     if not menus:
         raise RuntimeError("DB에서 메뉴 후보를 찾지 못했습니다 — 데이터 적재 상태를 확인하세요.")

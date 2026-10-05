@@ -15,19 +15,23 @@ export type MainEdit =
 
 export const ALT_REVIEW_LABEL = '대체식 재검토 필요';
 export const ALT_FOLLOW_LABEL = '일반식 교체 반영';
+export const ALLERGY_CHECK_LABEL = '알레르기 확인';
 
-/** 편집 하나를 메뉴 한 개에 적용(일반식 원본·대체식 추종 메뉴·대체식 직접 편집 공통). null = 삭제. */
+/** 편집 하나를 메뉴 한 개에 적용(일반식 원본·대체식 추종 메뉴·대체식 직접 편집 공통). null = 삭제.
+ *  allergyCheck(알레르기 대체 못 함): 직접 교체(isMain)면 걷는다 — 대체식 칸 교체 후보는 서버가 그룹 알레르겐으로 거른다.
+ *  일반식 교체를 따라간 메뉴(isMain=false)는 새 메뉴의 알레르겐을 확인하지 않았으므로 표시를 그대로 둔다. 되돌리면 복원. */
 function applyEdit(x: MealItem, e: MainEdit, isMain: boolean): MealItem | null {
   if (e.kind === 'delete') return null;
   if (e.kind === 'revert') {
     return {
       ...x, name: x.orig ?? x.name, nutritionId: x.origNutritionId, nutri: x.origNutri, flag: undefined,
-      orig: undefined, origNutritionId: undefined, origNutri: undefined,
+      allergyCheck: x.orig ? x.origAllergyCheck : x.allergyCheck,
+      orig: undefined, origNutritionId: undefined, origNutri: undefined, origAllergyCheck: undefined,
     };
   }
-  const first = x.orig ? { orig: x.orig, origNutritionId: x.origNutritionId, origNutri: x.origNutri }
-    : { orig: x.name, origNutritionId: x.nutritionId, origNutri: x.nutri };
-  return { ...x, ...e.to, flag: undefined, ...(isMain ? { alt: false } : {}), ...first };
+  const first = x.orig ? { orig: x.orig, origNutritionId: x.origNutritionId, origNutri: x.origNutri, origAllergyCheck: x.origAllergyCheck }
+    : { orig: x.name, origNutritionId: x.nutritionId, origNutri: x.nutri, origAllergyCheck: x.allergyCheck };
+  return { ...x, ...e.to, flag: undefined, ...(isMain ? { alt: false, allergyCheck: undefined } : {}), ...first };
 }
 
 function mapCell(weeks: WeekBlock[], w: number, d: number, ci: number, fn: (c: MealCell) => MealCell): WeekBlock[] {
@@ -115,6 +119,12 @@ export function editPlan(plan: MealPlan, item: Pick<MealItem, 'menuId'>, e: Main
 /** 칸의 재검토 표시 문구(없으면 ''). 표·CSV·화면 공통. */
 export function altReviewText(c: Pick<MealCell, 'altReview'> | undefined): string {
   return c?.altReview?.length ? `${ALT_REVIEW_LABEL}(${c.altReview.map((r) => r.note).join(' · ')})` : '';
+}
+
+/** 칸에서 알레르기 대체를 못 한 메뉴 문구(없으면 ''). 대체식 표 공통. 예: '알레르기 확인 필요(달걀볶음: 난류 · 안전한 대체 메뉴 없음)' */
+export function allergyCheckText(c: Pick<MealCell, 'items'> | undefined): string {
+  const xs = (c?.items ?? []).filter((x) => x.allergyCheck);
+  return xs.length ? `${ALLERGY_CHECK_LABEL} 필요(${xs.map((x) => `${x.name}: ${x.allergyCheck}`).join(' / ')})` : '';
 }
 
 /** 칸의 '일반식 교체 반영' 문구(없으면 ''). 대체식 표 공통. */
