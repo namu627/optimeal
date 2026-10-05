@@ -41,6 +41,9 @@ _font_ready = False
 # 화면(theme.ts)과 같은 계열의 절제된 색 — 흰 배경, 머리행만 옅은 초록.
 _TEXT, _SUB, _LINE, _HEAD_BG, _LABEL_BG = "#16211C", "#5D6B64", "#D9E3DE", "#E4F7EB", "#F4F7F5"
 
+# 알레르기 그룹별로 하나씩 들어가는 표·조리 지시서 묶음의 상한. 프론트 planExport.PDF_MAX_GROUPS 와 같아야 한다.
+PDF_MAX_GROUPS = 50
+
 
 class SummaryItem(BaseModel):
     label: str = Field(..., max_length=40)
@@ -105,12 +108,13 @@ class ExportPdfRequest(BaseModel):
     file_name: str = Field("", max_length=200, description="내려받을 파일명(확장자 제외). 비면 title")
     summary: list[SummaryItem] = Field(default_factory=list, max_length=12)
     grids: list[PdfGrid] = Field(default_factory=list, max_length=10, description="식단표 그리드(행=날짜, 열=끼니)")
-    tables: list[PdfTable] = Field(default_factory=list, max_length=10, description="일반 표(행 나열)")
+    # 표·조리 지시서 묶음은 알레르기 그룹마다 하나라 그룹 수만큼 필요하다(예전 10 → 10그룹 넘으면 PDF 에서 빠졌다).
+    tables: list[PdfTable] = Field(default_factory=list, max_length=PDF_MAX_GROUPS, description="일반 표(행 나열)")
     recipes_title: str = Field("조리 지시서", max_length=100)
     recipes_note: str = Field("", max_length=300)
     recipes: list[PdfRecipe] = Field(default_factory=list, max_length=500)
     recipe_sections: list[PdfRecipeSection] = Field(
-        default_factory=list, max_length=10,
+        default_factory=list, max_length=PDF_MAX_GROUPS,
         description="추가 조리 지시서 묶음(예: 대체식). 기본 recipes 뒤에 같은 형식으로 찍는다")
 
 

@@ -4,25 +4,49 @@ import {
   MEAL_TABLE, fetchMenuRecipes, type MealPlan, type MealKind, type MenuRecipe, type RecipeIngredient, type WeekBlock,
 } from '../../api/menu';
 
-// 한 트랙(일반식·대체식) 안에서 같은 메뉴는 한 번만 — 솔버가 고른 행(nutritionId)이 있으면 그걸로 구분.
-export interface RecipeEntry { key: string; name: string; nutritionId?: number; uses: string[] }
+// 한 트랙(일반식·대체식) 안에서 같은 메뉴·같은 조리 인원은 한 번만 — 솔버가 고른 행(nutritionId)이 있으면 그걸로 구분.
+// servings: 투입량 총량의 인원. 같은 메뉴라도 끼니마다 다를 수 있다(그 끼니에 대체식으로 빠지는 그룹이 다르면).
+export interface RecipeEntry { key: string; name: string; nutritionId?: number; servings: number; uses: string[] }
 export type FetchedRecipes = { by_id: Record<string, MenuRecipe>; by_name: Record<string, MenuRecipe> };
+type Item = { name: string; nutritionId?: number };
+/** 칸 메뉴 하나를 몇 명분 조리하는지 — (주 index, 날 index, 끼니, 메뉴) → 인원. */
+export type ServingsOf = (w: number, d: number, kind: MealKind, it: Item) => number;
 
 /** 칸 메뉴 → 엔트리 키. 재료 치환 접시('달걀찜(대체: 달걀→두부)')는 id 가 원래 메뉴 것이라 이름까지 붙여
- *  원래 메뉴·다른 치환(그룹마다 대체 재료가 다를 수 있다)과 섞이지 않게 한다. */
-export function entryKey(it: { name: string; nutritionId?: number }): string {
-  if (it.nutritionId == null) return `name:${it.name}`;
-  return parseSubstitution(it.name).length ? `id:${it.nutritionId}:${it.name}` : `id:${it.nutritionId}`;
+ *  원래 메뉴·다른 치환(그룹마다 대체 재료가 다를 수 있다)과 섞이지 않게 한다. 인원이 다르면 다른 엔트리. */
+export function entryKey(it: Item, servings: number): string {
+  const base = it.nutritionId == null ? `name:${it.name}`
+    : parseSubstitution(it.name).length ? `id:${it.nutritionId}:${it.name}` : `id:${it.nutritionId}`;
+  return `${base}@${servings}`;
 }
 
-export function collectEntries(weeks: WeekBlock[]): RecipeEntry[] {
+/** 일반식 칸 메뉴의 조리 인원 = 전체 인원 − 그 끼니에 이 메뉴 대신 대체식을 받는 그룹 인원.
+ *  대체식은 바뀐 메뉴만 따로 만들므로, 그룹도 같이 먹는 메뉴(밥·국 등)는 전체 인원 그대로다. */
+export function mainServingsOf(plan: MealPlan): ServingsOf {
+  return (w, d, kind, it) => plan.headcount - plan.alternatives.reduce((sum, t) => {
+    const cell = t.weeks[w]?.days[d]?.cells.find((c) => c.kind === kind);
+    const replaced = cell != null && !cell.items.some((x) => x.name === it.name);
+    return sum + (replaced && t.count >= 1 ? t.count : 0);
+  }, 0);
+}
+
+/** 대체식 트랙 칸 메뉴의 조리 인원 = 그 그룹 인원. */
+export function altServingsOf(plan: MealPlan, t: { count: number }): ServingsOf {
+  const n = groupServings(plan, t);
+  return () => n;
+}
+
+/** 조리 인원이 0 이하인 칸(모든 인원이 대체식을 받음)은 만들지 않으므로 뺀다. */
+export function collectEntries(weeks: WeekBlock[], servingsOf: ServingsOf): RecipeEntry[] {
   const map = new Map<string, RecipeEntry>();
-  weeks.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => c.items.forEach((it) => {
-    const key = entryKey(it);
+  weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => c.items.forEach((it) => {
+    const servings = servingsOf(w, di, c.kind as MealKind, it);
+    if (servings <= 0) return;
+    const key = entryKey(it, servings);
     const use = `${d.date} ${MEAL_TABLE[c.kind as MealKind]}`;
     const e = map.get(key);
     if (e) e.uses.push(use);
-    else map.set(key, { key, name: it.name, nutritionId: it.nutritionId, uses: [use] });
+    else map.set(key, { key, name: it.name, nutritionId: it.nutritionId, servings, uses: [use] });
   }))));
   return [...map.values()];
 }
@@ -37,16 +61,9 @@ export function fetchedRecipe(f: FetchedRecipes, e: RecipeEntry): MenuRecipe | u
   return e.nutritionId != null ? f.by_id[String(e.nutritionId)] : f.by_name[e.name];
 }
 
-/** 응답에 없던 메뉴(교체한 메뉴·대체식·구버전 저장본) — 서버에 조회할 id·이름. */
-export function missingRecipes(plan: MealPlan, entries: RecipeEntry[]): { ids: number[]; names: string[] } {
-  const ids = [...new Set(entries.filter((e) => e.nutritionId != null && !storedRecipe(plan, e)).map((e) => e.nutritionId!))];
-  const names = [...new Set(entries.filter((e) => e.nutritionId == null && !storedRecipe(plan, e)).map((e) => e.name))];
-  return { ids, names };
-}
-
 const CHUNK = 100; // 백엔드 /api/menu/recipes 한 번 조회 상한
 
-/** missingRecipes 결과를 100개씩 나눠 조회해 합친다(31일 식단·구버전 저장본 대비). */
+/** 조회할 id·이름을 100개씩 나눠 servings 명분으로 조회해 합친다(31일 식단·구버전 저장본 대비). */
 export async function fetchMissingRecipes(need: { ids: number[]; names: string[] }, servings: number): Promise<FetchedRecipes> {
   const jobs: Promise<FetchedRecipes>[] = [];
   for (let i = 0; i < need.ids.length; i += CHUNK) jobs.push(fetchMenuRecipes(need.ids.slice(i, i + CHUNK), [], servings));
@@ -56,12 +73,51 @@ export async function fetchMissingRecipes(need: { ids: number[]; names: string[]
     { by_id: {}, by_name: {} });
 }
 
+/* ── 조리 인원별 조회 ──
+   응답·저장본 레시피: 전체 인원 총량은 menuRecipesById, 생성 당시 대체식 그룹·대체 인원을 뺀 일반식 인원 총량은
+   menuRecipesByServings(백엔드 _recipes_by_servings). 거기 없는 인원(검토에서 교체·삭제로 인원이 바뀐 메뉴, 이 필드 이전
+   저장본)만 그 인원으로 서버에서 다시 받는다 — 업장 스케일링 총량은 인원에 비례하지 않아 나눌 수 없다. */
+export interface RecipeRequest { servings: number; ids: number[]; names: string[] }
+export type FetchedByServings = Map<number, FetchedRecipes>;
+
+/** 응답·저장본에 실린 그 인원 레시피. */
+export function storedRecipeAt(plan: MealPlan, e: RecipeEntry): MenuRecipe | undefined {
+  if (e.servings === plan.headcount) return storedRecipe(plan, e);
+  if (e.nutritionId == null) return undefined;
+  const rec = plan.menuRecipesByServings?.[String(e.servings)]?.[String(e.nutritionId)];
+  return rec && Array.isArray(rec.steps) ? rec : undefined;
+}
+
+/** 엔트리들을 인원별 서버 조회 요청으로 — 응답·저장본에 없는 것만. 빈 요청은 뺀다. */
+export function recipeRequests(plan: MealPlan, entries: RecipeEntry[]): RecipeRequest[] {
+  const bySv = new Map<number, RecipeEntry[]>();
+  entries.forEach((e) => bySv.set(e.servings, [...(bySv.get(e.servings) ?? []), e]));
+  return [...bySv].map(([servings, es]) => {
+    const pick = es.filter((e) => !storedRecipeAt(plan, e));
+    return {
+      servings,
+      ids: [...new Set(pick.filter((e) => e.nutritionId != null).map((e) => e.nutritionId!))],
+      names: [...new Set(pick.filter((e) => e.nutritionId == null).map((e) => e.name))],
+    };
+  }).filter((r) => r.ids.length || r.names.length);
+}
+
+export async function fetchRecipeRequests(reqs: RecipeRequest[]): Promise<FetchedByServings> {
+  const res = await Promise.all(reqs.map((r) => fetchMissingRecipes(r, r.servings)));
+  return new Map(reqs.map((r, i) => [r.servings, res[i]]));
+}
+
+/** 엔트리 하나의 레시피(그 인원 총량) — 레시피 화면·CSV·PDF 공통. */
+export function lookupRecipe(plan: MealPlan, fetched: FetchedByServings, e: RecipeEntry): MenuRecipe | undefined {
+  const stored = storedRecipeAt(plan, e);
+  const got = fetched.get(e.servings);
+  return substitutedRecipe(stored ?? (got ? fetchedRecipe(got, e) : undefined), e.name);
+}
+
 /** entries 의 레시피를 한 번에 찾는 함수 — 응답·저장본에 있으면 그것, 없으면 서버 조회. CSV·PDF 조리 지시서 공통. */
 export async function resolveRecipes(plan: MealPlan, entries: RecipeEntry[]): Promise<(e: RecipeEntry) => MenuRecipe | undefined> {
-  const need = missingRecipes(plan, entries);
-  let fetched: FetchedRecipes = { by_id: {}, by_name: {} };
-  if (need.ids.length || need.names.length) fetched = await fetchMissingRecipes(need, plan.headcount);
-  return (e) => substitutedRecipe(storedRecipe(plan, e) ?? fetchedRecipe(fetched, e), e.name);
+  const fetched = await fetchRecipeRequests(recipeRequests(plan, entries));
+  return (e) => lookupRecipe(plan, fetched, e);
 }
 
 /* ── 재료 치환 대체식 ──
@@ -126,10 +182,16 @@ export function perServing(ing: RecipeIngredient, headcount: number): number | n
   return ing.amount == null ? null : ing.amount / headcount;
 }
 
+/** 대체식 그룹의 조리 인원(투입량 총량 기준). 인원이 없는 트랙(비정상 저장본)만 전체 인원으로 둔다. */
+export function groupServings(plan: MealPlan, t: { count: number }): number {
+  return t.count >= 1 ? t.count : plan.headcount;
+}
+
 /** 그룹별 대체식에서 바뀐 메뉴만 남긴 weeks — 대체식 조리 지시서(CSV·PDF)의 메뉴 집합은 이것 하나에서 나온다. */
-export function changedAltTracks(plan: MealPlan): { label: string; weeks: WeekBlock[] }[] {
+export function changedAltTracks(plan: MealPlan): { label: string; count: number; weeks: WeekBlock[] }[] {
   return plan.alternatives.map((t) => ({
     label: t.label,
+    count: t.count,
     weeks: t.weeks.map((wk, w) => ({ ...wk, days: wk.days.map((d, di) => ({ ...d, cells: d.cells.map((c) => {
       const changed = changedNames(plan.weeks, t.weeks, w, di, c.kind);
       return { ...c, items: c.items.filter((i) => changed.has(i.name)) };

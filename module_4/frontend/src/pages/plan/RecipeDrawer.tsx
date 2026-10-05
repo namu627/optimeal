@@ -7,42 +7,49 @@ import { Drawer, Empty, Grid, Segmented, Select, Spin, Table, Button } from 'ant
 import { colors } from '../../theme';
 import { type MealPlan, type MenuRecipe, type RecipeIngredient } from '../../api/menu';
 import {
-  collectEntries, storedRecipe, fetchedRecipe, missingRecipes, fetchMissingRecipes, substitutedRecipe, amountBasis, perServing, BASIS_LINEAR,
-  type RecipeEntry as Entry, type FetchedRecipes as Fetched,
+  collectEntries, mainServingsOf, altServingsOf, recipeRequests, fetchRecipeRequests, lookupRecipe,
+  amountBasis, perServing, BASIS_LINEAR,
+  type RecipeEntry as Entry, type FetchedByServings as Fetched,
 } from './recipeView';
 
 export default function RecipeDrawer({ plan, open, onClose }: { plan: MealPlan; open: boolean; onClose: () => void }) {
   const screens = Grid.useBreakpoint();
   const wide = screens.md !== false;
+  // 메뉴마다 조리 인원(entry.servings) — 일반식은 전체 인원에서 그 끼니 대체식 인원을 뺀 값, 대체식은 그룹 인원(CSV·PDF 와 같음).
   const tracks = useMemo(() => [
-    { label: '일반식', entries: collectEntries(plan.weeks) },
-    ...plan.alternatives.map((t) => ({ label: `대체식 · ${t.label}`, entries: collectEntries(t.weeks) })),
+    { label: '일반식', entries: collectEntries(plan.weeks, mainServingsOf(plan)) },
+    ...plan.alternatives.map((t) => ({ label: `대체식 · ${t.label}`, entries: collectEntries(t.weeks, altServingsOf(plan, t)) })),
   ], [plan]);
   const [trackIdx, setTrackIdx] = useState(0);
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
-  // 응답에 없던 메뉴(교체한 메뉴·대체식·구버전 저장본)만 조회 대상. reqKey 가 바뀌면 새 요청.
-  const need = useMemo(() => missingRecipes(plan, tracks.flatMap((t) => t.entries)), [plan, tracks]);
-  const reqKey = need.ids.length || need.names.length ? `${JSON.stringify(need)}#${attempt}` : '';
+  const track = tracks[trackIdx] ?? tracks[0];
+  // 보고 있는 트랙만 조회한다 — 인원별로, 전체 인원은 응답에 없던 메뉴만(recipeRequests). reqKey 가 바뀌면 새 요청.
+  const reqs = useMemo(() => recipeRequests(plan, track.entries), [plan, track]);
+  const reqKey = reqs.length ? `${JSON.stringify(reqs)}#${attempt}` : '';
   const [result, setResult] = useState<{ key: string; data?: Fetched; failed?: boolean }>({ key: '' });
 
   useEffect(() => {
     if (!open || !reqKey) return;
     let alive = true;
-    fetchMissingRecipes(need, plan.headcount)
+    fetchRecipeRequests(reqs)
       .then((data) => { if (alive) setResult({ key: reqKey, data }); })
       .catch((e) => { console.error('[레시피] 조회 실패:', e); if (alive) setResult({ key: reqKey, failed: true }); });
     return () => { alive = false; };
-  }, [open, reqKey, need, plan.headcount]);
+  }, [open, reqKey, reqs]);
 
   const done = !reqKey || result.key === reqKey;
   const loading = !done;
   const failed = done && !!result.failed;
-  const fetched = result.data ?? { by_id: {}, by_name: {} };
+  // 다른 트랙의 조회 결과는 쓰지 않는다 — 인원이 다른 값이 남지 않게.
+  const fetched: Fetched = (done && result.data) || new Map();
 
-  const entries = tracks[trackIdx]?.entries ?? [];
+  const entries = track.entries;
   const current = entries.find((e) => e.key === selected) ?? entries[0];
-  const recipeOf = (e: Entry) => substitutedRecipe(storedRecipe(plan, e) ?? fetchedRecipe(fetched, e), e.name);
+  const recipeOf = (e: Entry) => lookupRecipe(plan, fetched, e);
+  // 헤더 인원: 트랙 안 메뉴 인원이 하나면 그 값, 여럿이면 범위(일반식은 대체 자리 메뉴만 줄어든다).
+  const svs = [...new Set(entries.map((e) => e.servings))].sort((a, b) => a - b);
+  const servingsText = svs.length <= 1 ? `${(svs[0] ?? plan.headcount).toLocaleString()}명` : `${svs[0].toLocaleString()}~${svs[svs.length - 1].toLocaleString()}명`;
 
   const list = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -58,7 +65,7 @@ export default function RecipeDrawer({ plan, open, onClose }: { plan: MealPlan; 
             }}>
             <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? colors.primaryActive : colors.text, lineHeight: 1.4 }}>{e.name}</div>
             <div style={{ marginTop: 2, fontSize: 11, color: colors.textTertiary }}>
-              {e.uses[0]}{e.uses.length > 1 ? ` 외 ${e.uses.length - 1}회` : ''}
+              {svs.length > 1 ? `${e.servings.toLocaleString()}명분 · ` : ''}{e.uses[0]}{e.uses.length > 1 ? ` 외 ${e.uses.length - 1}회` : ''}
               {rec && noSteps ? ' · 재료만' : ''}
             </div>
           </button>
@@ -71,7 +78,7 @@ export default function RecipeDrawer({ plan, open, onClose }: { plan: MealPlan; 
     <Drawer
       title={<div>
         <div style={{ fontSize: 16, fontWeight: 700, color: colors.text }}>레시피</div>
-        <div style={{ fontSize: 12, fontWeight: 400, color: colors.textSecondary }}>{plan.headcount}명 기준 총 투입량 · 메뉴 {entries.length}개</div>
+        <div style={{ fontSize: 12, fontWeight: 400, color: colors.textSecondary }}>{servingsText} 기준 총 투입량 · 메뉴 {entries.length}개</div>
       </div>}
       open={open} onClose={onClose} size={wide ? 920 : '100%'}
       // 본문 전체는 스크롤하지 않는다 — 메뉴 목록과 레시피 내용이 각자 따로 스크롤된다.
@@ -97,7 +104,7 @@ export default function RecipeDrawer({ plan, open, onClose }: { plan: MealPlan; 
           {/* key: 다른 메뉴를 고르면 레시피 영역을 새로 그려 스크롤이 맨 위에서 시작한다 */}
           <div key={current?.key} style={{ flex: 1, minWidth: 0, padding: wide ? '20px 28px' : '16px', overflowY: 'auto' }}>
             {current && (
-              <RecipeDetail entry={current} rec={recipeOf(current)} headcount={plan.headcount}
+              <RecipeDetail entry={current} rec={recipeOf(current)} headcount={current.servings}
                 loading={loading && !recipeOf(current)} failed={failed && !recipeOf(current)}
                 onRetry={() => setAttempt((a) => a + 1)} />
             )}
