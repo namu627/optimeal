@@ -113,6 +113,60 @@ def _expand_cross_reactive(allergens):
     return unsafe
 
 
+# 알레르기 표시 대상 19종(NEIS 급식 코드 순). 메뉴의 .allergens 는 이 이름들의 집합이다
+#   (csp_solver.load_menus 가 constraints.description 에서 읽음 — scripts/load_allergen_constraints.py).
+ALLERGEN_LABELS = (
+    "난류", "우유", "메밀", "땅콩", "대두", "밀", "고등어", "게", "새우", "돼지고기",
+    "복숭아", "토마토", "아황산류", "호두", "닭고기", "쇠고기", "오징어", "조개류", "잣",
+)
+# 화면·구버전 저장본·NEIS 표기를 표준 이름으로. '갑각류'는 표준 항목이 아니라 게·새우 둘로 펼친다.
+_ALLERGEN_ALIASES = {
+    "갑각류": ("게", "새우"), "알류": ("난류",), "계란": ("난류",), "달걀": ("난류",),
+    "메추리알": ("난류",), "소고기": ("쇠고기",), "콩": ("대두",), "밀가루": ("밀",),
+    "아황산": ("아황산류",), "조개": ("조개류",), "굴": ("조개류",), "전복": ("조개류",),
+    "홍합": ("조개류",),
+    **{str(i): (name,) for i, name in enumerate(ALLERGEN_LABELS, start=1)},
+    **{f"{i:02d}": (name,) for i, name in enumerate(ALLERGEN_LABELS, start=1)},
+}
+
+
+def normalize_allergens(values):
+    """입력 알레르겐을 19종 표준 이름 집합으로 바꾼다(별칭·NEIS 번호 → 표준명).
+    모르는 값은 그대로 둔다 — 버리면 그 알레르겐이 조용히 무시되기 때문이다."""
+    out = set()
+    for v in values or ():
+        v = str(v).strip()
+        if v:
+            out.update(_ALLERGEN_ALIASES.get(v, (v,)))
+    return out
+
+
+def menu_has_unsafe(menu, unsafe):
+    """메뉴가 unsafe(교차반응 확장된 배제 집합)에 걸리는지 — 대체·교체 후보 필터용.
+    알레르겐 표시(19종 이름)뿐 아니라 재료명도 본다: 교차반응 묶음에는 19종 밖의 재료
+    (사과·배·랍스터 등)가 있어서다."""
+    if not unsafe:
+        return False
+    if getattr(menu, "allergen_unknown", False):   # 재료 정보 없음 = 판정 불가 → 위험으로 본다
+        return True
+    tokens = set(getattr(menu, "allergens", set()) or set()) | _ingredients_of(menu)
+    return bool(tokens & unsafe)
+
+
+def _allergen_index(menus):
+    """재료명 → 알레르겐 이름 집합(메뉴들의 ingredient_allergens 를 합침). 재료 치환 판정용."""
+    index = {}
+    for m in menus:
+        for ing, labels in (getattr(m, "ingredient_allergens", None) or {}).items():
+            index.setdefault(ing, set()).update(labels)
+    return index
+
+
+def _labels_of(ingredient, allergen_index):
+    """재료 하나의 알레르겐 표시 + 재료명 자체(교차반응 묶음의 재료명과 맞추기 위해)."""
+    return (allergen_index or {}).get(ingredient, set()) | {ingredient}
+
+
 # 알레르겐 재료 → 대체 재료 후보(우선순위 순). 재료 치환(방식2)의 시드.
 #   출처: 식약처·중앙급식관리지원센터 「알레르기 유발식품 대체식품」(공식 5종) +
 #         "비슷한 영양소 식품으로 대체" 원칙. 그 자체가 고위험 알레르겐인 후보는 사전 제외했고,
@@ -148,16 +202,24 @@ class _SubstitutedMenu:
     ingredients: set
 
 
-def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None):
+def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None, allergen_index=None):
     """방식2: orig 의 알레르겐 재료만 안전 재료로 바꾼 '가상 대체 접시'를 만든다.
 
     같은 메뉴를 유지하므로 재료 공유율이 최대(알레르겐 자리만 바뀜)다 — 간트 R90 목적의 극한.
     성공 조건: 접시 안 '모든' 위험 재료가 (map 에 있고) 그룹에 안전한 대체를 가질 때.
     하나라도 대체 불가면 None → 호출부는 방식1(메뉴 교체)로 폴백.
+
+    allergen_index(재료명 → 알레르겐 이름)로 재료의 위험 여부를 판정한다 — 우유 그룹이면 우유뿐 아니라
+    버터·치즈도 위험 재료다. 대체 재료(두유 등)도 같은 기준으로 거른다(우유+대두 그룹에 두유 금지).
+    index 가 없으면 재료명 자체만 본다(예전 동작).
     """
     smap = substitute_map or SUBSTITUTE_MAP
+
+    def risky(ing):
+        return bool(_labels_of(ing, allergen_index) & unsafe)
+
     orig_ings = _ingredients_of(orig)
-    hits = orig_ings & unsafe                      # 이 접시에서 위험한 재료들
+    hits = {i for i in orig_ings if risky(i)}      # 이 접시에서 위험한 재료들
     if not hits:
         return None                                # 바꿀 게 없음(정상 접시)
     chosen = {}
@@ -165,12 +227,12 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None):
         cands = smap.get(h)
         if not cands:
             return None                            # 이 알레르겐 재료엔 등록된 치환 없음 → 폴백
-        pick = next((c for c in cands if c not in unsafe), None)
+        pick = next((c for c in cands if not risky(c)), None)
         if pick is None:
             return None                            # 후보가 전부 이 그룹엔 위험 → 폴백
         chosen[h] = pick
     new_ings = (orig_ings - set(hits)) | set(chosen.values())
-    if new_ings & unsafe:                          # 치환 결과 재점검(이중 안전)
+    if any(risky(i) for i in new_ings):            # 치환 결과 재점검(이중 안전)
         return None
     swap_txt = ", ".join(f"{h}→{chosen[h]}" for h in sorted(hits))
     virt = _SubstitutedMenu(
@@ -180,7 +242,8 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None):
         calories=getattr(orig, "calories", 0.0) or 0.0,
         cost_won=getattr(orig, "cost_won", 0.0) or 0.0,
         colors=set(getattr(orig, "colors", set()) or set()),
-        allergens=set(getattr(orig, "allergens", set()) or set()) - hits,
+        allergens=(set().union(*(allergen_index.get(i, set()) for i in new_ings)) if allergen_index
+                   else set(getattr(orig, "allergens", set()) or set()) - hits),
         season_score=getattr(orig, "season_score", 0.0) or 0.0,
         ingredients=new_ings,
     )
@@ -190,6 +253,10 @@ def _try_ingredient_substitution(orig, unsafe, *, substitute_map=None):
 # ===========================================================================
 # 결과 자료구조
 # ===========================================================================
+UNRESOLVED_NO_SAFE = "안전한 대체 메뉴 없음"
+UNRESOLVED_UNKNOWN = "재료 정보 없음 — 알레르기 판정 불가"
+
+
 @dataclass
 class Substitution:
     day: int
@@ -200,6 +267,7 @@ class Substitution:
     hit_allergens: set
     score: float = 0.0           # 선정된 대체의 소프트 점수(참고)
     method: str = ""             # 대체 방식: '치환'(재료만 교체) / '메뉴대체'(다른 메뉴) / ''(미해결)
+    reason: str = ""             # 미해결 사유: UNRESOLVED_NO_SAFE / UNRESOLVED_UNKNOWN
 
 
 @dataclass
@@ -280,7 +348,7 @@ def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
     ocat = getattr(orig, "category", None)
     cands = [m for m in menus
              if getattr(m, "category", None) == ocat
-             and not (set(getattr(m, "allergens", set()) or set()) & unsafe)
+             and not menu_has_unsafe(m, unsafe)
              and getattr(m, "name", None) not in exclude_names]
     valid = []
     for c in cands:
@@ -320,7 +388,9 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
     Args:
         plan: 공통식 plan {day: {meal: [menu_name, ...]}} (build_and_solve 결과의 .plan).
         menus: MenuItem 리스트(공통식과 동일 후보 풀).
-        allergy_groups: list[AllergyGroup].
+        allergy_groups: list[AllergyGroup]. allergens 는 normalize_allergens 로 표준 19종 이름으로 바꿔 쓴다
+            ('갑각류'→게·새우, '계란'→난류 등). 교체 대상 판정은 선언한 알레르겐만 본다 — 교차반응은
+            대체 후보를 거를 때만 넓힌다(난류 그룹이 닭고기 메뉴까지 잃지 않게).
         hard_config: 공통식에 쓴 HardConstraintConfig(칼로리 밴드·예산·나트륨 상한 필터에 사용).
             None이면 하드 필터 생략. nutrient_max_per_day['sodium'] 이 있으면 교체 후에도
             그날 총 나트륨이 상한 이내인 후보만 고른다 — 이때 sodium_by_id 주입이 사실상 필수다
@@ -335,6 +405,7 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
     by_name = {}
     for m in menus:
         by_name.setdefault(getattr(m, "name", None), m)
+    allergen_index = _allergen_index(menus)
 
     # 하드 밴드/예산/나트륨 상한
     band = None
@@ -356,6 +427,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
     results = []
     for grp in allergy_groups:
         alt_plan, subs, unresolved = {}, [], []
+        declared = normalize_allergens(grp.allergens)          # 교체 대상 판정(선언한 것만)
+        unsafe = _expand_cross_reactive(declared) if cross_reactive else set(declared)  # 대체 후보 필터
         # 그룹마다 공통식 총액에서 출발해 교체마다 갱신(total 모드 예산 판정용)
         period_cost = sum((getattr(by_name.get(n), "cost_won", 0.0) or 0.0)
                           for ms_ in plan.values() for ms in ms_.values() for n in ms)
@@ -375,7 +448,12 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                 current = set(picks)
                 for i, name in enumerate(picks):
                     mi = by_name.get(name)
-                    hit = set(getattr(mi, "allergens", set()) or set()) & grp.allergens if mi else set()
+                    if mi is not None and declared and getattr(mi, "allergen_unknown", False):
+                        # 재료 정보가 없으면 알레르겐이 없다고 볼 수 없다 → 바꾸지 않고 영양사 확인
+                        unresolved.append(Substitution(day, meal, mi.category, name, None, set(),
+                                                       reason=UNRESOLVED_UNKNOWN))
+                        continue
+                    hit = set(getattr(mi, "allergens", set()) or set()) & declared if mi else set()
                     if not (mi and hit):
                         continue
                     # 이 끼니의 색(교체 대상 제외)
@@ -396,9 +474,9 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     # ── 1순위: 재료 치환(방식2) — 같은 메뉴 유지, 알레르겐 재료만 안전 재료로 ──
                     #   공유율 최대. 성공하면 그대로 채택(가상 접시를 by_name 에 등록해 재집계 반영).
                     alt, sc, via = None, 0.0, ""
-                    unsafe = _expand_cross_reactive(grp.allergens) if cross_reactive else set(grp.allergens)
                     if ingredient_substitution:
-                        sub = _try_ingredient_substitution(mi, unsafe, substitute_map=substitute_map)
+                        sub = _try_ingredient_substitution(mi, unsafe, substitute_map=substitute_map,
+                                                           allergen_index=allergen_index)
                         if sub is not None:
                             alt = sub
                             by_name.setdefault(alt.name, alt)
@@ -411,7 +489,7 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     # ── 2순위: 메뉴 교체(방식1) 폴백 — 치환 불가 시 다른 안전 메뉴로 ──
                     if alt is None:
                         alt, sc = _pick_alternative(
-                            mi, menus, grp.allergens,
+                            mi, menus, declared,
                             exclude_names=current, meal_colors=meal_colors,
                             day_kcal_wo_orig=day_kcal - ocal, band=band, budget_left=budget_left,
                             weights=w, sodium_by_id=sodium_by_id, sugar_by_id=sugar_by_id,
@@ -419,7 +497,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                             cross_reactive=cross_reactive, popular_staples=popular_staples)
                         via = "메뉴대체"
                     if alt is None:
-                        unresolved.append(Substitution(day, meal, mi.category, name, None, hit))
+                        unresolved.append(Substitution(day, meal, mi.category, name, None, hit,
+                                                       reason=UNRESOLVED_NO_SAFE))
                         continue
                     # 커밋: 접시 교체 + running 총량 갱신
                     subs.append(Substitution(day, meal, mi.category, name, alt.name, hit, round(sc, 2), via))
@@ -473,6 +552,6 @@ def print_alternatives(alts):
             print(f"  · {s.day}일 {s.meal} [{s.category}] {tag}{s.original} → {s.alternative}"
                   f"  (사유: {', '.join(sorted(s.hit_allergens))} · 점수 {s.score})")
         for s in alt.unresolved:
-            print(f"  ⚠ {s.day}일 {s.meal} [{s.category}] {s.original} → 하드 지키는 대체 없음 · 영양사 확인"
-                  f"  (사유: {', '.join(sorted(s.hit_allergens))})")
+            print(f"  ⚠ {s.day}일 {s.meal} [{s.category}] {s.original} → {s.reason or UNRESOLVED_NO_SAFE} · 영양사 확인"
+                  f"  (사유: {', '.join(sorted(s.hit_allergens)) or '-'})")
         print(f"  대체식 일별 kcal: {alt.daily_kcal} · 1인 총원가(참고): {alt.total_cost:,}원")

@@ -4,21 +4,11 @@ import { colors } from '../theme';
 import type { AllergyGroup } from '../api/menu';
 
 /**
- * 알레르기 유발물질 목록.
- * 시안 04 에 적힌 항목을 그대로 옮겼다.
- * 식약처 기준 몇 종으로 갈지 팀 확정되면 이 배열만 고치면 된다.
+ * 알레르기 유발물질 목록 — 표시 대상 19종(api/menu.ts ALLERGEN_POOL 과 같은 목록).
  */
 export const ALLERGENS = [
-  '난류',
-  '우유',
-  '땅콩',
-  '대두',
-  '밀',
-  '갑각류',
-  '고등어',
-  '새우',
-  '복숭아',
-  '토마토',
+  '난류', '우유', '메밀', '땅콩', '대두', '밀', '고등어', '게', '새우', '돼지고기',
+  '복숭아', '토마토', '아황산류', '호두', '닭고기', '쇠고기', '오징어', '조개류', '잣',
 ] as const;
 
 export interface AllergyGroupsFieldProps {

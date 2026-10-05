@@ -756,11 +756,12 @@ def swap_candidates(
             if m.category == cur.category and m.menu_id not in excluded and m.name not in excluded_names]
     # 대체식 칸: 그 그룹이 피해야 할 알레르겐(교차반응 포함)이 든 메뉴는 후보에서 뺀다
     # (alternative_menu 가 대체 메뉴를 고를 때와 같은 기준).
-    allergens = {a.strip() for a in exclude_allergens.split(",") if a.strip()}
+    # 화면 선택값('갑각류'·'계란' 등)은 19종 표준 이름으로 바꾼 뒤 확장한다(메뉴 allergens 가 표준 이름).
+    _, _, am = _load_module3()
+    allergens = am.normalize_allergens(exclude_allergens.split(","))
     if allergens:
-        _, _, am = _load_module3()
         unsafe = am._expand_cross_reactive(allergens)
-        pool = [m for m in pool if not (set(getattr(m, "allergens", set()) or set()) & unsafe)]
+        pool = [m for m in pool if not am.menu_has_unsafe(m, unsafe)]
     if enforce_menu_structure and cur.category == "주식":
         import menu_taxonomy as mt
 
@@ -870,7 +871,7 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         kcal_tolerance=payload.kcal_tolerance,
         budget_limit_per_person=budget_per_day,
         budget_period="total" if budget["carryover_on"] else "day",
-        excluded_allergens=set(payload.excluded_allergens),
+        excluded_allergens=am.normalize_allergens(payload.excluded_allergens),
         nutrient_max_per_day=({"sodium": sodium_max} if sodium_by_idx else {}),
         enable_staple_main=payload.enforce_menu_structure,
         enable_menu_pairing=payload.enforce_menu_structure,

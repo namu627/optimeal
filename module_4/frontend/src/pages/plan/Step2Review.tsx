@@ -12,7 +12,7 @@ import {
   type MealPlan, type MealItem, type MealKind, type MealCell,
   type SwapCandidate, type SwapCandidatesResponse, type SwapCheck, type TotalBudgetQuery,
 } from '../../api/menu';
-import { editPlan, altReviewText, ALT_REVIEW_LABEL, type MainEdit } from './altSync';
+import { editPlan, altReviewText, ALT_REVIEW_LABEL, ALLERGY_CHECK_LABEL, type MainEdit } from './altSync';
 import { changedNames } from './recipeView';
 
 const C = {
@@ -217,6 +217,11 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
           <span style={{ fontSize: 13, color: it.flag ? C.redText : isAlt ? C.greenText : C.text }}>{it.name}</span>
           {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
           {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
+          {it.allergyCheck && (
+            <Tooltip title={`영양사 확인 필요 — ${it.allergyCheck}`}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{ALLERGY_CHECK_LABEL}</span>
+            </Tooltip>
+          )}
         </div>
       );
     }
@@ -233,6 +238,11 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
         </Popover>
         {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
         {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
+        {it.allergyCheck && (
+          <Tooltip title={`영양사 확인 필요 — ${it.allergyCheck}`}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{ALLERGY_CHECK_LABEL}</span>
+          </Tooltip>
+        )}
         <span className="del" style={{ opacity: 0, cursor: 'pointer', color: C.muted, transition: 'opacity .1s' }} onClick={() => onDelete(it)}>
           <CloseOutlined style={{ fontSize: 10 }} />
         </span>
