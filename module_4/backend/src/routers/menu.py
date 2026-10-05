@@ -643,8 +643,10 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
                      if i < len(menus)} if sodium_by_idx else None)
     alt_menus = list(canon.values()) if canon else menus
+    # 재료 치환(방식2)은 쓰지 않는다 — 이름만 '(대체: 달걀→두부)'로 바뀌고 레시피·조리 순서·분량은 원래 메뉴라
+    # 계란찜의 달걀을 두부로 바꾸는 식의 조리 불가 지시서가 나왔다(2026-10-06 결정). 알레르기 자리는 늘 다른 메뉴로 바꾼다.
     alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
-                                       sodium_by_id=sodium_by_id)
+                                       sodium_by_id=sodium_by_id, ingredient_substitution=False)
     return [_to_jsonable(a) for a in alts]
 
 
@@ -816,9 +818,14 @@ def menu_recipes(
     by_name: dict = {}
     if names:
         canon = _canonical_by_name(_candidate_pool(cs))
+
+        def id_of(name: str):
+            # 재료 치환 접시 '메뉴(대체: …)' 는 원래 메뉴 레시피를 돌려준다 — 치환은 프론트 recipeView.substitutedRecipe 가 입힌다.
+            m = canon.get(name) or canon.get(name.split("(대체:")[0].strip())
+            return m.menu_id if m is not None else None
+
         by_name = _build_menu_recipes(
-            cs, {"1": {"점심": list(dict.fromkeys(names))}}, servings,
-            lambda name: canon[name].menu_id if name in canon else None, site_id)
+            cs, {"1": {"점심": list(dict.fromkeys(names))}}, servings, id_of, site_id)
     return {"by_id": {str(k): v for k, v in by_id.items()}, "by_name": by_name}
 
 

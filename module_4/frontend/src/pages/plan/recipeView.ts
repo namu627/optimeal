@@ -8,10 +8,17 @@ import {
 export interface RecipeEntry { key: string; name: string; nutritionId?: number; uses: string[] }
 export type FetchedRecipes = { by_id: Record<string, MenuRecipe>; by_name: Record<string, MenuRecipe> };
 
+/** 칸 메뉴 → 엔트리 키. 재료 치환 접시('달걀찜(대체: 달걀→두부)')는 id 가 원래 메뉴 것이라 이름까지 붙여
+ *  원래 메뉴·다른 치환(그룹마다 대체 재료가 다를 수 있다)과 섞이지 않게 한다. */
+export function entryKey(it: { name: string; nutritionId?: number }): string {
+  if (it.nutritionId == null) return `name:${it.name}`;
+  return parseSubstitution(it.name).length ? `id:${it.nutritionId}:${it.name}` : `id:${it.nutritionId}`;
+}
+
 export function collectEntries(weeks: WeekBlock[]): RecipeEntry[] {
   const map = new Map<string, RecipeEntry>();
   weeks.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => c.items.forEach((it) => {
-    const key = it.nutritionId != null ? `id:${it.nutritionId}` : `name:${it.name}`;
+    const key = entryKey(it);
     const use = `${d.date} ${MEAL_TABLE[c.kind as MealKind]}`;
     const e = map.get(key);
     if (e) e.uses.push(use);
@@ -54,7 +61,56 @@ export async function resolveRecipes(plan: MealPlan, entries: RecipeEntry[]): Pr
   const need = missingRecipes(plan, entries);
   let fetched: FetchedRecipes = { by_id: {}, by_name: {} };
   if (need.ids.length || need.names.length) fetched = await fetchMissingRecipes(need, plan.headcount);
-  return (e) => storedRecipe(plan, e) ?? fetchedRecipe(fetched, e);
+  return (e) => substitutedRecipe(storedRecipe(plan, e) ?? fetchedRecipe(fetched, e), e.name);
+}
+
+/* ── 재료 치환 대체식 ──
+   module_3 alternative_menu 의 재료 치환은 메뉴 이름에 '(대체: 달걀→두부, 우유→두유)' 만 붙이고 id 는 원래 메뉴 것을
+   쓴다(backend _alt_plan_ids ②). 그래서 레시피는 원래 메뉴 그대로 와서 재료·조리 순서에 알레르겐이 남았다.
+   레시피 화면·CSV·PDF 가 모두 이 함수를 거쳐 치환을 반영한다. 치환 이름은 재료 목록과 같은 ingredient_name 이다.
+   ※ 2026-10-06 부터 생성은 재료 치환을 쓰지 않는다(backend _derive_alternatives) — 이 처리는 그 전 저장본용. */
+const SUB_RE = /\(대체: ([^)]+)\)\s*$/;
+
+/** '메뉴(대체: 달걀→두부, 우유→두유)' → [['달걀','두부'], ['우유','두유']]. 치환 접시가 아니면 []. */
+export function parseSubstitution(name: string): [string, string][] {
+  const m = SUB_RE.exec(name);
+  if (!m) return [];
+  return m[1].split(',')
+    .map((s) => s.split('→').map((x) => x.trim()))
+    .filter((p): p is [string, string] => p.length === 2 && !!p[0] && !!p[1]);
+}
+
+// 조리 순서 원문에서 치환 재료를 가리키는 표기. 재료 목록은 '달걀'인데 원문은 '계란'인 경우가 많다.
+// '콩'·'밀'처럼 다른 낱말(콩나물·밀가루 등) 안에 들어가는 이름은 원문 치환에서 뺀다 — 경고 문구로만 알린다.
+const STEP_ALIASES: Record<string, string[]> = {
+  달걀: ['달걀', '계란'], 계란: ['달걀', '계란'], 난류: ['달걀', '계란'],
+  우유: ['우유'], 대두: ['대두'], 돼지고기: ['돼지고기'], 밀가루: ['밀가루'], 밀: ['밀가루'],
+};
+
+export const substituteMarker = (to: string, from: string) => `${to}(${from} 대신)`;
+
+/** 치환 접시면 재료명·조리 순서의 원래 재료를 대체 재료로 바꾼 사본을, 아니면 rec 그대로 돌려준다.
+ *  투입량은 원래 재료 분량 그대로라 조리 순서 첫 줄에 확인 문구를 붙인다. */
+export function substitutedRecipe(rec: MenuRecipe | undefined, name: string): MenuRecipe | undefined {
+  const swaps = parseSubstitution(name);
+  if (!rec || !swaps.length) return rec;
+  const to = new Map(swaps);
+  const ingredients = rec.ingredients.map((ing) => {
+    const sub = to.get(ing.name);
+    return sub ? { ...ing, name: substituteMarker(sub, ing.name) } : ing;
+  });
+  let steps = rec.steps;
+  if (steps?.length) {
+    // 한 번에 바꾼다(긴 표기 먼저) — 앞 치환이 남긴 '(우유 대신)' 같은 표시를 다음 치환이 다시 건드리지 않게.
+    const aliasTo = new Map(swaps.flatMap(([from, sub]) => (STEP_ALIASES[from] ?? []).map((a) => [a, sub] as const)));
+    if (aliasTo.size) {
+      const re = new RegExp([...aliasTo.keys()].sort((a, b) => b.length - a.length).join('|'), 'g');
+      steps = steps.map((s) => s.replace(re, (a) => substituteMarker(aliasTo.get(a)!, a)));
+    }
+    const txt = swaps.map(([from, sub]) => `${from}→${sub}`).join(', ');
+    steps = [`※ 알레르기 재료 치환(${txt}) — 원문에서 재료 이름만 바꿨고 분량은 원래 재료 기준이에요. 조리법·분량은 영양사 확인이 필요해요.`, ...steps];
+  }
+  return { ...rec, ingredients, steps };
 }
 
 /* ── 투입량(총량) 기준 — 레시피 화면·CSV·PDF 가 모두 이 두 함수로 값과 기준을 적는다 ──

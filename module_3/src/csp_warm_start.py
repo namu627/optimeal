@@ -218,7 +218,8 @@ def build_rolling_hint(menus: list, *, days: int, n_meals: int, composition: dic
     history: list[set] = []
     chosen: dict = {}
     for day in range(days):
-        if time_budget is not None and time.monotonic() - started > time_budget:
+        # >= : Windows 의 monotonic 은 ~15.6ms 단위라 첫 검사 경과가 정확히 0.0 이 나온다 — 예산 0 이면 하루도 만들지 않게.
+        if time_budget is not None and time.monotonic() - started >= time_budget:
             break
         recent: set = set().union(*history[-(window - 1):]) if window > 1 and history else set()
         if use_cap is not None:
