@@ -65,7 +65,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm, onC
     if (files.pdf) jobs.push({ label: 'PDF', run: () => downloadPlanPdf(plan, base, { recipes: files.pdfRecipes, alternatives: files.pdfAlt }) });
     if (files.table) jobs.push({ label: '식단표 CSV', run: () => saveCsv(`${base}_식단표.csv`, tableRows(plan)) });
     // 조리 지시서 CSV 는 응답에 없는 메뉴(교체·대체식)의 레시피를 서버에서 조회한 뒤 만든다(PDF 와 같은 규칙).
-    if (files.normal) jobs.push({ label: '일반식 조리 지시서 CSV', run: async () => saveCsv(`${base}_일반식_조리지시서.csv`, await recipeRows(plan, plan.weeks)) });
+    if (files.normal) jobs.push({ label: '일반식 조리 지시서 CSV', run: async () => saveCsv(`${base}_일반식_조리지시서.csv`, await recipeRows(plan)) });
     if (files.alt) jobs.push({ label: '대체식 조리 지시서 CSV', run: async () => saveCsv(`${base}_대체식_조리지시서.csv`, await altRecipeRows(plan)) });
     if (!jobs.length) { message.warning('내려받을 파일을 하나 이상 선택해 주세요'); return; }
     setExporting(true);
@@ -123,7 +123,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm, onC
 
       {/* 영양 달성률 + 1인 원가 (박미연 KpiRow) */}
       <KpiRow variant="ring" achievement={plan.achievement} cost={{ value: plan.costPerPerson, budget: plan.budgetPerPerson }} />
-      <div style={{ textAlign: 'right', marginTop: -6, fontSize: 12, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>총 예상 식재료비 {plan.totalCost.toLocaleString()}원</div>
+      <div style={{ textAlign: 'right', marginTop: -6, fontSize: 12, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>총 예상 식재료비 {plan.totalCost.toLocaleString()}원{plan.alternatives.length ? ' (대체식 포함)' : ''}</div>
       <BudgetSummaryCard plan={plan} />
 
       {/* 내려받을 파일 */}

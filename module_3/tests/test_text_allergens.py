@@ -25,6 +25,15 @@ def test_keywords_avoid_common_false_positives():
     assert "게" not in text_allergens("", "맛있게 볶는다")             # 어미 '게'
     assert "밀" not in text_allergens("", "메밀묵을 썬다")             # 메밀 ≠ 밀
     assert text_allergens(None, "", None) == set()
+    assert "밀" not in text_allergens("곤약국수", "쌀국수와 곤약파스타")       # 곤약·쌀 면 ≠ 밀
+    assert "대두" not in text_allergens("", "땅콩가루를 뿌린다")               # 땅콩가루 ≠ 콩가루
+
+
+def test_processed_food_keywords():
+    assert "조개류" in text_allergens("", "굴소스로 볶는다")
+    assert "밀" in text_allergens("돼지고기만두", "")
+    assert "돼지고기" in text_allergens("", "햄과 소시지를 썬다")
+    assert "난류" in text_allergens("", "지단을 부친다")
 
 
 def test_text_detected_allergen_forces_menu_replacement():

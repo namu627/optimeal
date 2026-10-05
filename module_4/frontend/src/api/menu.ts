@@ -249,6 +249,8 @@ export interface MealPlan {
   menuRecipes?: Record<string, MenuRecipe>;
   /** nutrition_id(문자열 키) → 레시피. 있으면 MealItem.nutritionId 로 먼저 찾는다(동명 메뉴 정확). */
   menuRecipesById?: Record<string, MenuRecipe>;
+  /** 조리 인원(문자열 키) → nutrition_id → 그 인원 총량 레시피. 전체 인원 레시피는 menuRecipesById. 없으면 서버 조회. */
+  menuRecipesByServings?: Record<string, Record<string, MenuRecipe>>;
 }
 
 /* ────────────── 실제 /api/menu/generate 응답 → 뷰모델 매핑 ──────────────
@@ -284,6 +286,8 @@ interface GenerateResponse {
   plan_ids?: PlanIds | null;
   menu_nutrition_by_id?: Record<string, MenuNutri & { name?: string }>;
   menu_recipes_by_id?: Record<string, MenuRecipe>;
+  /** 전체 인원이 아닌 조리 인원별 레시피 {인원: {menu_id: 레시피}} — 대체식 그룹·대체 인원을 뺀 일반식(backend _recipes_by_servings). */
+  menu_recipes_by_servings?: Record<string, Record<string, MenuRecipe>> | null;
   hard_breakdown?: HardBreakdown | null;
   alternatives?: Array<{
     group?: { label?: string; allergens?: string[]; count?: number };
@@ -455,6 +459,7 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
     source: 'live',
     menuRecipes: r.menu_recipes,
     menuRecipesById: r.menu_recipes_by_id,
+    menuRecipesByServings: r.menu_recipes_by_servings ?? undefined,
   });
 }
 
@@ -553,7 +558,26 @@ export function recomputePlan(plan: MealPlan): MealPlan {
   let checks = [...warnChecks.map((c) => ({ ...c, done: doneOf.get(c.label) ?? c.done })), ...rest];
   if (!checks.length) checks = [{ label: '검토할 경고 없음', done: true }];
 
-  return { ...plan, weeks, alternatives, achievement, costPerPerson, totalCost: totalPerPerson * plan.headcount, checks };
+  return { ...plan, weeks, alternatives, achievement, costPerPerson, totalCost: Math.round(planTotalCost({ ...plan, weeks, alternatives })), checks };
+}
+
+/** 총 식재료비(원, 반올림 전) — 끼니마다 알레르기 그룹은 자기 대체식 칸, 나머지 인원은 일반식 칸 원가.
+ *  예전엔 일반식 1인 원가 × 전체 인원이라 대체 메뉴 원가 차이가 빠졌다. 그룹 대체식 칸이 없는 끼니는 일반식을 먹는다.
+ *  (조리 지시서 인원 규칙 recipeView.mainServingsOf 와 같은 기준 — 대체식 칸에는 같이 먹는 메뉴도 들어 있다.) */
+export function planTotalCost(plan: Pick<MealPlan, 'weeks' | 'alternatives' | 'headcount'>): number {
+  const cellCost = (c?: MealCell) => (c?.items ?? []).reduce((s, it) => s + (it.nutri?.cost ?? 0), 0);
+  let total = 0;
+  plan.weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
+    let mainEaters = plan.headcount;
+    plan.alternatives.forEach((t) => {
+      const alt = t.weeks[w]?.days[di]?.cells.find((x) => x.kind === c.kind);
+      if (!alt || t.count < 1) return;
+      total += cellCost(alt) * t.count;
+      mainEaters -= t.count;
+    });
+    total += cellCost(c) * Math.max(0, mainEaters);
+  })));
+  return total;
 }
 
 /** 본식단 1인 기간 총원가(칸 영양 합, 반올림 전). 교체 판정·총액 요약이 같은 값을 쓰고 표시할 때만 반올림한다. */

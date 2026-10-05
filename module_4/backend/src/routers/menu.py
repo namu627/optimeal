@@ -1003,5 +1003,57 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
         for a in alts:
             a["plan_ids"] = _alt_plan_ids(a.get("plan"), body["plan"], body["plan_ids"], canon)
         body["alternatives"] = alts
+        try:
+            body["menu_recipes_by_servings"] = _recipes_by_servings(
+                cs, body["plan"], body["plan_ids"], alts, payload.serving_count, payload.site_id)
+        except Exception:
+            body["menu_recipes_by_servings"] = None  # 없으면 프론트가 인원별로 /recipes 조회(결과 같음)
     body["timing"]["total_sec"] = round(time.monotonic() - started, 2)
     return body
+
+
+def _servings_need(plan: dict, plan_ids: dict, alts: list[dict], serving_count: int) -> dict[int, set]:
+    """조리 인원(전체 인원 제외) → 그 인원으로 만들 menu_id 집합. 프론트 recipeView 와 같은 규칙:
+      - 일반식 칸 메뉴: 전체 인원 − 그 끼니에 이 메뉴 대신 대체식을 받는 그룹 인원(그룹 칸에 같은 이름이 없으면 대체)
+      - 대체식 칸 메뉴: 일반식 같은 칸에 없는(바뀐) 메뉴만, 그 그룹 인원
+    """
+    need: dict[int, set] = {}
+
+    def add(servings: int, mid):
+        if mid is not None and 0 < servings != serving_count:
+            need.setdefault(servings, set()).add(mid)
+
+    groups = [(int((a.get("group") or {}).get("count") or 0), a.get("plan") or {}, a.get("plan_ids") or {}) for a in alts]
+    for day, meals in (plan or {}).items():
+        for meal, names in (meals or {}).items():
+            ids = ((plan_ids or {}).get(day) or {}).get(meal) or []
+            for i, name in enumerate(names):
+                sub = 0
+                for count, aplan, _ in groups:
+                    acell = (aplan.get(day) or {}).get(meal)
+                    if acell is not None and count >= 1 and name not in acell:
+                        sub += count
+                add(serving_count - sub, ids[i] if i < len(ids) else None)
+            for count, aplan, aids in groups:
+                acell = (aplan.get(day) or {}).get(meal) or []
+                acell_ids = (aids.get(day) or {}).get(meal) or []
+                for i, name in enumerate(acell):
+                    if name not in names and count >= 1:
+                        add(count, acell_ids[i] if i < len(acell_ids) else None)
+    return need
+
+
+def _recipes_by_servings(cs, plan, plan_ids, alts, serving_count: int, site_id: int | None) -> dict | None:
+    """전체 인원이 아닌 조리 인원별 레시피 {인원: {menu_id: 레시피}} — 대체식 그룹·대체 인원을 뺀 일반식.
+
+    menu_recipes_by_id 는 전체 인원 총량이라, 이게 없으면 프론트가 내려받을 때마다 인원별로 /recipes 를 다시 부른다.
+    업장 스케일링 총량은 인원에 비례하지 않아 인원마다 _build_menu_recipes 로 따로 만든다. 교체·삭제로 인원이
+    바뀐 메뉴는 여기 없으므로 프론트가 그때 조회한다.
+    """
+    if plan_ids is None or not alts:
+        return None
+    out: dict = {}
+    for servings, mids in sorted(_servings_need(plan, plan_ids, alts, serving_count).items()):
+        recs = _build_menu_recipes(cs, {"1": {"점심": sorted(mids)}}, servings, lambda mid: mid, site_id)
+        out[str(servings)] = {str(k): v for k, v in recs.items()}
+    return _to_jsonable(out)

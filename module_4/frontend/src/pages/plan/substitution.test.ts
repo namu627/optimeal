@@ -30,7 +30,7 @@ describe('재료 치환 대체식 레시피', () => {
   });
 
   it('치환 접시는 원래 메뉴와 다른 엔트리 키', () => {
-    expect(entryKey({ name: '달걀찜', nutritionId: 1 })).toBe('id:1');
-    expect(entryKey({ name: '달걀찜(대체: 달걀→두부)', nutritionId: 1 })).not.toBe('id:1');
+    expect(entryKey({ name: '달걀찜', nutritionId: 1 }, 10)).toBe('id:1@10');
+    expect(entryKey({ name: '달걀찜(대체: 달걀→두부)', nutritionId: 1 }, 10)).not.toBe('id:1@10');
   });
 });

@@ -6,7 +6,8 @@ import {
   type MealPlan, type MealKind, type MealCell, type PdfExportRequest, type PdfRecipe, type WeekBlock,
 } from '../../api/menu';
 import {
-  amountBasis, changedAltTracks, changedNames, collectEntries, entryKey, perServing, resolveRecipes, type RecipeEntry,
+  altServingsOf, amountBasis, changedAltTracks, changedNames, collectEntries, entryKey, groupServings, mainServingsOf, perServing,
+  resolveRecipes, type RecipeEntry, type ServingsOf,
 } from './recipeView';
 import { allergyCheckText, altFollowText, altReviewText } from './altSync';
 
@@ -74,41 +75,47 @@ export function planGrid(plan: MealPlan): PdfExportRequest['grids'][number] {
 // 조회해도 없으면 재료명 칸에 '레시피 미등록', 투입량·조리순서는 빈칸(임의 생성 금지).
 export const RECIPE_MISSING = '레시피 미등록';
 // 투입량 옆 '기준' 칸: 스케일링(업장 보정) | 단순 비례(1인분×인원) — recipeView.amountBasis.
-const RECIPE_HEADER = ['날짜', '끼니', '메뉴', '재료명', '투입량(g, 총량)', '기준', '조리순서'];
+// '인원' 칸: 그 메뉴를 몇 명분 만드는지 — 일반식은 전체 인원에서 그 끼니 대체식 인원을 뺀 값(mainServingsOf), 대체식은 그룹 인원.
+const RECIPE_HEADER = ['날짜', '끼니', '메뉴', '인원', '재료명', '투입량(g, 총량)', '기준', '조리순서'];
 
-function pushRecipeRows(rows: Cell[][], prefix: Cell[], weeksSrc: WeekBlock[], entries: RecipeEntry[],
+function pushRecipeRows(rows: Cell[][], prefix: Cell[], weeksSrc: WeekBlock[], servingsOf: ServingsOf, entries: RecipeEntry[],
   recipeOf: Awaited<ReturnType<typeof resolveRecipes>>, suffix?: (c: MealCell) => Cell[]) {
   const byKey = new Map(entries.map((e) => [e.key, e]));
-  weeksSrc.forEach((wk) => wk.days.forEach((d) => d.cells.forEach((c) => {
+  weeksSrc.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
     c.items.forEach((it) => {
-      const e = byKey.get(entryKey(it))!;
-      const rec = recipeOf(e);
-      const meal = MEAL_TABLE[c.kind as MealKind];
+      const servings = servingsOf(w, di, c.kind as MealKind, it);
+      if (servings <= 0) return;  // 모든 인원이 대체식을 받는 메뉴는 만들지 않는다(collectEntries 와 같은 규칙)
+      const rec = recipeOf(byKey.get(entryKey(it, servings))!);
+      const head = [...prefix, d.date, MEAL_TABLE[c.kind as MealKind], it.name, servings];
       if (rec && rec.ingredients.length) {
-        rec.ingredients.forEach((ing) => rows.push([...prefix, d.date, meal, it.name, ing.name, ing.amount ?? '', amountBasis(ing), ing.step ?? '', ...(suffix?.(c) ?? [])]));
+        rec.ingredients.forEach((ing) => rows.push([...head, ing.name, ing.amount ?? '', amountBasis(ing), ing.step ?? '', ...(suffix?.(c) ?? [])]));
       } else {
-        rows.push([...prefix, d.date, meal, it.name, RECIPE_MISSING, '', '', '', ...(suffix?.(c) ?? [])]);
+        rows.push([...head, RECIPE_MISSING, '', '', '', ...(suffix?.(c) ?? [])]);
       }
     });
   })));
 }
 
-export async function recipeRows(plan: MealPlan, weeksSrc: WeekBlock[]): Promise<Cell[][]> {
-  const entries = collectEntries(weeksSrc);
+export async function recipeRows(plan: MealPlan): Promise<Cell[][]> {
+  const servingsOf = mainServingsOf(plan);
+  const entries = collectEntries(plan.weeks, servingsOf);
   const recipeOf = await resolveRecipes(plan, entries);
   const rows: Cell[][] = [RECIPE_HEADER];
-  pushRecipeRows(rows, [], weeksSrc, entries, recipeOf);
+  pushRecipeRows(rows, [], plan.weeks, servingsOf, entries, recipeOf);
   return rows;
 }
 
 // 대체식 조리 지시서(CSV): 그룹마다 일반식과 달라진 메뉴만(changedAltTracks) — PDF 대체식 조리 지시서와 같은 메뉴 집합.
+// 투입량은 그 그룹 인원 총량(altServingsOf) — 전체 인원 총량이면 9명 그룹에 237명분 재료가 적힌다.
 export async function altRecipeRows(plan: MealPlan): Promise<Cell[][]> {
-  const tracks = changedAltTracks(plan);
-  const entries = collectEntries(tracks.flatMap((t) => t.weeks));
-  const recipeOf = await resolveRecipes(plan, entries);
+  const tracks = changedAltTracks(plan).map((t) => {
+    const servingsOf = altServingsOf(plan, t);
+    return { ...t, servingsOf, entries: collectEntries(t.weeks, servingsOf) };
+  });
+  const recipeOf = await resolveRecipes(plan, tracks.flatMap((t) => t.entries));
   // 비고: 일반식 교체·삭제가 알레르기 대체 자리에 걸린 칸이면 '대체식 재검토 필요(원인)'(altSync).
   const rows: Cell[][] = [['그룹', ...RECIPE_HEADER, '비고']];
-  tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, entries, recipeOf,
+  tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, t.servingsOf, t.entries, recipeOf,
     (c) => [[allergyCheckText(c), altReviewText(c)].filter(Boolean).join(' / ')]));
   return rows;
 }
@@ -123,9 +130,12 @@ export function planSummary(plan: MealPlan): { label: string; value: string }[] 
     { label: '인원', value: `${plan.headcount.toLocaleString()}명` },
     { label: '기간 · 끼니', value: `${planDateRange(plan)} 평일 ${plan.totalDays}일 · ${mealsText}` },
     { label: '1인 원가', value: `${plan.costPerPerson.toLocaleString()}원/식 (예산 ${plan.budgetPerPerson.toLocaleString()}원)` },
-    { label: '총 식재료비', value: won(plan.totalCost) },
+    { label: '총 식재료비', value: won(plan.totalCost) + (allergyN ? ` (대체식 ${allergyN}명 포함)` : '') },
     { label: '알레르기 그룹', value: `${plan.alternatives.length}그룹 · ${allergyN}명` },
   ];
+  if (plan.alternatives.length > PDF_MAX_GROUPS) {
+    out.push({ label: '대체식 표', value: `그룹 ${plan.alternatives.length}개 중 ${PDF_MAX_GROUPS}개만 실음 — 전체는 대체식 조리 지시서 CSV` });
+  }
   const s = budgetSummary(plan);
   if (s) {
     out.push(
@@ -143,10 +153,12 @@ export function planSummary(plan: MealPlan): { label: string; value: string }[] 
 
 /** 알레르기 그룹별 대체 메뉴 표 — 일반식과 달라진 끼니 + 검토에서 일반식을 고친 끼니(따라감·재검토 필요).
  *  바뀐 메뉴 앞에 '[대체]'. 따라간 끼니는 대체식이 일반식과 같지만 교체가 반영됐음을 '※ 일반식 교체 반영(…)'으로 적는다.
- *  PDF 표는 10개까지라 그룹도 10개까지. */
+ *  PDF 표는 PDF_MAX_GROUPS 개까지라 그룹도 그만큼까지. */
 export const ALT_MARK = '[대체] ';
+/** PDF 에 싣는 알레르기 그룹 상한(그룹마다 표 하나·조리 지시서 묶음 하나). 백엔드 export.PDF_MAX_GROUPS 와 같아야 한다. */
+export const PDF_MAX_GROUPS = 50;
 export function altTables(plan: MealPlan): PdfExportRequest['tables'] {
-  return plan.alternatives.slice(0, 10).map((t) => {
+  return plan.alternatives.slice(0, PDF_MAX_GROUPS).map((t) => {
     const rows: (string | number | null)[][] = [];
     let substituted = 0, followed = 0;
     t.weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
@@ -172,17 +184,19 @@ export function altTables(plan: MealPlan): PdfExportRequest['tables'] {
 // 조리 지시서 PDF 용 메뉴별 레시피 — 레시피 화면(RecipeDrawer)과 같은 규칙: 응답·저장본에 있으면 그것,
 // 없으면(교체한 메뉴·구버전 저장본) 서버 조회. 없는 칸은 비워 둔다(임의 생성 금지).
 // weeksSrc 는 일반식이면 plan.weeks, 대체식이면 changedAltTracks 의 weeks — 대체식 조리 지시서 CSV(altRecipeRows)와 같은 메뉴 집합.
-async function recipeSection(plan: MealPlan, weeksSrc: WeekBlock[]): Promise<PdfRecipe[]> {
-  const entries = collectEntries(weeksSrc);
+// servingsOf: 칸 메뉴의 조리 인원 — 일반식은 mainServingsOf(대체식 인원을 뺌), 대체식은 altServingsOf(그룹 인원).
+// 같은 메뉴라도 인원이 다른 끼니는 따로 싣고 meta 에 'N명분'을 적는다.
+async function recipeSection(plan: MealPlan, weeksSrc: WeekBlock[], servingsOf: ServingsOf): Promise<PdfRecipe[]> {
+  const entries = collectEntries(weeksSrc, servingsOf);
   const recipeOf = await resolveRecipes(plan, entries);
   const fmt = (v: number) => Math.round(v * 10) / 10;
   return entries.map((e) => {
     const rec = recipeOf(e);
     return {
       name: e.name,
-      meta: [rec?.cooking_method, e.uses.join(' · ')].filter(Boolean).join(' · '),
+      meta: [`${e.servings.toLocaleString()}명분`, rec?.cooking_method, e.uses.join(' · ')].filter(Boolean).join(' · '),
       ingredients: (rec?.ingredients ?? []).map((i) => {
-        const per = perServing(i, plan.headcount);
+        const per = perServing(i, e.servings);
         return [i.name, i.role ?? '', i.amount == null ? '분량 미기재' : fmt(i.amount), per == null ? '' : fmt(per), amountBasis(i)];
       }),
       steps: rec?.steps ?? [],
@@ -197,16 +211,20 @@ export interface PdfOptions {
   alternatives: boolean;
 }
 
-const recipeNote = (plan: MealPlan) => `투입량은 ${plan.headcount.toLocaleString()}명 기준 총량(g). 기준 칸: 스케일링 = 업장 보정값, `
-  + '단순 비례 = 1인분×인원. 조리 순서는 데이터셋 원문이며, 없는 메뉴는 비워 둡니다.';
+const RECIPE_NOTE_TAIL = '기준 칸: 스케일링 = 업장 보정값, 단순 비례 = 1인분×인원. 조리 순서는 데이터셋 원문이며, 없는 메뉴는 비워 둡니다.';
+const mainRecipeNote = (plan: MealPlan) => plan.alternatives.length
+  ? `투입량은 메뉴마다 'N명분' 총량(g) — 전체 ${plan.headcount.toLocaleString()}명에서 그 끼니에 이 메뉴 대신 대체식을 받는 알레르기 그룹 인원을 뺀 인원. ${RECIPE_NOTE_TAIL}`
+  : `투입량은 ${plan.headcount.toLocaleString()}명 기준 총량(g). ${RECIPE_NOTE_TAIL}`;
+const recipeNote = (servings: number) => `투입량은 ${servings.toLocaleString()}명 기준 총량(g). ${RECIPE_NOTE_TAIL}`;
 
-/** PDF 요청 본문. 식단표 뒤에 (대체 메뉴 표) → (일반식 조리 지시서) → (대체식 조리 지시서) 순. */
+/** PDF 요청 본문. 식단표 뒤에 (대체 메뉴 표) → (일반식 조리 지시서) → (대체식 조리 지시서 — 그룹마다, 그룹 인원 기준) 순. */
 export async function buildPdfRequest(plan: MealPlan, name: string, opts: PdfOptions): Promise<PdfExportRequest> {
   const withAlt = opts.alternatives && plan.alternatives.length > 0;
-  const altWeeks = changedAltTracks(plan).flatMap((t) => t.weeks);
-  const [recipes, altRecipes] = await Promise.all([
-    opts.recipes ? recipeSection(plan, plan.weeks) : Promise.resolve([]),
-    opts.recipes && withAlt ? recipeSection(plan, altWeeks) : Promise.resolve([]),
+  // 그룹마다 섹션 하나 — 대체 메뉴 표(altTables)처럼 PDF_MAX_GROUPS 그룹까지.
+  const altTracks = opts.recipes && withAlt ? changedAltTracks(plan).slice(0, PDF_MAX_GROUPS) : [];
+  const [recipes, ...altRecipes] = await Promise.all([
+    opts.recipes ? recipeSection(plan, plan.weeks, mainServingsOf(plan)) : Promise.resolve([]),
+    ...altTracks.map((t) => recipeSection(plan, t.weeks, altServingsOf(plan, t))),
   ]);
   const parts = ['식단표', withAlt && '대체식', opts.recipes && '조리지시서'].filter(Boolean).join('_');
   return {
@@ -216,13 +234,14 @@ export async function buildPdfRequest(plan: MealPlan, name: string, opts: PdfOpt
     grids: [planGrid(plan)],
     tables: withAlt ? altTables(plan) : [],
     recipes_title: '일반식 조리 지시서',
-    recipes_note: opts.recipes ? recipeNote(plan) : '',
+    recipes_note: opts.recipes ? mainRecipeNote(plan) : '',
     recipes,
-    recipe_sections: altRecipes.length ? [{
-      title: '대체식 조리 지시서',
-      note: `알레르기 그룹 대체식에서 일반식과 달라진 메뉴 ${altRecipes.length}개(대체식 조리 지시서 CSV와 같은 메뉴). ` + recipeNote(plan),
-      recipes: altRecipes,
-    }] : [],
+    recipe_sections: altTracks.flatMap((t, i) => altRecipes[i].length ? [{
+      title: `대체식 조리 지시서 · ${t.label} (${groupServings(plan, t).toLocaleString()}명)`,
+      note: `이 그룹 대체식에서 일반식과 달라진 메뉴 ${altRecipes[i].length}개(대체식 조리 지시서 CSV와 같은 메뉴). `
+        + recipeNote(groupServings(plan, t)),
+      recipes: altRecipes[i],
+    }] : []),
   };
 }
 
