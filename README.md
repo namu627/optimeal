@@ -86,9 +86,9 @@ flake8 module_2/
 
 새 서버에 올리거나 DB 를 새로 만들 때 위에서부터 차례로 확인한다. 예산 규칙은 `docs/budget_carryover.md`.
 
-- [ ] **마이그레이션 v2 → v5 적용** — `psql -f` 로 파일을 직접 읽힌다.
+- [ ] **마이그레이션 v2 → v6 적용** — `psql -f` 로 파일을 직접 읽힌다.
   ```bash
-  for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
+  for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql migrations/v6_*.sql; do
     docker cp "$f" optimeal_db:/tmp/ && docker exec optimeal_db psql -U optimeal -d optimeal -f "/tmp/$(basename "$f")"; done
   ```
   ⚠ PowerShell 에서 `Get-Content 파일 | docker exec -i ... psql` 로 흘려 넣지 말 것 — 한글 주석이 깨지면서 뒤 문장이

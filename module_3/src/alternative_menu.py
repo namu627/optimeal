@@ -17,7 +17,8 @@
   · 소프트 점수는 CP-SAT 전역 목적함수의 **접시 단위 근사**다(재풀이를 피하기 위한 의도된 절충).
   · 전제: 공통식은 '일반식'(build_and_solve 를 excluded_allergens=∅ 로 푼 것)이어야 교체 대상이 생긴다.
 
-범위(간트 행81): 알레르기 대체만. 기저질환 대체는 하드 H-5 + 영양소 데이터 준비 후 확장(본 파일 범위 밖).
+범위(간트 행81): 알레르기 대체. 기저질환 대체는 disease_diet.py — 질환 기준으로 먼저 바꾼 식단을 여기 넘기고
+extra_caps 로 질환 상한을 함께 지키게 한다(알레르기와 질환이 둘 다 있는 그룹).
 """
 from __future__ import annotations
 
@@ -343,7 +344,8 @@ def _sodium_of(menu, sodium_by_id):
 def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
                       day_kcal_wo_orig, band, budget_left, weights,
                       sodium_by_id, sugar_by_id, commercial_menu_ids,
-                      sodium_left=None, cross_reactive=True, popular_staples=POPULAR_STAPLES):
+                      sodium_left=None, cross_reactive=True, popular_staples=POPULAR_STAPLES,
+                      extra_left=None):
     """orig 를 대체할 최고점 안전 메뉴를 고른다. 하드 지키는 후보가 없으면 None.
 
     하드 필터: 같은 카테고리 · (교차반응 포함) 알레르겐 없음 · 끼니 내 중복 아님
@@ -355,6 +357,9 @@ def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
       (예: 새우 알레르기 → 게·랍스터 등 갑각류 전체 배제). 안전을 위한 기본값.
     ※ sodium_left 가 주어졌는데 후보의 나트륨을 모르면 그 후보는 **탈락**시킨다
       (csp_hard_constraints H-2e 의 결측=배제 정책과 동일 방향).
+    ※ extra_left = {키: (남은 상한, 원래 접시 값, {menu_id: 값})} — 질환 상한(disease_diet). 값을 모르는 후보는
+      탈락. 남은 상한을 넘더라도 원래 접시 값 이하면 허용한다 — 이미 상한을 넘은 날(질환 기준 미충족)에도
+      알레르기 교체는 해야 하므로 '더 나빠지지 않게'만 막는다.
     """
     unsafe = _expand_cross_reactive(allergens) if cross_reactive else set(allergens)
     orig_ings = _ingredients_of(orig)
@@ -374,6 +379,8 @@ def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
             na = _sodium_of(c, sodium_by_id)
             if na is None or na > sodium_left:
                 continue
+        if extra_left and not _within_extra(c, extra_left):
+            continue
         valid.append(c)
     if not valid:
         return None, 0.0
@@ -388,6 +395,18 @@ def _pick_alternative(orig, menus, allergens, *, exclude_names, meal_colors,
     return best, _sc(best)
 
 
+def _within_extra(c, extra_left):
+    """후보 c 가 질환 상한(extra_left)을 지키는지. 값 모름 → False."""
+    cid = getattr(c, "menu_id", None)
+    for left, orig, by_id in extra_left.values():
+        v = by_id.get(cid)
+        if v is None:
+            return False
+        if v > left and not (orig is not None and v <= orig):
+            return False
+    return True
+
+
 # ===========================================================================
 # 핵심 진입점
 # ===========================================================================
@@ -395,7 +414,7 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                              hard_config=None, weights=None,
                              sodium_by_id=None, sugar_by_id=None, commercial_menu_ids=None,
                              cross_reactive=True, popular_staples=POPULAR_STAPLES,
-                             ingredient_substitution=True, substitute_map=None):
+                             ingredient_substitution=True, substitute_map=None, extra_caps=None):
     """공통식 plan 에서 알레르기 그룹별 대체식을 파생한다(하드 필터 + 소프트 점수).
 
     Args:
@@ -410,6 +429,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
             (나트륨을 모르는 후보는 안전을 위해 탈락 → 전부 unresolved 가 될 수 있음).
         weights: AltScoreWeights. None이면 기본값.
         sodium_by_id/sugar_by_id: {menu_id: 값} 주입(소프트 감점). commercial_menu_ids: 완제품 menu_id 집합.
+        extra_caps: {키: (하루 상한, {menu_id: 접시 값})} — 질환 상한(disease_diet.allergy_caps). 교체 후보는
+            값을 알아야 하고 그날 합계가 상한 이내(또는 원래 접시 이하)여야 한다.
 
     Returns:
         list[AlternativeMenu].
@@ -456,6 +477,9 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
             if sodium_cap is not None:
                 day_sodium = sum((_sodium_of(by_name.get(n), sodium_by_id) or 0.0)
                                  for ms in meals.values() for n in ms)
+            day_extra = {k: sum((by_id.get(getattr(by_name.get(n), "menu_id", None)) or 0.0)
+                                for ms in meals.values() for n in ms)
+                         for k, (_, by_id) in (extra_caps or {}).items()}
             for meal, picks in meals.items():
                 new_picks = list(picks)
                 current = set(picks)
@@ -484,6 +508,10 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     ona = _sodium_of(mi, sodium_by_id) or 0.0
                     sodium_left = (None if day_sodium is None
                                    else sodium_cap - (day_sodium - ona))
+                    extra_left = {}
+                    for k, (cap, by_id) in (extra_caps or {}).items():
+                        ov = by_id.get(mi.menu_id)
+                        extra_left[k] = (cap - (day_extra[k] - (ov or 0.0)), ov, by_id)
                     # ── 1순위: 재료 치환(방식2) — 같은 메뉴 유지, 알레르겐 재료만 안전 재료로 ──
                     #   공유율 최대. 성공하면 그대로 채택(가상 접시를 by_name 에 등록해 재집계 반영).
                     alt, sc, via = None, 0.0, ""
@@ -507,7 +535,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                             day_kcal_wo_orig=day_kcal - ocal, band=band, budget_left=budget_left,
                             weights=w, sodium_by_id=sodium_by_id, sugar_by_id=sugar_by_id,
                             commercial_menu_ids=commercial_menu_ids, sodium_left=sodium_left,
-                            cross_reactive=cross_reactive, popular_staples=popular_staples)
+                            cross_reactive=cross_reactive, popular_staples=popular_staples,
+                            extra_left=extra_left)
                         via = "메뉴대체"
                     if alt is None:
                         unresolved.append(Substitution(day, meal, mi.category, name, None, hit,
@@ -522,6 +551,8 @@ def derive_alternative_menus(plan, menus, allergy_groups, *,
                     period_cost += (getattr(alt, "cost_won", 0.0) or 0.0) - ocost
                     if day_sodium is not None:
                         day_sodium += (_sodium_of(alt, sodium_by_id) or 0.0) - ona
+                    for k, (_, ov, by_id) in extra_left.items():
+                        day_extra[k] += (by_id.get(getattr(alt, "menu_id", None)) or 0.0) - (ov or 0.0)
                 alt_plan[day][meal] = new_picks
 
         daily_kcal, total_cost = _recompute(alt_plan, by_name)

@@ -171,6 +171,23 @@ class UserProfileOut(BaseModel):
     note: str = ""
 
 
+class DietGroupIn(BaseModel):
+    """대체식 그룹 1개 — 알레르기·기저질환·둘 다(FR-11 '기저질환자·알레르기 보유자 그룹별 적용').
+
+    알레르기만 → 그 알레르겐 메뉴만 교체. 기저질환 있음 → 그날 합계가 질환 기준을 넘는 접시를 교체한 뒤
+    (알레르기도 있으면) 알레르기 메뉴를 교체한다. 질환 기준·출처는 응답 alternatives[].limits.
+    """
+    model_config = {"json_schema_extra": {"example": {
+        "label": "고혈압·우유", "allergens": ["우유"], "diseases": ["고혈압"], "count": 4}}}
+    label: str = Field("", max_length=50, description="화면에 보일 그룹 이름")
+    allergens: list[str] = Field(default_factory=list, description="알레르기 표시 19종 이름(또는 NEIS 번호)")
+    diseases: list[str] = Field(
+        default_factory=list,
+        description='"고혈압" | "당뇨" | "신장질환". 신장질환은 기준 확정 전이라 교체하지 않고 '
+                    "alternatives[].pending_diseases 로 돌려준다.")
+    count: int = Field(0, ge=0, description="이 그룹 인원(조리 지시서 인원 차감에 쓰인다)")
+
+
 class MenuGenerateRequest(BaseModel):
     """식단 생성 요청(모듈 3 CSP로 위임)."""
     model_config = {"json_schema_extra": {"example": {
@@ -253,5 +270,10 @@ class MenuGenerateRequest(BaseModel):
     )
     allergy_groups: list[dict] = Field(
         default_factory=list,
-        description='[{"label":"우유알레르기","allergens":["우유"],"count":5}]',
+        description='(구형식, 계속 지원) [{"label":"우유알레르기","allergens":["우유"],"count":5}] — '
+                    "새 화면은 diet_groups 를 쓴다. 둘 다 보내면 diet_groups 뒤에 이어 붙인다.",
+    )
+    diet_groups: list[DietGroupIn] = Field(
+        default_factory=list,
+        description="대체식 그룹(알레르기·기저질환·둘 다). 하나라도 있으면 with_alternatives 없이도 대체식을 만든다.",
     )

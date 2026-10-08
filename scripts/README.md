@@ -11,9 +11,9 @@ OptiMeal 프로젝트 유틸리티 스크립트 모음.
 스키마 변경이므로 빈 DB 라도 번호 순으로 한 번 적용한다.
 
 ```bash
-# 0) 스키마 보강 (v2 → v3 → v4 → v5)
+# 0) 스키마 보강 (v2 → v3 → v4 → v5 → v6)
 #    psql -f 로 파일을 직접 읽힌다(PowerShell 파이프는 한글 주석이 깨지며 문장이 빠진 적이 있다 — 루트 README 배포 체크리스트)
-for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
+for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql migrations/v6_*.sql; do
   docker cp "$f" optimeal_db:/tmp/ && docker exec optimeal_db psql -U optimeal -d optimeal -f "/tmp/$(basename "$f")"; done
 
 # 1) 레시피 본문 (data/raw/ xlsx 필요 — 구글드라이브)
@@ -65,6 +65,11 @@ docker exec optimeal_app python scripts/derive_ingredient_price.py --apply
 #    CSV 의 id·이름이 DB 와 하나라도 다르면 아무것도 쓰지 않고 멈춘다. 재료 마스터가 바뀌면 CSV 를 고치고 다시 실행(멱등).
 docker exec optimeal_app python scripts/load_allergen_constraints.py            # DB 대조·요약(미반영)
 docker exec optimeal_app python scripts/load_allergen_constraints.py --apply
+# 9) 기저질환 — 재료 → 100g당 열량·당류·인·칼륨(data/manual/ingredient_nutrient_map.csv, 식약처 식품영양성분DB 값을
+#    저장소에 커밋)을 ingredient_nutrient 에 적재(migrations/v6). 후보 메뉴에 당류·칼륨·인이 없어 재료로 계산한다.
+#    없어도 고혈압(나트륨)·당뇨(탄수화물 비율)는 공식 값으로 동작하고, 응답 ingredient_nutrients_loaded=false 로 드러난다.
+docker exec optimeal_app python scripts/load_ingredient_nutrient.py            # DB 대조·요약(미반영)
+docker exec optimeal_app python scripts/load_ingredient_nutrient.py --apply
 ```
 
 알레르기 매핑 요점(`allergen_ingredient_map.csv`):
