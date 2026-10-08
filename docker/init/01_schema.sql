@@ -584,6 +584,29 @@ CREATE INDEX idx_seasonal_month ON seasonal_ingredient(month);
 CREATE INDEX idx_seasonal_peak  ON seasonal_ingredient(is_peak_season);
 
 
+-- ----------------------------------------------------------------------------
+-- 18. 재료 영양성분 테이블 (ingredient_nutrient) — migrations/v6
+-- ----------------------------------------------------------------------------
+-- 목적: 기저질환 대체식(당뇨 당류 · 신장질환 칼륨·인). 후보 메뉴(식품안전나라)에는 이 값이 없어
+--       메뉴값 = Σ 재료 1인분 g × 100g당 값 / 100 을 메뉴 공식 열량 ÷ 재료 합산 열량 으로 보정한다
+--       (module_3/src/disease_diet.py — 레시피 인분 오류로 g 합이 부푼 메뉴를 솔버의 1인분 기준에 맞춘다).
+-- 원본: data/manual/ingredient_nutrient_map.csv (식약처 식품영양성분DB, scripts/load_ingredient_nutrient.py)
+-- ----------------------------------------------------------------------------
+CREATE TABLE ingredient_nutrient (
+    ingredient_id  INT           PRIMARY KEY,
+    energy_kcal    DECIMAL(8,1)  NULL,          -- 100g당 열량. 메뉴 공식 열량과의 비로 1인분 양을 보정한다
+    sugar_g        DECIMAL(8,2)  NULL,          -- 100g당 당류(g). NULL = 원본에 값 없음(0 아님)
+    phosphorus_mg  DECIMAL(8,1)  NULL,          -- 100g당 인(mg)
+    potassium_mg   DECIMAL(8,1)  NULL,          -- 100g당 칼륨(mg)
+    basis          VARCHAR(20)   NOT NULL,      -- 원재료 / 음식 / 가공품중앙값 / 영양없음
+    source_name    VARCHAR(200)  NULL,          -- 식약처 식품명(또는 중앙값 설명)
+    food_cd        VARCHAR(40)   NULL,
+    updated_at     TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (ingredient_id) REFERENCES ingredient(ingredient_id)
+);
+
+
 -- ============================================================================
 -- 뷰 (View) 정의
 -- ============================================================================

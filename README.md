@@ -86,9 +86,9 @@ flake8 module_2/
 
 새 서버에 올리거나 DB 를 새로 만들 때 위에서부터 차례로 확인한다. 예산 규칙은 `docs/budget_carryover.md`.
 
-- [ ] **마이그레이션 v2 → v5 적용** — `psql -f` 로 파일을 직접 읽힌다.
+- [ ] **마이그레이션 v2 → v6 적용** — `psql -f` 로 파일을 직접 읽힌다.
   ```bash
-  for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql; do
+  for f in migrations/v2_*.sql migrations/v3_*.sql migrations/v4_*.sql migrations/v5_*.sql migrations/v6_*.sql; do
     docker cp "$f" optimeal_db:/tmp/ && docker exec optimeal_db psql -U optimeal -d optimeal -f "/tmp/$(basename "$f")"; done
   ```
   ⚠ PowerShell 에서 `Get-Content 파일 | docker exec -i ... psql` 로 흘려 넣지 말 것 — 한글 주석이 깨지면서 뒤 문장이
@@ -98,7 +98,8 @@ flake8 module_2/
   후보 메뉴에 `FOODSAFETY_RECIPE_KEY` 가 필요하다. 키 값은 출력·커밋하지 않는다(KAMIS 응답 JSON 의 `condition` 에 키가
   그대로 되돌아오므로 원본 응답을 로그·파일로 남기지 않는다). 확인은 길이만: `awk -F= '/^KAMIS_CERT_KEY=/{print length($2)}' .env`.
 - [ ] **적재 순서** — `scripts/README.md` 의 "DB 세팅 순서"대로: 레시피 → 후보(영양) → 재료 맵 → 원가
-  **가락 → KAMIS → 참가격 → 수기 → derive**. derive 는 가격이 바뀔 때마다 맨 마지막에 다시 돌린다.
+  **가락 → KAMIS → 참가격 → 수기 → derive** → 알레르기(8) → 기저질환 재료 영양(9).
+  derive 는 가격이 바뀔 때마다 맨 마지막에 다시 돌린다. 8·9 는 CSV 를 그대로 넣는 단계라 순서 무관·멱등.
   끝나면 `scripts/check_menu_candidates.py` 로 카테고리별 후보 수를 확인한다.
 - [ ] **이미지 재빌드** — `requirements.txt`·`docker/Dockerfile` 이 바뀌었으면 `docker compose build app && docker compose up -d app`.
   PDF 한글 폰트(`fonts-nanum`)가 이미지에 들어 있는지 `/api/menu/export/pdf` 가 200 이고 PDF 안에 `NanumGothic` 서브셋이

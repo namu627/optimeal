@@ -7,8 +7,9 @@ routers/menu.py
 런타임에 탐색해 붙인다(`config.module3_src_path()`). 미구성 환경에서도 앱은 기동해야
 하므로, 붙이지 못하면 이 엔드포인트만 503 + 구체 사유를 반환한다.
 
-`with_alternatives=true` 면 `alternative_menu.derive_alternative_menus` 로
-공통식 + 알레르기 그룹별 대체식 트랙을 함께 산출한다(PRD FR-11 '공통식+대체식 분리').
+`with_alternatives=true`(또는 `diet_groups` 지정)면 `alternative_menu.derive_alternative_menus` 로
+공통식 + 그룹별 대체식 트랙을 함께 산출한다(PRD FR-11 '공통식+대체식 분리'). 기저질환이 있는 그룹은
+`disease_diet.derive_diet_alternatives` — 질환 기준 교체 후 알레르기 교체.
 """
 
 from __future__ import annotations
@@ -624,30 +625,69 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id, site_id: int |
 
 def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
                          sodium_by_idx: dict | None = None, canon: dict | None = None) -> list[dict]:
-    """공통식 plan 에서 알레르기 그룹별 대체식 트랙을 파생한다(PRD FR-11).
+    """공통식 plan 에서 그룹별 대체식 트랙을 파생한다(PRD FR-11 — 알레르기·기저질환·둘 다).
 
     alternative_menu 는 메뉴명으로 행을 찾는데(by_name, 첫 행 우선) 동명이면 0원 행을 집어
     대체식 총원가가 본식단과 어긋났다. 그래서 후보를 이름당 대표행 하나(canon)로 줄여 넘긴다.
     sodium_by_idx 는 원래 후보(menus) 인덱스 기준이라 menu_id 키로 바꾼 뒤 그대로 쓴다
     (대표행의 menu_id 도 그 안에 있다).
+
+    그룹에 diseases 가 하나라도 있으면 disease_diet 로 푼다 — 질환 기준 교체 → 알레르기 교체(질환 상한 유지).
+    응답 항목에 kind·diseases·pending_diseases·limits·disease_swaps·day_report·unmet_days 가 붙는다.
+    알레르기만 있는 그룹은 예전과 같은 결과다(같은 alternative_menu 경로).
     """
-    groups = [
-        am.AllergyGroup(
-            label=g.get("label", ""),
-            allergens=set(g.get("allergens", [])),
-            count=int(g.get("count", 0)),
-        )
-        for g in allergy_groups
-    ]
     # 대체식도 공통식과 같은 나트륨 상한을 지켜야 한다 → menu_id 키로 변환해 주입.
     sodium_by_id = ({menus[i].menu_id: v for i, v in sodium_by_idx.items()
                      if i < len(menus)} if sodium_by_idx else None)
     alt_menus = list(canon.values()) if canon else menus
-    # 재료 치환(방식2)을 쓴다 — 단, 달걀·콩처럼 주재료를 바꾸면 음식이 안 되는 경우는 치환하지 않고 메뉴를 교체한다
-    # (alternative_menu.NO_SUBSTITUTE_WHEN_MAIN). 치환한 접시의 재료명·조리 순서는 프론트 recipeView.substitutedRecipe 가 바꿔 보여 준다.
-    alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
+    dd = None
+    if any(g.get("diseases") for g in allergy_groups):
+        try:
+            import disease_diet as dd
+        except ImportError:
+            dd = None   # 구버전 module_3 — 질환은 반영 못 하고 알레르기만(응답 diseases_applied=false)
+    if dd is None:
+        groups = [
+            am.AllergyGroup(
+                label=g.get("label", ""),
+                allergens=set(g.get("allergens", [])),
+                count=int(g.get("count", 0)),
+            )
+            for g in allergy_groups
+        ]
+        # 재료 치환(방식2)을 쓴다 — 단, 달걀·콩처럼 주재료를 바꾸면 음식이 안 되는 경우는 치환하지 않고 메뉴를 교체한다
+        # (alternative_menu.NO_SUBSTITUTE_WHEN_MAIN). 치환한 접시의 재료명·조리 순서는 프론트 recipeView.substitutedRecipe 가 바꿔 보여 준다.
+        alts = am.derive_alternative_menus(plan, alt_menus, groups, hard_config=cfg,
+                                           sodium_by_id=sodium_by_id)
+        out = [_to_jsonable(a) for a in alts]
+        for a, g in zip(out, allergy_groups):
+            a["kind"] = "알레르기"
+            a["diseases"] = sorted(g.get("diseases") or [])
+            a["diseases_applied"] = not g.get("diseases")
+        return out
+
+    groups = [
+        dd.DietGroup(
+            label=g.get("label", ""),
+            allergens=set(g.get("allergens", [])),
+            count=int(g.get("count", 0)),
+            diseases=dd.normalize_diseases(g.get("diseases", [])),
+        )
+        for g in allergy_groups
+    ]
+    values, estimated = {}, False
+    if any(dd.limits_for(g.diseases) for g in groups):
+        import csp_solver as cs
+
+        values, estimated = dd.load_menu_values(cs.get_engine(), alt_menus)
+    alts = dd.derive_diet_alternatives(plan, alt_menus, groups, values, hard_config=cfg,
                                        sodium_by_id=sodium_by_id)
-    return [_to_jsonable(a) for a in alts]
+    out = [_to_jsonable(a) for a in alts]
+    for a in out:
+        a["diseases_applied"] = True
+        # 재료 기반 추정(당류·칼륨·인)을 못 읽은 DB — migrations/v6 + scripts/load_ingredient_nutrient.py 필요
+        a["ingredient_nutrients_loaded"] = estimated
+    return out
 
 
 def _alt_plan_ids(alt_plan: dict | None, common_plan: dict | None, common_ids: dict | None,
@@ -996,9 +1036,10 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
             cs, res.plan, payload.serving_count,
             lambda name: canon[name].menu_id if name in canon else None, payload.site_id)
 
-    if payload.with_alternatives and res.plan:
+    groups = [g.model_dump() for g in payload.diet_groups] + list(payload.allergy_groups)
+    if (payload.with_alternatives or payload.diet_groups) and res.plan:
         alts = _derive_alternatives(
-            am, res.plan, menus, cfg, payload.allergy_groups, sodium_by_idx, canon
+            am, res.plan, menus, cfg, groups, sodium_by_idx, canon
         )
         for a in alts:
             a["plan_ids"] = _alt_plan_ids(a.get("plan"), body["plan"], body["plan_ids"], canon)
