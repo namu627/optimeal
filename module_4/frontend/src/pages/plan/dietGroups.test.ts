@@ -43,7 +43,7 @@ describe('복제 — 저장본 입력값 복원', () => {
   it('새 저장본(diseases 포함)은 그대로', () => {
     expect(groupsFromInputs({ inputGroups: [g(['우유'], ['고혈압'], 4)] })).toEqual([g(['우유'], ['고혈압'], 4)]);
   });
-  it('예전 저장본: 알레르기 그룹 + 기저질환 인원 → 질환마다 그룹 하나(준비 중 질환은 뺀다)', () => {
+  it('예전 저장본: 알레르기 그룹 + 기저질환 인원 → 질환마다 그룹 하나(지원하지 않는 신장질환은 뺀다)', () => {
     const out = groupsFromInputs({
       inputGroups: [{ label: '그룹 1', allergens: ['난류'], count: 3 }],
       inputConds: { 고혈압: 5, 신장질환: 2 },
@@ -92,7 +92,7 @@ describe('기저질환 대체식 — 응답 매핑·검토 표시', () => {
     const t = plan.alternatives[0];
     expect(t.kind).toBe('기저질환');
     expect(t.limits?.[0].cap).toBe(2000);
-    expect(pendingText(t)).toBe('신장질환은 기준을 정하는 중이라 반영되지 않았습니다');
+    expect(pendingText(t)).toBe('신장질환은 지원하지 않아 반영되지 않았습니다');
     expect(dietDayLines(altDay(plan, 0))).toEqual([{ key: 'sodium', label: '나트륨', text: '나트륨 1,850/2,000mg', ok: true }]);
     expect(dietSummary(t)).toEqual({ met: 1, total: 2, stale: 0 });
     expect(plan.conditionText).toContain('대체식 1그룹');
