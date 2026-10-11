@@ -10,6 +10,7 @@ import {
   resolveRecipes, type RecipeEntry, type ServingsOf,
 } from './recipeView';
 import { allergyCheckText, altFollowText, altReviewText } from './altSync';
+import { dietDayNote, dietSummary, dietSwapOf, hasDiet, trackKind } from './dietView';
 
 type Cell = string | number;
 
@@ -113,11 +114,26 @@ export async function altRecipeRows(plan: MealPlan): Promise<Cell[][]> {
     return { ...t, servingsOf, entries: collectEntries(t.weeks, servingsOf) };
   });
   const recipeOf = await resolveRecipes(plan, tracks.flatMap((t) => t.entries));
-  // 비고: 일반식 교체·삭제가 알레르기 대체 자리에 걸린 칸이면 '대체식 재검토 필요(원인)'(altSync).
+  // 비고: 일반식 교체·삭제가 알레르기 대체 자리에 걸린 칸이면 '대체식 재검토 필요(원인)'(altSync),
+  //   기저질환 기준 때문에 바꾼 메뉴가 있는 칸이면 '질환 대체: 메뉴(나트륨)'.
   const rows: Cell[][] = [['그룹', ...RECIPE_HEADER, '비고']];
   tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, t.servingsOf, t.entries, recipeOf,
-    (c) => [[allergyCheckText(c), altReviewText(c)].filter(Boolean).join(' / ')]));
+    (c) => [[allergyCheckText(c), altReviewText(c), dietSwapText(c)].filter(Boolean).join(' / ')]));
   return rows;
+}
+
+/** 칸에서 기저질환 기준 때문에 바꾼 메뉴 — '질환 대체: 김치볶음밥(나트륨)'. 없으면 ''. */
+function dietSwapText(c: Pick<MealCell, 'items'>): string {
+  const xs = c.items.flatMap((i) => { const r = dietSwapOf(i); return r ? [`${i.name}(${r})`] : []; });
+  return xs.length ? `질환 대체: ${xs.join(', ')}` : '';
+}
+
+/** 그룹 종류별 개수 — '알레르기 2 · 기저질환 1 · 복합 1'. */
+function kindBreakdown(plan: MealPlan): string {
+  const name = { 알레르기: '알레르기', 기저질환: '기저질환', '알레르기+기저질환': '복합' } as const;
+  const n: Record<string, number> = {};
+  plan.alternatives.forEach((t) => { const k = trackKind(t); if (k) n[name[k]] = (n[name[k]] ?? 0) + 1; });
+  return Object.entries(n).map(([k, v]) => `${k} ${v}`).join(' · ');
 }
 
 /** PDF 상단 요약 — 확정 화면 요약 카드·KPI 와 같은 값. 이월 모드면 총액 요약 카드(BudgetSummaryCard)의 값도 싣는다. */
@@ -131,7 +147,7 @@ export function planSummary(plan: MealPlan): { label: string; value: string }[] 
     { label: '기간 · 끼니', value: `${planDateRange(plan)} 평일 ${plan.totalDays}일 · ${mealsText}` },
     { label: '1인 원가', value: `${plan.costPerPerson.toLocaleString()}원/식 (예산 ${plan.budgetPerPerson.toLocaleString()}원)` },
     { label: '총 식재료비', value: won(plan.totalCost) + (allergyN ? ` (대체식 ${allergyN}명 포함)` : '') },
-    { label: '알레르기 그룹', value: `${plan.alternatives.length}그룹 · ${allergyN}명` },
+    { label: '대체식 그룹', value: `${plan.alternatives.length}그룹 · ${allergyN}명${plan.alternatives.length ? ` (${kindBreakdown(plan)})` : ''}` },
   ];
   if (plan.alternatives.length > PDF_MAX_GROUPS) {
     out.push({ label: '대체식 표', value: `그룹 ${plan.alternatives.length}개 중 ${PDF_MAX_GROUPS}개만 실음 — 전체는 대체식 조리 지시서 CSV` });
@@ -151,32 +167,41 @@ export function planSummary(plan: MealPlan): { label: string; value: string }[] 
   return out;
 }
 
-/** 알레르기 그룹별 대체 메뉴 표 — 일반식과 달라진 끼니 + 검토에서 일반식을 고친 끼니(따라감·재검토 필요).
- *  바뀐 메뉴 앞에 '[대체]'. 따라간 끼니는 대체식이 일반식과 같지만 교체가 반영됐음을 '※ 일반식 교체 반영(…)'으로 적는다.
+/** 대체식 그룹(알레르기·기저질환)별 대체 메뉴 표 — 일반식과 달라진 끼니 + 검토에서 일반식을 고친 끼니(따라감·재검토 필요)
+ *  + 기저질환 기준을 못 맞췄거나 메뉴를 고쳐 다시 봐야 하는 날(그날 첫 끼니 행에 ※).
+ *  바뀐 메뉴 앞에 '[대체]', 질환 기준 때문에 바꾼 메뉴는 '[질환 대체]'. 따라간 끼니는 대체식이 일반식과 같지만 교체가 반영됐음을 '※ 일반식 교체 반영(…)'으로 적는다.
  *  PDF 표는 PDF_MAX_GROUPS 개까지라 그룹도 그만큼까지. */
 export const ALT_MARK = '[대체] ';
+export const DIET_MARK = '[질환 대체] ';
 /** PDF 에 싣는 알레르기 그룹 상한(그룹마다 표 하나·조리 지시서 묶음 하나). 백엔드 export.PDF_MAX_GROUPS 와 같아야 한다. */
 export const PDF_MAX_GROUPS = 50;
 export function altTables(plan: MealPlan): PdfExportRequest['tables'] {
   return plan.alternatives.slice(0, PDF_MAX_GROUPS).map((t) => {
     const rows: (string | number | null)[][] = [];
     let substituted = 0, followed = 0;
-    t.weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
+    t.weeks.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c, ci) => {
       const changed = changedNames(plan.weeks, t.weeks, w, di, c.kind);
       const follow = altFollowText(c);
-      const notes = [allergyCheckText(c), altReviewText(c), follow].filter(Boolean);
+      const notes = [allergyCheckText(c), altReviewText(c), follow, ci === 0 ? dietDayNote(d) : ''].filter(Boolean);
       if (!changed.size && !notes.length) return;
       if (changed.size) substituted += 1;
       if (follow) followed += 1;
       const main = plan.weeks[w]?.days[di]?.cells.find((x) => x.kind === c.kind);
       rows.push([`${d.date} (${d.dow})`, MEAL_TABLE[c.kind as MealKind],
         (main?.items ?? []).map((i) => i.name).join(', '),
-        c.items.map((i) => (changed.has(i.name) ? ALT_MARK : '') + i.name).join(', ') + notes.map((n) => ` ※ ${n}`).join('')]);
+        c.items.map((i) => (changed.has(i.name) ? (dietSwapOf(i) ? DIET_MARK : ALT_MARK) : '') + i.name).join(', ') + notes.map((n) => ` ※ ${n}`).join('')]);
     })));
+    const kind = trackKind(t);
+    const diet = hasDiet(t) ? dietSummary(t) : null;
+    const cond = [...(t.allergens ?? []), ...(t.diseases ?? [])].join('·');
     return {
-      title: `대체식 · ${t.label} (${t.count}명) — 바뀐 끼니 ${substituted}개${followed ? ` · 일반식 교체 반영 ${followed}개` : ''}`,
+      title: `대체식 · ${t.label}${kind ? ` · ${kind === '알레르기+기저질환' ? '복합' : kind}` : ''}${cond ? `(${cond})` : ''} (${t.count}명)`
+        + ` — 바뀐 끼니 ${substituted}개${followed ? ` · 일반식 교체 반영 ${followed}개` : ''}`
+        + (diet && diet.total ? ` · 질환 기준 충족 ${diet.met}/${diet.total}일` : ''),
       header: ['날짜', '끼니', '일반식', '대체식'], rows,
-      empty_text: '일반식과 같아요 — 이 그룹의 알레르기 때문에 바뀐 끼니가 없어요',
+      empty_text: kind === '알레르기' || !kind
+        ? '일반식과 같아요 — 이 그룹의 알레르기 때문에 바뀐 끼니가 없어요'
+        : '일반식과 같아요 — 이 그룹의 조건 때문에 바뀐 끼니가 없어요',
     };
   });
 }
@@ -207,7 +232,7 @@ async function recipeSection(plan: MealPlan, weeksSrc: WeekBlock[], servingsOf: 
 export interface PdfOptions {
   /** 일반식 조리 지시서 */
   recipes: boolean;
-  /** 알레르기 그룹별 대체 메뉴 표(+ recipes 면 대체식 조리 지시서). 그룹이 없으면 무시. */
+  /** 대체식 그룹별 대체 메뉴 표(+ recipes 면 대체식 조리 지시서). 그룹이 없으면 무시. */
   alternatives: boolean;
 }
 
