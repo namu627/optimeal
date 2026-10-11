@@ -170,7 +170,7 @@ export default function Home() {
                 <Tag color={confirmed ? 'success' : undefined}>{confirmed ? '확정' : plan.status}</Tag>
               </div>
               <div style={{ marginTop: 6, fontSize: 13, color: colors.textSecondary }}>
-                {plan.target} · {plan.people}명 · {plan.days} · {plan.meal} · 알레르기 {plan.allergyGroups}그룹 · 예산 {plan.budget.toLocaleString()}원/식
+                {plan.target} · {plan.people}명 · {plan.days} · {plan.meal} · 대체식 {plan.allergyGroups}그룹 · 예산 {plan.budget.toLocaleString()}원/식
               </div>
             </div>
 

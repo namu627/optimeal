@@ -9,11 +9,15 @@ import BudgetSummaryCard from './BudgetSummaryCard';
 import {
   MEAL_TABLE, MEAL_TIME, CARRYOVER_BAND, planDateRange, planTargetLabel, fetchSwapCandidates, candidateNutri,
   checkSwap, budgetModeOf, planPeriodCost,
-  type MealPlan, type MealItem, type MealKind, type MealCell,
+  type MealPlan, type MealItem, type MealKind, type MealCell, type MealDay,
   type SwapCandidate, type SwapCandidatesResponse, type SwapCheck, type TotalBudgetQuery,
 } from '../../api/menu';
 import { editPlan, altReviewText, ALT_REVIEW_LABEL, ALLERGY_CHECK_LABEL, type MainEdit } from './altSync';
 import { changedNames } from './recipeView';
+import { KindBadge } from './RestrictionGroupsField';
+import {
+  trackKind, hasDiet, limitText, isDietStale, dietSwapOf, dietDayLines, dietInfoLines, dietSummary, pendingText,
+} from './dietView';
 
 const C = {
   text: '#16211C', sub: '#5D6B64', muted: '#98A5A0', border: '#E5EAE7', line: '#EEF2F0', head: '#F7FAF8',
@@ -21,6 +25,8 @@ const C = {
   red: '#E5484D', redText: '#B42318', redTint: '#FEF6F6', redBorder: '#F8D0D1', blue: '#2F6FED',
   // 끼니 원가 기준 이탈(참고) — 이월 모드에서 허용된 상태라 경고색(빨강)·배경 강조를 쓰지 않는다. 회청색 글자만.
   slate: '#5B6B7F', slateTint: '#EEF1F5', slateBorder: '#C9D1DC',
+  // 기저질환: 질환 기준 때문에 바꾼 메뉴(파랑), 메뉴를 고쳐 기준을 다시 봐야 하는 날(주황)
+  blueTint: '#E8EFFD', amber: '#8A5A00', amberTint: '#FBF2DF',
 };
 
 const noop = () => {};
@@ -174,6 +180,7 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
       .filter((x): x is number => x != null),
     [weeks],
   );
+  const curTrack = view === 'alt' ? plan.alternatives[track] : undefined;
   const trackAllergens = useMemo(
     () => (view === 'alt' ? plan.alternatives[track]?.allergens ?? [] : []),
     [view, track, plan.alternatives],
@@ -211,11 +218,17 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
   //   대체식 트랙 메뉴는 전부 alt=true 로 오므로 alt 만 보면 따라간 메뉴에도 배지가 붙었다.
   const MenuLine = ({ it, cell, changed }: { it: MealItem; cell: MealCell; changed?: Set<string> }) => {
     const isAlt = changed ? changed.has(it.name) : !!it.alt;
+    // 질환 기준 때문에 바꾼 메뉴는 '대체' 대신 '질환 대체'(파랑). 대체식 탭에서만.
+    const dietSwap = changed ? dietSwapOf(it) : undefined;
     if (readOnly) {
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, lineHeight: '20px' }}>
           <span style={{ fontSize: 13, color: it.flag ? C.redText : isAlt ? C.greenText : C.text }}>{it.name}</span>
-          {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+          {dietSwap ? (
+            <Tooltip title={`${dietSwap} 기준 때문에 바꾼 메뉴입니다`}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: C.blue, background: C.blueTint, borderRadius: 5, padding: '0 5px' }}>질환 대체</span>
+            </Tooltip>
+          ) : isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
           {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
           {it.allergyCheck && (
             <Tooltip title={`영양사 확인 필요 — ${it.allergyCheck}`}>
@@ -236,7 +249,11 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
         >
           <span style={{ fontSize: 13, color: it.flag ? C.redText : isAlt ? C.greenText : C.text, cursor: 'pointer' }}>{it.name}</span>
         </Popover>
-        {isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
+        {dietSwap ? (
+            <Tooltip title={`${dietSwap} 기준 때문에 바꾼 메뉴입니다`}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: C.blue, background: C.blueTint, borderRadius: 5, padding: '0 5px' }}>질환 대체</span>
+            </Tooltip>
+          ) : isAlt && <span style={{ fontSize: 10, fontWeight: 600, color: C.greenText, background: '#D2F1DF', borderRadius: 5, padding: '0 5px' }}>대체</span>}
         {it.flag && <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>{it.flag}</span>}
         {it.allergyCheck && (
           <Tooltip title={`영양사 확인 필요 — ${it.allergyCheck}`}>
@@ -280,6 +297,33 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
     );
   };
 
+  // 기저질환 그룹 대체식 — 날짜 머리에 이날 기준별 합계·상태(생성 당시 서버 판정).
+  const DietDayHead = ({ d }: { d: MealDay }) => {
+    const stale = isDietStale(d);
+    const lines = dietDayLines(d);
+    const info = dietInfoLines(d);
+    const tip = [
+      ...lines.map((l) => `${l.label}: ${l.text}${l.ok ? '' : ' (초과)'}`),
+      ...info,
+      ...(d.diet!.unknownMenus.length ? [`영양 정보 없음: ${d.diet!.unknownMenus.join(', ')}`] : []),
+      ...(stale ? ['검토에서 메뉴를 바꿨습니다. 합계는 생성 당시 값이라 기준을 다시 확인해 주세요.'] : []),
+    ].join('\n');
+    return (
+      <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+        <div style={{ marginTop: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          {lines.map((l) => (
+            <span key={l.key} style={{ fontSize: 10, fontWeight: 600, color: stale ? C.muted : l.ok ? C.sub : C.redText, fontVariantNumeric: 'tabular-nums' }}>{l.text}</span>
+          ))}
+          {stale ? (
+            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, background: C.amberTint, borderRadius: 5, padding: '0 5px' }}>수정됨 · 기준 재확인 필요</span>
+          ) : d.diet!.status !== '충족' && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: C.redText, background: '#FADCDC', borderRadius: 5, padding: '0 5px' }}>확인 필요</span>
+          )}
+        </div>
+      </Tooltip>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 스텝 + 토글 */}
@@ -287,7 +331,9 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
         {!readOnly && <StepIndicator current={2} />}
         <div style={{ flex: 1 }} />
         {view === 'alt' && plan.alternatives.map((t, i) => (
-          <span key={i} onClick={() => setTrack(i)} style={{ fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 8, padding: '5px 11px', color: track === i ? C.greenText : C.sub, background: track === i ? C.tint : '#fff', border: `1px solid ${track === i ? C.tint : C.border}` }}>{t.label} {t.count}명</span>
+          <span key={i} onClick={() => setTrack(i)} style={{ fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 8, padding: '5px 11px', color: track === i ? C.greenText : C.sub, background: track === i ? C.tint : '#fff', border: `1px solid ${track === i ? C.tint : C.border}`, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <KindBadge kind={trackKind(t)} />{t.label} {t.count}명
+          </span>
         ))}
         <div style={{ display: 'flex', background: '#EEF2F0', borderRadius: 10, padding: 3 }}>
           {(['normal', 'alt'] as const).map((v) => (
@@ -318,6 +364,35 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
           </div>
         )}
       </Card>
+
+      {/* 기저질환 그룹 — 적용 기준·충족 일수 */}
+      {curTrack && hasDiet(curTrack) && (() => {
+        const sum = dietSummary(curTrack);
+        const allMet = sum.met === sum.total;
+        return (
+          <Card size="small">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <KindBadge kind={trackKind(curTrack)} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{curTrack.label} · {[(curTrack.allergens ?? []).join('·'), (curTrack.diseases ?? []).join('·')].filter(Boolean).join(' · ') || '기저질환'}</span>
+              {(curTrack.limits ?? []).map((l) => (
+                <Tooltip key={l.key} title={`${l.label} — ${l.source}`}>
+                  <span style={{ fontSize: 12, color: C.sub, background: C.head, border: `1px solid ${C.line}`, borderRadius: 999, padding: '2px 10px', fontVariantNumeric: 'tabular-nums' }}>{limitText(l)}</span>
+                </Tooltip>
+              ))}
+              <div style={{ flex: 1 }} />
+              {sum.total > 0 && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: allMet ? C.greenText : C.redText, fontVariantNumeric: 'tabular-nums' }}>
+                  기준 충족 {sum.met}/{sum.total}일{sum.stale ? ` · 재확인 ${sum.stale}일` : ''}
+                </span>
+              )}
+            </div>
+            {pendingText(curTrack) && <div style={{ marginTop: 8, fontSize: 12, color: C.muted }}>{pendingText(curTrack)}</div>}
+            {!allMet && sum.total > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: C.sub }}>표 위쪽 날짜에 이날 합계가 나옵니다. 빨간 날은 메뉴를 바꿔 기준 안으로 맞춰 주세요.</div>
+            )}
+          </Card>
+        );
+      })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 316px', gap: 16, alignItems: 'start' }}>
         {/* 식단표 */}
@@ -357,6 +432,7 @@ export default function Step2Review({ plan, setPlan = noop, onPrev = noop, onNex
                           </div>
                         </Tooltip>
                       )}
+                      {d.diet && <DietDayHead d={d} />}
                     </th>
                   ))}
                 </tr>

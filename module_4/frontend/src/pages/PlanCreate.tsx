@@ -44,7 +44,7 @@ function ClonedWizard({ cloneId }: { cloneId: number }) {
         // 기저질환·알레르기 입력값은 2026-10-05 이후 저장본에만 들어 있다. 그 전 저장본은 다시 입력해야 한다.
         message.info(hasInputs(saved.plan)
           ? `'${saved.name}' 조건을 불러왔어요.`
-          : `'${saved.name}' 조건을 불러왔어요. 예전에 저장한 식단이라 기저질환·알레르기 그룹은 다시 입력해 주세요.`);
+          : `'${saved.name}' 조건을 불러왔어요. 예전에 저장한 식단이라 제한 조건 그룹(알레르기·기저질환)은 다시 입력해 주세요.`);
       })
       .catch((e) => {
         console.error('[식단복제] 저장본 조회 실패:', e);

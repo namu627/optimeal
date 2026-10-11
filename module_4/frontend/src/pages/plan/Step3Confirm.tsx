@@ -41,7 +41,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm, onC
   onConfirmed: () => void;
 }) {
   const { message } = App.useApp();
-  // pdfAlt: PDF 에 알레르기 그룹별 대체 메뉴 표(+ 조리 지시서 포함 시 대체식 조리 지시서). 그룹이 있으면 기본 켬.
+  // pdfAlt: PDF 에 대체식 그룹별 대체 메뉴 표(+ 조리 지시서 포함 시 대체식 조리 지시서). 그룹이 있으면 기본 켬.
   const hasAlt = plan.alternatives.length > 0;
   const [files, setFiles] = useState({ table: true, normal: true, alt: false, pdf: true, pdfRecipes: false, pdfAlt: hasAlt });
   const [exporting, setExporting] = useState(false);
@@ -115,7 +115,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm, onC
       {/* 요약 */}
       <Card size="small" styles={{ body: { padding: 24 } }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-          {[['대상', `${planTargetLabel(plan)} · ${plan.headcount}명`], ['기간 · 끼니', `${range} 평일 · ${mealsText}`],['알레르기 그룹', `${plan.alternatives.length}그룹 · ${allergyN}명`]].map(([k, v]) => (
+          {[['대상', `${planTargetLabel(plan)} · ${plan.headcount}명`], ['기간 · 끼니', `${range} 평일 · ${mealsText}`],['대체식 그룹', `${plan.alternatives.length}그룹 · ${allergyN}명`]].map(([k, v]) => (
             <div key={k}><div style={{ fontSize: 12, color: C.sub }}>{k}</div><div style={{ marginTop: 4, fontSize: 15, fontWeight: 600, color: C.text }}>{v}</div></div>
           ))}
         </div>
@@ -132,7 +132,7 @@ export default function Step3Confirm({ plan, onPrev, onSaveDraft, onConfirm, onC
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <FileRow checked={files.table} onToggle={() => setFiles((f) => ({ ...f, table: !f.table }))} title="식단표" badge="CSV" desc={`주차·요일·끼니별 메뉴와 1인 기준 열량·단백질이 들어간 게시용 표 · 평일 ${plan.totalDays}일`} />
           <FileRow checked={files.normal} onToggle={() => setFiles((f) => ({ ...f, normal: !f.normal }))} title="일반식 조리 지시서" badge="CSV" desc="확정된 식단의 메뉴별 재료 투입량(총량)과 조리 순서 · 열: 날짜/끼니/메뉴/재료명/투입량(g)/조리순서" />
-          <FileRow checked={files.alt} onToggle={() => setFiles((f) => ({ ...f, alt: !f.alt }))} title="대체식 조리 지시서" badge="CSV" desc="알레르기 그룹별로 일반식과 달라진 대체 메뉴의 재료 투입량과 조리 순서 · 열: 그룹/날짜/끼니/메뉴/재료명/투입량(g)/기준/조리순서" />
+          <FileRow checked={files.alt} onToggle={() => setFiles((f) => ({ ...f, alt: !f.alt }))} title="대체식 조리 지시서" badge="CSV" desc="대체식 그룹(알레르기·기저질환)별로 일반식과 달라진 대체 메뉴의 재료 투입량과 조리 순서 · 열: 그룹/날짜/끼니/메뉴/재료명/투입량(g)/기준/조리순서" />
           <FileRow checked={files.pdf} onToggle={() => setFiles((f) => ({ ...f, pdf: !f.pdf }))} title="PDF 인쇄본" badge="PDF" desc="상단 요약(대상·인원·기간·1인 원가) + 식단표 · 식단표 CSV와 같은 내용, 한글 폰트 포함" />
           {files.pdf && (
             <div style={{ marginTop: -4, paddingLeft: 42 }}>

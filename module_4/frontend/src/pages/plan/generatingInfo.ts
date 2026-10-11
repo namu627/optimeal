@@ -1,7 +1,7 @@
 // src/pages/plan/generatingInfo.ts
 // 생성 중 화면(GeneratingOverlay)에 넘기는 조건과 예상 소요 시간.
 
-/** 실제로 보낸 요청 기준 — 기간·끼니(아침/점심/저녁)·인원·알레르기 그룹 유무. */
+/** 실제로 보낸 요청 기준 — 기간·끼니(아침/점심/저녁)·인원·대체식 그룹(알레르기·기저질환) 유무. */
 export interface GeneratingInfo { days: number; meals: string[]; headcount: number; hasAllergy: boolean }
 
 /** 예상 소요(초) — 화면 기본 조건 측정값 기준(2026-10-01~02). 1일 ~8초, 7일 점심 ~22초, 7일 3식 38~41초,

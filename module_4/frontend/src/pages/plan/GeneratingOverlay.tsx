@@ -18,7 +18,7 @@ const TIPS = [
   '3일 안에 같은 메뉴가 겹치지 않게 고르고 있어요',
   '주식·국·반찬 구성을 맞추고 있어요',
 ];
-const ALLERGY_TIP = '알레르기 그룹 대체식을 준비하고 있어요';
+const ALLERGY_TIP = '알레르기·기저질환 그룹 대체식을 준비하고 있어요';
 const TIP_SECONDS = 4;
 const CRAWL_SECONDS = 2.6; // 밥풀 3점이 그릇 위를 한 번 지나가는 주기
 const MAX_BEFORE_RESPONSE = 0.95;
