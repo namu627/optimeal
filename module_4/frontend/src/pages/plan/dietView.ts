@@ -65,4 +65,4 @@ export function dietDayNote(d: MealDay): string {
 
 /** 기준 미반영 질환 안내(신장질환 등). */
 export const pendingText = (t: AltTrack) =>
-  t.pendingDiseases?.length ? `${t.pendingDiseases.join('·')}은 기준을 정하는 중이라 반영되지 않았습니다` : '';
+  t.pendingDiseases?.length ? `${t.pendingDiseases.join('·')}은 지원하지 않아 반영되지 않았습니다` : '';

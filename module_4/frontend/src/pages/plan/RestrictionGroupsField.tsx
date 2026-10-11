@@ -1,6 +1,7 @@
 // src/pages/plan/RestrictionGroupsField.tsx
 // 조건 입력 화면 · 제한 조건 그룹(알레르기·기저질환) — 시안 2a(시안 A + 시안 B의 합계 행·태그 접기).
-//  · 한 줄 = 한 그룹. 알레르기(19종 중 다중 선택)와 기저질환(고혈압·당뇨, 신장질환은 준비 중)을 같이 고른다.
+//  · 한 줄 = 한 그룹. 알레르기(19종 중 다중 선택)와 기저질환(고혈압·당뇨)을 같이 고른다.
+//  · 신장질환은 지원하지 않는다(팀 결정) — 카드 아래에 이유를 흐린 글씨로 적어 둔다(KIDNEY_NOTE).
 //  · 알레르기 태그는 3개까지만 보이고 나머지는 '+N' — 입력칸을 누르면 모두 펼친다.
 //  · 그룹 인원 합이 전체 인원을 넘으면 머리말 배지·합계 행이 빨갛게 바뀐다.
 //  · 검사(조건 없는 그룹 등)는 Step1Conditions 가 식단 생성을 누를 때 하고, 문제 줄을 errorRows 로 넘겨 빨간 테두리를 그린다.
@@ -17,7 +18,9 @@ const C = {
 };
 const TAG_LIMIT = 3;
 // 그룹 | 알레르기 | 기저질환 | 인원 | 삭제
-const COLS = '132px minmax(0, 1fr) 272px 92px 28px';
+const COLS = '132px minmax(0, 1fr) 176px 92px 28px';
+// 신장질환 제외 이유 — 눈에 띄지 않게 카드 맨 아래 회색 작은 글씨로.
+const KIDNEY_NOTE = '신장질환은 단백질·칼륨 기준이 체중과 병기에 따라 달라 영양사의 개별 판단이 필요하므로 지원하지 않습니다.';
 
 const KIND_BADGE: Record<DietKind, { icon: string; text: string; style: React.CSSProperties }> = {
   알레르기: { icon: '⊘', text: '알레르기', style: { color: C.greenText, background: C.tint, border: `1px solid ${C.tint}` } },
@@ -141,6 +144,7 @@ export default function RestrictionGroupsField({ value, onChange, headcount, err
       </div>
 
       {errorText && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: C.redText }}>{errorText}</div>}
+      <div style={{ marginTop: 8, fontSize: 11, color: C.muted }}>※ {KIDNEY_NOTE}</div>
     </Card>
   );
 }

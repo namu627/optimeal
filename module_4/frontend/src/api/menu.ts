@@ -16,9 +16,11 @@ export interface MenuProfile {
 export interface AllergyGroup { label: string; allergens: string[]; count: number; }
 /** 대체식 그룹 — 알레르기·기저질환·둘 다(백엔드 schemas.DietGroupIn). 조건 입력 화면의 '제한 조건 그룹' 한 줄. */
 export interface DietGroup { label: string; allergens: string[]; diseases: string[]; count: number; }
-/** 기저질환 선택지. pending = 기준이 아직 확정되지 않아 선택할 수 없는 질환(백엔드 disease_diet.DISEASE_LIMITS 에 없음). */
+/** 기저질환 선택지. pending = 화면에 보이되 선택할 수 없는 질환(준비 중).
+ *  신장질환은 2026-10-11 팀 결정으로 제외 — 단백질·칼륨 기준이 체중·병기에 따라 달라 영양사 개별 판단이 필요하다
+ *  (안내 문구: RestrictionGroupsField KIDNEY_NOTE). */
 export const DISEASE_OPTIONS: { name: string; pending?: boolean }[] = [
-  { name: '고혈압' }, { name: '당뇨' }, { name: '신장질환', pending: true },
+  { name: '고혈압' }, { name: '당뇨' },
 ];
 /** 그룹 종류 — 백엔드 alternatives[].kind 와 같은 이름. */
 export type DietKind = '알레르기' | '기저질환' | '알레르기+기저질환';
@@ -213,7 +215,7 @@ export interface AltTrack {
   diseases?: string[];
   /** 그룹 종류. 예전 저장본에는 없다 → dietKindOf(t) 로 계산. */
   kind?: DietKind;
-  /** 기준이 아직 없어 반영하지 못한 질환(신장질환 등). */
+  /** 백엔드가 반영하지 못한 질환(예전 저장본의 신장질환 등). */
   pendingDiseases?: string[];
   /** 적용한 질환 기준·출처. */
   limits?: DietLimit[];
