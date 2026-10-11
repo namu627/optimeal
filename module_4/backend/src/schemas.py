@@ -181,10 +181,10 @@ class DietGroupIn(BaseModel):
         "label": "고혈압·우유", "allergens": ["우유"], "diseases": ["고혈압"], "count": 4}}}
     label: str = Field("", max_length=50, description="화면에 보일 그룹 이름")
     allergens: list[str] = Field(default_factory=list, description="알레르기 표시 19종 이름(또는 NEIS 번호)")
-    diseases: list[str] = Field(
+    diseases: list[Literal["고혈압", "당뇨"]] = Field(
         default_factory=list,
-        description='"고혈압" | "당뇨" | "신장질환". 신장질환은 기준 확정 전이라 교체하지 않고 '
-                    "alternatives[].pending_diseases 로 돌려준다.")
+        description='"고혈압" | "당뇨". 그 밖의 값은 422 — 받아 놓고 반영하지 않는 일이 없게 한다'
+                    "(신장질환은 근거 부족으로 제외, 2026-10-11).")
     count: int = Field(0, ge=0, description="이 그룹 인원(조리 지시서 인원 차감에 쓰인다)")
 
 

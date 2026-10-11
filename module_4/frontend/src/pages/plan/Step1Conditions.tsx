@@ -2,13 +2,15 @@
 // 식단 생성 1단계 · 조건 입력 (시안 화면 4 / 4-a 생성중 / 4-b INFEASIBLE)
 import { useEffect, useState, type ReactNode } from 'react';
 import { App, Card, Select, InputNumber, Button, Checkbox, Alert, Segmented } from 'antd';
-import { PlusOutlined, DeleteOutlined, CloseOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import StepIndicator from './StepIndicator';
 import GeneratingOverlay from './GeneratingOverlay';
+import RestrictionGroupsField from './RestrictionGroupsField';
+import { emptyGroup, groupProblems, normalizeGroups, problemMessage, problemRows, toDietGroups } from './dietGroups';
 import type { GeneratingInfo } from './generatingInfo';
 import {
-  PROFILE_OPTIONS, ALLERGEN_POOL, BUDGET_MODE_LABEL, listProfiles,
-  type MenuGenerateRequest, type AllergyGroup, type MenuProfile, type BudgetMode,
+  PROFILE_OPTIONS, BUDGET_MODE_LABEL, listProfiles,
+  type MenuGenerateRequest, type DietGroup, type MenuProfile, type BudgetMode,
   type GenerateError, type GenerateErrorKind,
 } from '../../api/menu';
 
@@ -39,7 +41,6 @@ const GEN_ERROR_TEXT: Record<GenerateErrorKind, { title: string; action: ReactNo
 export interface Step1Form {
   profile: string;
   count: number;
-  conds: Record<string, number | null>;
   days: number;
   meals: string[];
   kcal: number;
@@ -47,43 +48,27 @@ export interface Step1Form {
   budget: number;
   /** 예산 방식. 이 필드가 생기기 전 스냅샷에는 없다 → 기본값(carryover). */
   budgetMode?: BudgetMode;
-  groups: AllergyGroup[];
+  /** 제한 조건 그룹(알레르기·기저질환). 2026-10 이전 스냅샷은 diseases 가 없을 수 있다 → normalizeGroups. */
+  groups: DietGroup[];
 }
 
 const DEFAULT_FORM: Step1Form = {
   profile: 'elem_low_mix',
   count: 320,
-  // 기저질환·기간·끼니는 미리 골라 두지 않는다 — 사용자가 직접 고른다(days 0 = 기간 미선택).
-  conds: {},
+  // 기간·끼니는 미리 골라 두지 않는다 — 사용자가 직접 고른다(days 0 = 기간 미선택).
   days: 0,
   meals: [],
   kcal: 1750,
   sodium: 1300,
   budget: 4500,
   budgetMode: 'carryover',
-  // 알레르기 태그는 미리 넣어 두지 않는다 — 빈 그룹 1개만 두고 바로 골라 넣게 한다(알레르기를 안 고른 그룹은 전송 때 빠진다).
-  groups: [{ label: '그룹 1', allergens: [], count: 0 }],
+  // 조건은 미리 넣어 두지 않는다 — 빈 그룹 1개만 두고 바로 골라 넣게 한다(손대지 않은 그룹은 전송 때 빠진다).
+  groups: [emptyGroup(0)],
 };
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div><div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>{label}</div>{children}</div>
 );
-
-// 기저질환 한 줄(체크 + 인원수). 렌더마다 새로 만들어지지 않도록 컴포넌트 밖에 둔다.
-function CondRow({ name, on, count, onToggle, onCount }: {
-  name: string; on: boolean; count: number | null | undefined;
-  onToggle: (name: string) => void; onCount: (name: string, n: number) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 44, padding: '0 12px', borderRadius: 10, border: `1px solid ${on ? C.green : C.border}`, background: on ? C.tint : '#fff', cursor: 'pointer' }} onClick={() => onToggle(name)}>
-      <Checkbox checked={on} />
-      <span style={{ flex: 1, fontSize: 13, color: on ? C.text : C.sub }}>{name}</span>
-      <div onClick={(e) => e.stopPropagation()}>
-        <InputNumber size="small" disabled={!on} value={count ?? 0} min={0} onChange={(v) => onCount(name, Number(v) || 0)} style={{ width: 78 }} suffix="명" />
-      </div>
-    </div>
-  );
-}
 
 export default function Step1Conditions({ genState, genError, onGenerate, onCancel, initial, onFormChange }: {
   genState: GenState; genError?: GenerateError | null; onGenerate: (req: MenuGenerateRequest) => void; onCancel: () => void;
@@ -93,14 +78,17 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
   const init = initial ?? DEFAULT_FORM;
   const [profile, setProfile] = useState(init.profile);
   const [count, setCount] = useState(init.count);
-  const [conds, setConds] = useState<Record<string, number | null>>(init.conds);
   const [days, setDays] = useState(init.days);
   const [meals, setMeals] = useState<string[]>(init.meals);
   const [kcal, setKcal] = useState(init.kcal);
   const [sodium, setSodium] = useState(init.sodium);
   const [budget, setBudget] = useState(init.budget);
   const [budgetMode, setBudgetMode] = useState<BudgetMode>(init.budgetMode ?? 'carryover');
-  const [groups, setGroups] = useState<AllergyGroup[]>(init.groups);
+  const [groups, setGroups] = useState<DietGroup[]>(() => normalizeGroups(init.groups));
+  // 식단 생성을 눌러 그룹 검사에 걸린 뒤부터 문제 줄에 빨간 테두리를 그린다(고치면 바로 사라진다).
+  const [showGroupErrors, setShowGroupErrors] = useState(false);
+  const problems = groupProblems(groups, count);
+  const groupError = showGroupErrors ? problemMessage(problems) : null;
   // GET /api/menu/profiles — 프로파일별 영양 기준. null=불러오는 중, 'failed'=실패(수동 입력 허용)
   const [profiles, setProfiles] = useState<Record<string, MenuProfile> | null | 'failed'>(null);
 
@@ -125,10 +113,7 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
   const targetHint = locked
     ? '프로파일 기준(자동) · 1일 기준값 — 실제 적용값은 끼니 수에 맞춰 조정되어 결과 화면 달성률에 표시돼요'
     : profiles === null ? '프로파일 기준값을 불러오는 중…' : '프로파일 기준값을 불러오지 못했어요 — 직접 입력';
-  const totalAllergy = groups.reduce((s, g) => s + (g.count || 0), 0);
 
-  const toggleCond = (k: string) =>
-    setConds((prev) => (k in prev ? (() => { const n = { ...prev }; delete n[k]; return n; })() : { ...prev, [k]: 0 }));
   // 항상 아침→점심→저녁 순으로 유지 (클릭 순서와 무관하게 식단표 행 순서가 흔들리지 않도록)
   const MEAL_ORDER = ['아침', '점심', '저녁'];
   // 31일에 고를 수 있는 끼니 수. 2026-10-02 화면 기본 조건 측정(총 한도 80초, 힌트 몫 0.85·presolve 끔 — 백엔드 menu.py):
@@ -170,22 +155,28 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
       message.warning(!d && !sendMeals.length ? '기간과 끼니를 선택해 주세요' : !d ? '기간을 선택해 주세요' : '끼니를 하나 이상 선택해 주세요');
       return;
     }
+    // 제한 조건 그룹 — 조건 없는 그룹·인원 0 그룹·인원 초과면 보내지 않고, 문구와 빨간 테두리로 고칠 곳을 보여 준다.
+    const groupMsg = problemMessage(problems);
+    if (groupMsg) {
+      setShowGroupErrors(true);
+      message.warning(groupMsg);
+      return;
+    }
+    setShowGroupErrors(false);
     if (over.days != null) setDays(over.days);
     if (over.budgetMode) setBudgetMode(over.budgetMode);
-    const sendGroups = groups.filter((g) => g.allergens.length);
+    const sendGroups = toDietGroups(groups);
     setGenInfo({ days: d, meals: sendMeals, headcount: count, hasAllergy: sendGroups.length > 0 });
-    onFormChange?.({ profile, count, conds, days: d, meals: sendMeals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
+    onFormChange?.({ profile, count, days: d, meals: sendMeals, kcal: kcalValue, sodium: sodiumValue, budget, budgetMode: bm, groups });
     onGenerate({
       profile_key: profile, serving_count: count, days: d, meals: sendMeals,
       target_kcal_per_day: kcalValue, sodium_max_mg_per_day: sodiumValue, budget_limit_per_person: budget,
       budget_mode: bm,
-      conditions: Object.keys(conds), with_alternatives: true,
-      allergy_groups: sendGroups,
+      with_alternatives: true,
+      diet_groups: sendGroups,
     });
   };
   const shorterDays = days > 7 ? 7 : days > 1 ? 1 : null;
-
-  const setCondCount = (name: string, n: number) => setConds((p) => ({ ...p, [name]: n }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'relative' }}>
@@ -194,7 +185,7 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
       {genState === 'infeasible' && (
         <Alert type="error" showIcon
           message="조건을 만족하는 식단을 찾지 못했습니다"
-          description="입력한 조건이 서로 충돌해 해를 찾지 못했습니다. 예산·나트륨 상한·알레르기 제외 범위·끼니 구성 같은 조건을 조정하면 다시 생성할 수 있어요."
+          description="입력한 조건이 서로 충돌해 해를 찾지 못했습니다. 예산·나트륨 상한·알레르기·기저질환 그룹·끼니 구성 같은 조건을 조정하면 다시 생성할 수 있어요."
           action={<Button danger onClick={() => submit()}>조건 수정하기</Button>}
         />
       )}
@@ -238,11 +229,8 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
             </Field>
           </div>
           <Field label="연령대 (자동)"><div style={{ height: 40, border: `1px solid ${C.line}`, background: C.head, borderRadius: 10, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 13, color: C.sub, marginTop: 14 }}>{age}</div></Field>
-          <div style={{ marginTop: 14, fontSize: 12, color: C.sub, marginBottom: 8 }}>기저질환 (다중 선택)</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {['고혈압', '당뇨', '신장질환'].map((name) => (
-              <CondRow key={name} name={name} on={name in conds} count={conds[name]} onToggle={toggleCond} onCount={setCondCount} />
-            ))}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${C.border}`, fontSize: 12, color: C.muted, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <InfoCircleOutlined />기저질환은 아래 '제한 조건 그룹'에서 알레르기와 함께 입력합니다
           </div>
         </Card>
 
@@ -299,36 +287,9 @@ export default function Step1Conditions({ genState, genError, onGenerate, onCanc
         </Card>
       </div>
 
-      {/* 알레르기 그룹 */}
-      <Card size="small">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>알레르기 그룹</span>
-          <span style={{ fontSize: 12, color: C.sub, background: C.line, borderRadius: 8, padding: '2px 8px' }}>{groups.length}그룹 · {totalAllergy}명</span>
-          <span style={{ fontSize: 12, color: C.muted }}>표시 대상 {ALLERGEN_POOL.length}종 중 선택</span>
-          <div style={{ flex: 1 }} />
-          <Button size="small" icon={<PlusOutlined />} onClick={() => setGroups((g) => [...g, { label: `그룹 ${g.length + 1}`, allergens: [], count: 0 }])}>그룹 추가</Button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {groups.map((g, gi) => (
-            <div key={gi} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${C.line}`, borderRadius: 10, padding: '8px 12px' }}>
-              <span style={{ fontSize: 12, color: C.sub, width: 44 }}>{g.label}</span>
-              <div style={{ flex: 1, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {g.allergens.map((a) => (
-                  <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: C.greenText, background: C.tint, borderRadius: 8, padding: '3px 8px' }}>
-                    {a}<CloseOutlined style={{ fontSize: 9, cursor: 'pointer' }} onClick={() => setGroups((gs) => gs.map((x, i) => i === gi ? { ...x, allergens: x.allergens.filter((y) => y !== a) } : x))} />
-                  </span>
-                ))}
-                {/* value 를 비워 둬서 고른 뒤에도 항상 '알레르기 추가…'로 보인다(고른 항목은 왼쪽 태그로 표시) */}
-                <Select<string> size="small" variant="borderless" placeholder="알레르기 추가…" style={{ minWidth: 110 }} value={null}
-                  options={ALLERGEN_POOL.filter((a) => !g.allergens.includes(a)).map((a) => ({ value: a, label: a }))}
-                  onChange={(a) => setGroups((gs) => gs.map((x, i) => i === gi ? { ...x, allergens: [...x.allergens, a] } : x))} />
-              </div>
-              <InputNumber size="small" value={g.count} min={0} onChange={(v) => setGroups((gs) => gs.map((x, i) => i === gi ? { ...x, count: Number(v) || 0 } : x))} suffix="명" style={{ width: 84 }} />
-              <DeleteOutlined style={{ color: C.muted, cursor: 'pointer' }} onClick={() => setGroups((gs) => gs.filter((_, i) => i !== gi))} />
-            </div>
-          ))}
-        </div>
-      </Card>
+      {/* 제한 조건 그룹(알레르기·기저질환) */}
+      <RestrictionGroupsField value={groups} onChange={setGroups} headcount={count}
+        errorRows={showGroupErrors ? problemRows(problems) : undefined} errorText={groupError} />
 
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <Button onClick={onCancel}>취소</Button>

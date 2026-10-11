@@ -624,7 +624,8 @@ def _build_menu_recipes(cs, plan: dict, servings: int, key_to_id, site_id: int |
 
 
 def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
-                         sodium_by_idx: dict | None = None, canon: dict | None = None) -> list[dict]:
+                         sodium_by_idx: dict | None = None, canon: dict | None = None,
+                         meals: tuple | None = None, profile=None) -> list[dict]:
     """공통식 plan 에서 그룹별 대체식 트랙을 파생한다(PRD FR-11 — 알레르기·기저질환·둘 다).
 
     alternative_menu 는 메뉴명으로 행을 찾는데(by_name, 첫 행 우선) 동명이면 0원 행을 집어
@@ -633,7 +634,7 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
     (대표행의 menu_id 도 그 안에 있다).
 
     그룹에 diseases 가 하나라도 있으면 disease_diet 로 푼다 — 질환 기준 교체 → 알레르기 교체(질환 상한 유지).
-    응답 항목에 kind·diseases·pending_diseases·limits·disease_swaps·day_report·unmet_days 가 붙는다.
+    응답 항목에 kind·diseases·limits·disease_swaps·day_report·unmet_days 가 붙는다.
     알레르기만 있는 그룹은 예전과 같은 결과다(같은 alternative_menu 경로).
     """
     # 대체식도 공통식과 같은 나트륨 상한을 지켜야 한다 → menu_id 키로 변환해 주입.
@@ -680,12 +681,18 @@ def _derive_alternatives(am, plan, menus, cfg, allergy_groups: list[dict],
         import csp_solver as cs
 
         values, estimated = dd.load_menu_values(cs.get_engine(), alt_menus)
-    alts = dd.derive_diet_alternatives(plan, alt_menus, groups, values, hard_config=cfg,
-                                       sodium_by_id=sodium_by_id)
+    # 질환 기준은 성인 하루치 — 대상 프로파일(연령)과 편성한 끼니 비율에 맞춰 건다(disease_diet.limits_for).
+    import user_profiles as up
+
+    meal_frac = min(1.0, up.meal_fraction(meals)) if meals else 1.0
+    alts = dd.derive_diet_alternatives(
+        plan, alt_menus, groups, values, hard_config=cfg, sodium_by_id=sodium_by_id, meal_frac=meal_frac,
+        sodium_cdrr_mg=getattr(profile, "sodium_cdrr_mg", None),
+        target_label=getattr(profile, "group_name", None))
     out = [_to_jsonable(a) for a in alts]
     for a in out:
         a["diseases_applied"] = True
-        # 재료 기반 추정(당류·칼륨·인)을 못 읽은 DB — migrations/v6 + scripts/load_ingredient_nutrient.py 필요
+        # 재료 기반 당류 추정을 못 읽은 DB — migrations/v6 + scripts/load_ingredient_nutrient.py 필요
         a["ingredient_nutrients_loaded"] = estimated
     return out
 
@@ -1039,7 +1046,8 @@ def generate(payload: schemas.MenuGenerateRequest) -> dict:
     groups = [g.model_dump() for g in payload.diet_groups] + list(payload.allergy_groups)
     if (payload.with_alternatives or payload.diet_groups) and res.plan:
         alts = _derive_alternatives(
-            am, res.plan, menus, cfg, groups, sodium_by_idx, canon
+            am, res.plan, menus, cfg, groups, sodium_by_idx, canon, meals,
+            _load_profiles().get(payload.profile_key) if payload.profile_key else None,
         )
         for a in alts:
             a["plan_ids"] = _alt_plan_ids(a.get("plan"), body["plan"], body["plan_ids"], canon)

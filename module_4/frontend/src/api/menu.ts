@@ -14,6 +14,18 @@ export interface MenuProfile {
   source: string; note?: string;
 }
 export interface AllergyGroup { label: string; allergens: string[]; count: number; }
+/** 대체식 그룹 — 알레르기·기저질환·둘 다(백엔드 schemas.DietGroupIn). 조건 입력 화면의 '제한 조건 그룹' 한 줄. */
+export interface DietGroup { label: string; allergens: string[]; diseases: string[]; count: number; }
+/** 기저질환 선택지. pending = 기준이 아직 확정되지 않아 선택할 수 없는 질환(백엔드 disease_diet.DISEASE_LIMITS 에 없음). */
+export const DISEASE_OPTIONS: { name: string; pending?: boolean }[] = [
+  { name: '고혈압' }, { name: '당뇨' }, { name: '신장질환', pending: true },
+];
+/** 그룹 종류 — 백엔드 alternatives[].kind 와 같은 이름. */
+export type DietKind = '알레르기' | '기저질환' | '알레르기+기저질환';
+export function dietKindOf(g: { allergens?: string[]; diseases?: string[] }): DietKind | null {
+  const a = (g.allergens?.length ?? 0) > 0, d = (g.diseases?.length ?? 0) > 0;
+  return a && d ? '알레르기+기저질환' : d ? '기저질환' : a ? '알레르기' : null;
+}
 export interface MenuGenerateRequest {
   profile_key?: string;
   serving_count?: number;
@@ -25,7 +37,10 @@ export interface MenuGenerateRequest {
   /** 예산 방식. carryover(기본) = 기간 총액 기준(이월 허용), day = 하루 단위 상한. 백엔드 기본값도 carryover. */
   budget_mode?: BudgetMode;
   with_alternatives?: boolean;
+  /** (구형식) 알레르기 그룹. 새 화면은 diet_groups 를 쓴다. 저장본·테스트 호환으로 남겨 둔다. */
   allergy_groups?: AllergyGroup[];
+  /** 대체식 그룹(알레르기·기저질환·둘 다) — 백엔드 diet_groups. */
+  diet_groups?: DietGroup[];
   conditions?: string[];
   exclude_menu_ids?: number[];
   include_menu_ids?: number[];
@@ -156,6 +171,8 @@ export interface MealItem {
   /** 대체식 칸 전용 — 서버가 알레르기 대체를 못 한 메뉴(alternatives[].unresolved)의 사유. 영양사 확인 필요.
    *  안전한 메뉴로 교체하면 걷히고(origAllergyCheck 에 보관) 되돌리면 다시 붙는다(altSync.applyEdit). */
   allergyCheck?: string; origAllergyCheck?: string;
+  /** 대체식 칸 전용 — 기저질환 기준 때문에 바꾼 메뉴(alternatives[].disease_swaps). 값 = 줄이려던 영양소('나트륨' 등). */
+  dietSwap?: string;
 }
 // cost: 이 끼니 1인 원가(칸 영양 합, recomputePlan) — 반올림 전 값. 화면에 쓸 때만 반올림한다.
 // band: 이월 모드에서 기준 B×0.8~1.2 밖이면 'low'|'high'.
@@ -172,10 +189,37 @@ export interface MealCell {
 /** mainMenuId: 원인이 된 일반식 메뉴 칸 id(되돌리면 이 id 로 표시를 걷는다). note: 사람이 읽는 원인. */
 export interface AltReview { mainMenuId: number; note: string }
 // sodium: 그날 1인 나트륨 합(mg). sodiumOver: 하루 상한(plan.sodiumCapPerDay) 초과 — 나트륨 경고는 이 날 단위로만 건다.
-export interface MealDay { date: string; dow: string; cells: MealCell[]; sodium?: number; sodiumOver?: boolean }
+export interface MealDay {
+  date: string; dow: string; cells: MealCell[]; sodium?: number; sodiumOver?: boolean;
+  /** 기저질환 그룹 대체식의 이날 기준 충족 결과(alternatives[].day_report). 일반식·알레르기 그룹에는 없다. */
+  diet?: DietDay;
+}
+/** 하루 질환 기준 결과. limits: 영양소별 합계·상한·충족, info: 기준 없이 참고로 보여 줄 합계(당뇨의 당류).
+ *  sig: 생성 당시 이날 메뉴 이름 — 검토에서 메뉴를 바꾸면 달라져 '재확인 필요'로 보인다(합계는 서버 계산값이라 다시 계산하지 않음). */
+export interface DietDay {
+  status: '충족' | '확인 필요';
+  limits: Record<string, { label: string; total: number | null; cap: number; unit: string; ok: boolean }>;
+  info: Record<string, { total: number; unknown: number }>;
+  unknownMenus: string[];
+  sig: string;
+}
+/** 질환 기준 하나(alternatives[].limits). */
+export interface DietLimit { key: string; label: string; cap: number; unit: string; source: string }
 export interface WeekBlock { label: string; days: MealDay[] }
 // allergens: 이 그룹이 피해야 할 알레르겐(교체 후보에서 거르는 기준). 구버전 저장본에는 없을 수 있다.
-export interface AltTrack { label: string; count: number; weeks: WeekBlock[]; allergens?: string[] }
+export interface AltTrack {
+  label: string; count: number; weeks: WeekBlock[]; allergens?: string[];
+  /** 기저질환(백엔드가 적용한 이름). 알레르기만 있는 그룹·예전 저장본에는 없다. */
+  diseases?: string[];
+  /** 그룹 종류. 예전 저장본에는 없다 → dietKindOf(t) 로 계산. */
+  kind?: DietKind;
+  /** 기준이 아직 없어 반영하지 못한 질환(신장질환 등). */
+  pendingDiseases?: string[];
+  /** 적용한 질환 기준·출처. */
+  limits?: DietLimit[];
+  /** 기준을 못 맞춘 날 수(생성 당시). 날짜별 결과는 각 MealDay.diet. */
+  unmetDays?: number;
+}
 // 박미연 KpiRow 계약: 퍼센트가 아니라 목표 대비 실제값 쌍
 export interface MetricValue { value: number; target: number; unit?: string }
 export interface Achievement { calories: MetricValue; protein: MetricValue; sodium: MetricValue }
@@ -296,6 +340,16 @@ interface GenerateResponse {
     plan_ids?: PlanIds | null;
     /** 대체를 못 한 접시(module_3 Substitution) — reason: '안전한 대체 메뉴 없음' | '재료 정보 없음 — …' */
     unresolved?: Array<{ day: number; meal: string; original: string; hit_allergens?: string[]; reason?: string }>;
+    /** 기저질환 그룹(module_3 disease_diet) — 알레르기만 있는 그룹은 kind 만 온다. */
+    kind?: DietKind;
+    diseases?: string[];
+    pending_diseases?: string[];
+    limits?: DietLimit[];
+    /** 질환 기준 때문에 바꾼 접시. reduced = 줄이려던 기준 키(sodium·carb_ratio) — 값을 몰라 바꿨으면 ['unknown']. */
+    disease_swaps?: Array<{ day: number; meal: string; original: string; alternative: string; reduced?: string[] }>;
+    /** {일: 결과} — 키는 plan 과 같은 일 번호(문자열). */
+    day_report?: Record<string, { status: string; limits?: DietDay['limits']; info?: DietDay['info']; unknown_menus?: string[] }>;
+    unmet_days?: number[];
   }>;
 }
 // module_3 evaluate_hard_breakdown 의 리포트(풀린 해를 실측한 제약 충족 여부). 미적용 항목은 null·빈 값.
@@ -348,6 +402,26 @@ function buildRationale(hb: HardBreakdown, kcalTarget: number, budgetPerMeal: nu
 const MEAL_FROM_KR: Record<string, MealKind> = { 아침: 'breakfast', 점심: 'lunch', 저녁: 'dinner' };
 const MEAL_ORDER = ['아침', '점심', '저녁'];
 
+type AltRaw = NonNullable<GenerateResponse['alternatives']>[number];
+
+/** 질환 기준 키 → 화면 이름. 서버 limits 에 label 이 있으면 그걸 쓰고, 없을 때만(값 모름 교체 등) 여기서. */
+const DIET_KEY_LABEL: Record<string, string> = { sodium: '나트륨', carb_ratio: '탄수화물', unknown: '영양 정보 없음' };
+
+/** 질환 기준 때문에 바꾼 접시 → {일: {끼니: {바뀐 메뉴명: 줄이려던 영양소}}}. */
+function dietSwapsOf(a: AltRaw): Record<string, Record<string, Record<string, string>>> {
+  const lab = (k: string) => a.limits?.find((l) => l.key === k)?.label ?? DIET_KEY_LABEL[k] ?? k;
+  const out: Record<string, Record<string, Record<string, string>>> = {};
+  (a.disease_swaps ?? []).forEach((s) => {
+    ((out[String(s.day)] ??= {})[s.meal] ??= {})[s.alternative] = (s.reduced ?? []).map(lab).join('·') || '질환 기준';
+  });
+  return out;
+}
+
+/** 이날 메뉴 이름 서명 — 생성 뒤 메뉴가 바뀌었는지 비교용(DietDay.sig). */
+export function daySig(d: Pick<MealDay, 'cells'>): string {
+  return d.cells.map((c) => `${c.kind}:${c.items.map((i) => i.name).join('|')}`).join('/');
+}
+
 /** 알레르기 대체를 못 한 접시 → {일: {끼니: {메뉴명: 사유}}}. 사유 = '난류 · 안전한 대체 메뉴 없음' 처럼 걸린 알레르겐 + 서버 사유. */
 export function unresolvedChecks(list?: NonNullable<GenerateResponse['alternatives']>[number]['unresolved']) {
   const out: Record<string, Record<string, Record<string, string>>> = {};
@@ -386,21 +460,23 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   // baseNames: 대체식 칸일 때 본식단 같은 자리의 메뉴명 — 실제로 바뀐 메뉴에만 '대체' 배지를 단다.
   // checks: 대체식 칸에서 알레르기 대체를 못 한 메뉴명 → 사유(allergyCheck).
   const buildCell = (kind: MealKind, names: string[], alt: boolean, ids?: (number | null)[], baseNames?: string[],
-    checks?: Record<string, string>): MealCell => {
+    checks?: Record<string, string>, swaps?: Record<string, string>): MealCell => {
     const items: MealItem[] = names.map((name, i) => {
       const nutritionId = ids?.[i] ?? undefined; // plan_ids 는 plan 과 같은 위치
       const n = nutriOf(name, nutritionId);
       const itemNutri: ItemNutri = { kcal: n.kcal ?? 0, protein: n.protein ?? null, sodium: n.sodium ?? null, cost: n.cost_exact ?? n.cost ?? null };
       const changed = alt && baseNames?.[i] !== name;
       return { menuId: ++_mid, nutritionId, name, alt: changed || undefined, nutri: itemNutri,
-        ...(checks?.[name] ? { allergyCheck: checks[name] } : {}) };
+        ...(checks?.[name] ? { allergyCheck: checks[name] } : {}),
+        ...(changed && swaps?.[name] ? { dietSwap: swaps[name] } : {}) };
     });
     return { kind, items, kcal: 0, protein: 0 };
   };
 
   // idsObj: 본식단은 plan_ids, 대체식은 alternatives[].plan_ids(백엔드가 붙임 — 없으면 교체 불가 칸).
   const weeksFrom = (planObj: Record<string, Record<string, string[]>>, alt: boolean, idsObj?: PlanIds | null,
-    checks?: Record<string, Record<string, Record<string, string>>>): WeekBlock[] => {
+    checks?: Record<string, Record<string, Record<string, string>>>,
+    diet?: { swaps: Record<string, Record<string, Record<string, string>>>; report?: AltRaw['day_report'] }): WeekBlock[] => {
     const keys = Object.keys(planObj).sort((a, b) => Number(a) - Number(b));
     const blocks: WeekBlock[] = [];
     keys.forEach((dayKey, i) => {
@@ -410,9 +486,17 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
       const cells = meals.map((k) => {
         const kr = MEAL_ORDER.find((o) => MEAL_FROM_KR[o] === k)!;
         return buildCell(k, dayPlan[kr] ?? [], alt, idsObj?.[dayKey]?.[kr], alt ? plan[dayKey]?.[kr] : undefined,
-          checks?.[dayKey]?.[kr]);
+          checks?.[dayKey]?.[kr], diet?.swaps[dayKey]?.[kr]);
       });
-      blocks[week].days.push({ date: label, dow, cells });
+      const rep = diet?.report?.[dayKey];
+      const day: MealDay = { date: label, dow, cells };
+      if (rep) {
+        day.diet = {
+          status: rep.status === '충족' ? '충족' : '확인 필요', limits: rep.limits ?? {}, info: rep.info ?? {},
+          unknownMenus: rep.unknown_menus ?? [], sig: daySig(day),
+        };
+      }
+      blocks[week].days.push(day);
     });
     return blocks.filter(Boolean);
   };
@@ -420,10 +504,20 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
   _mid = 0;
   _start = firstWeekday(new Date());
   const weeks = weeksFrom(plan, false, planIds);
-  const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => ({
-    label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, allergens: a.group?.allergens ?? [],
-    weeks: weeksFrom(a.plan ?? {}, true, a.plan_ids, unresolvedChecks(a.unresolved)),
-  }));
+  const alternatives: AltTrack[] = (r.alternatives ?? []).map((a) => {
+    const allergens = a.group?.allergens ?? [];
+    const diseases = a.diseases ?? [];
+    const hasDiet = !!(a.limits?.length || a.day_report);
+    return {
+      label: a.group?.label ?? '대체식', count: a.group?.count ?? 0, allergens,
+      weeks: weeksFrom(a.plan ?? {}, true, a.plan_ids, unresolvedChecks(a.unresolved),
+        hasDiet ? { swaps: dietSwapsOf(a), report: a.day_report } : undefined),
+      ...(diseases.length || a.pending_diseases?.length ? {
+        diseases, kind: a.kind ?? dietKindOf({ allergens, diseases }) ?? undefined,
+        pendingDiseases: a.pending_diseases ?? [], limits: a.limits ?? [], unmetDays: a.unmet_days?.length ?? 0,
+      } : { kind: a.kind ?? dietKindOf({ allergens }) ?? undefined }),
+    };
+  });
 
   // 목표값만 여기서 정한다(값은 recomputePlan 이 칸 영양으로 채움).
   // 칸 영양 합 = 솔버 daily_kcal·total_cost_won 이다(plan_ids 로 솔버가 고른 행을 쓰므로).
@@ -439,11 +533,15 @@ export function toMealPlan(raw: MenuGenerateRaw, req: MenuGenerateRequest): Meal
 
   const profileLabel = PROFILE_LABEL[req.profile_key ?? ''] ?? (req.profile_key ?? '대상');
   const mealsText = meals.map((m) => MEAL_TABLE[m]).join('·');
-  const groups = req.allergy_groups?.length ?? 0;
-  const checks: PlanCheck[] = alternatives.map((t) => ({ label: `대체식 '${t.label}' 검토`, done: false, view: true }));
+  const groups = alternatives.length || (req.diet_groups?.length ?? req.allergy_groups?.length ?? 0);
+  // 대체식 그룹마다 검토 항목 1개 + 기저질환 기준을 못 맞춘 날이 있으면 그 항목을 따로 하나 더.
+  const checks: PlanCheck[] = alternatives.flatMap((t) => [
+    { label: `대체식 '${t.label}' 검토`, done: false, view: true },
+    ...(t.unmetDays ? [{ label: `'${t.label}' 질환 기준 미충족 ${t.unmetDays}일 확인`, done: false, view: true }] : []),
+  ]);
 
   return recomputePlan({
-    conditionText: `${profileLabel} · ${headcount}명 · 평일 ${days}일 · ${mealsText} · 알레르기 ${groups}그룹 · 예산 ${budget.toLocaleString()}원/식`
+    conditionText: `${profileLabel} · ${headcount}명 · 평일 ${days}일 · ${mealsText} · 대체식 ${groups}그룹 · 예산 ${budget.toLocaleString()}원/식`
       + (budgetMode === 'carryover' ? ' (기간 총액 기준)' : ''),
     periodText: `평일 ${days}일`, headcount, meals, weeks, alternatives,
     achievement, costPerPerson: 0, budgetPerPerson: budget,
@@ -750,17 +848,19 @@ export function mockPlan(req: MenuGenerateRequest): MealPlan {
   const sodiumRatio = 1.05 + seedFrac(sodiumTarget, kcalTarget, headcount, 4) * 0.15;
 
   const weeks = buildWeeks(meals, days, false);
-  const alternatives: AltTrack[] = (req.allergy_groups ?? []).map((g) => ({
-    label: g.label, count: g.count, allergens: g.allergens, weeks: buildWeeks(meals, days, true),
+  const mockGroups: DietGroup[] = req.diet_groups ?? (req.allergy_groups ?? []).map((g) => ({ ...g, diseases: [] }));
+  const alternatives: AltTrack[] = mockGroups.map((g) => ({
+    label: g.label, count: g.count, allergens: g.allergens, diseases: g.diseases,
+    kind: dietKindOf(g) ?? undefined, weeks: buildWeeks(meals, days, true),
   }));
 
   const profileLabel = PROFILE_LABEL[req.profile_key ?? ''] ?? (req.profile_key ?? '대상');
   const mealsText = meals.map((m) => MEAL_TABLE[m]).join('·');
   const periodText = `평일 ${days}일`;
-  const groups = req.allergy_groups?.length ?? 0;
+  const groups = mockGroups.length;
 
   return {
-    conditionText: `${profileLabel} · ${headcount}명 · ${periodText} · ${mealsText} · 알레르기 ${groups}그룹 · 예산 ${budget.toLocaleString()}원/식`,
+    conditionText: `${profileLabel} · ${headcount}명 · ${periodText} · ${mealsText} · 대체식 ${groups}그룹 · 예산 ${budget.toLocaleString()}원/식`,
     periodText, headcount, meals, weeks, alternatives,
     achievement: {
       calories: { value: Math.round(kcalTarget * kcalRatio), target: kcalTarget, unit: 'kcal' },
