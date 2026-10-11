@@ -9,17 +9,22 @@
     교체한다 — 이때 질환 상한을 extra_caps 로 넘겨 바꾼 메뉴가 기준을 다시 넘지 않게 한다.
   · 기준을 못 맞춘 날은 가장 가까운 식단을 두고 '확인 필요'로 표시한다(영양사가 검토 화면에서 수정).
 
-질환 기준(하루) — 출처는 응답(limits[].source)에도 싣는다:
+질환 기준(하루) — 출처는 응답(limits[].source)에도 싣는다. 지침은 모두 **성인** 대상이다:
   · 고혈압  나트륨 ≤ 2,000mg — 대한고혈압학회 진료지침(소금 5g).
+            연령별 질환 기준이 없어(소아 지침 AAP 2017 은 '저염'만, 수치 없음) 성인에서 이 값이 일반 기준
+            (2025 한국인 영양소 섭취기준 만성질환위험감소섭취량 2,300mg)과 갖는 비율(≈87%)을 대상 프로파일의
+            만성질환위험감소섭취량에 곱한다 — 초등 1~3 1,700→1,478 · 노인 65~74 1,900→1,652 · 성인 2,000
+            (사용자 결정 2026-10-11). 프로파일이 없으면 성인 값.
   · 당뇨    탄수화물 열량 비율 ≤ 55% — 대한당뇨병학회 2023 진료지침(총에너지의 55~65%, 낮은 쪽 적용).
+            비율 기준이라 전 연령에 그대로 쓴다(열량은 이미 연령별 프로파일에서 온다).
             비율은 접시 단위 선형식 4×탄수화물 − 0.55×열량 의 하루 합 ≤ 0 으로 바꿔 다른 상한과 같게 다룬다.
             당류는 기준 없이 합계만 보여 준다(info).
-  · 신장질환 — 기준 확정 전(칼륨 mg 수치의 1차 근거 확인 중). KNOWN_DISEASES 에 없으면 '기준 미확정'으로
-            응답만 하고 교체하지 않는다. 데이터(칼륨·인)는 ingredient_nutrient 로 이미 계산된다.
+  · 신장질환은 다루지 않는다(사용자 결정 2026-10-11) — 대한신장학회 자료에 칼륨·인 하루 섭취량 수치가 없고
+            (혈중 목표만 있음) 단백질은 체중·병기별이라 급식 그룹에 걸 근거가 부족하다.
 
 메뉴 값:
   · 나트륨·탄수화물·열량 = nutrition_recipe(식품안전나라 공식 1인분 값 — 솔버와 같은 값).
-  · 당류·칼륨·인 = 재료 1인분 g × 100g당 값(ingredient_nutrient) 합을 '메뉴 공식 열량 ÷ 재료 합산 열량'으로 보정.
+  · 당류 = 재료 1인분 g × 100g당 값(ingredient_nutrient) 합을 '메뉴 공식 열량 ÷ 재료 합산 열량'으로 보정.
     레시피 인분 오류로 g 합이 부푼 메뉴가 많아(중앙값 0.5~0.8배) 솔버의 1인분 기준에 맞춘다.
     재료 g 의 80% 미만만 값이 있거나 보정비가 0.2~2.0 밖이면 '모름'(None) — 상한 판정에서 위험 쪽으로 다룬다
     (모르는 후보는 쓰지 않고, 식단에 있으면 먼저 바꾸며, 못 바꾸면 '확인 필요').
@@ -36,7 +41,7 @@ import alternative_menu as am
 # ===========================================================================
 @dataclass(frozen=True)
 class NutrientLimit:
-    key: str        # 값 키(sodium / carb_ratio / potassium / phosphorus)
+    key: str        # 값 키(sodium / carb_ratio)
     label: str
     cap: float      # 하루 상한(carb_ratio 는 %)
     unit: str
@@ -53,15 +58,17 @@ DISEASE_LIMITS: dict[str, tuple[NutrientLimit, ...]] = {
     "당뇨": (CARB_RATIO_DM,),
 }
 DISEASE_INFO: dict[str, tuple[str, ...]] = {"당뇨": ("sugar",)}   # 기준 없이 합계만 보여 줄 값
-DISEASE_ALIASES = {"당뇨병": "당뇨", "신부전": "신장질환", "만성콩팥병": "신장질환", "콩팥병": "신장질환"}
-KNOWN_DISEASES = ("고혈압", "당뇨", "신장질환")   # 화면 선택지. 이 중 DISEASE_LIMITS 에 없는 건 기준 미확정
+DISEASE_ALIASES = {"당뇨병": "당뇨"}
+SUPPORTED_DISEASES = tuple(DISEASE_LIMITS)       # 화면 선택지·요청 검사(schemas.DietGroupIn)와 같은 이름
 
 UNMET = "질환 기준 미충족"
 UNKNOWN_VALUE = "영양 정보 없음 — 질환 기준 판정 불가"
 
+ADULT_SODIUM_CDRR_MG = 2300.0     # 2025 한국인 영양소 섭취기준 성인(19~64세) 나트륨 만성질환위험감소섭취량
+
 COVERAGE_MIN = 0.8                # 재료 g 중 값이 있는 비율 하한
 SCALE_RANGE = (0.2, 2.0)          # 공식 열량 ÷ 재료 합산 열량 허용 범위(밖이면 매핑·레시피 오류로 보고 모름)
-FRYING_MEDIUM = ("튀김기름",)       # 튀김용 기름 — 흡수량이 일부라 열량 합산에서 뺀다(칼륨·인·당류는 0)
+FRYING_MEDIUM = ("튀김기름",)       # 튀김용 기름 — 흡수량이 일부라 열량 합산에서 뺀다(당류는 0)
 
 
 def normalize_diseases(values) -> set:
@@ -73,20 +80,40 @@ def normalize_diseases(values) -> set:
     return out
 
 
-def limits_for(diseases) -> list[NutrientLimit]:
-    """그룹 질환들의 상한 목록(같은 키는 더 엄격한 값 하나)."""
+def limits_for(diseases, meal_frac: float = 1.0, sodium_cdrr_mg: float | None = None,
+               target_label: str | None = None) -> list[NutrientLimit]:
+    """그룹 질환들의 상한 목록(같은 키는 더 엄격한 값 하나).
+
+    · 연령 보정(나트륨): 성인 지침 값 × (대상 만성질환위험감소섭취량 ÷ 성인 2,300mg). sodium_cdrr_mg 는
+      user_profiles 프로파일 값, 없으면 성인 기준 그대로. 비율 기준(carb_ratio)은 연령 보정 없음.
+    · 끼니 보정: 기준은 하루 전체 섭취량이므로 편성한 끼니만큼만 건다(meal_frac = user_profiles.meal_fraction —
+      점심만 0.40, 점심·저녁 0.70, 3식 1.00). 일반식 나트륨 상한(targets_for)과 같은 방식이다 — 안 그러면
+      점심 1식에 하루치가 걸려 일반식보다 느슨해진다. carb_ratio(%)는 끼니 수와 무관해 그대로 둔다.
+    """
     best: dict[str, NutrientLimit] = {}
     for d in sorted(diseases):
         for lim in DISEASE_LIMITS.get(d, ()):
             cur = best.get(lim.key)
             if cur is None or lim.cap < cur.cap:
                 best[lim.key] = lim
-    return list(best.values())
-
-
-def pending_diseases(diseases) -> list[str]:
-    """기준이 아직 없는 질환(신장질환 등) — 교체하지 않고 응답에 '기준 미확정'으로 남긴다."""
-    return sorted(d for d in diseases if d not in DISEASE_LIMITS)
+    who = target_label or "대상 미선택"
+    out = []
+    for lim in best.values():
+        cap, source = lim.cap, lim.source
+        if lim.key == "carb_ratio":
+            source += " · 비율 기준이라 전 연령 동일 적용"
+        elif lim.key == "sodium":
+            if sodium_cdrr_mg and abs(sodium_cdrr_mg - ADULT_SODIUM_CDRR_MG) > 1e-9:
+                ratio = lim.cap / ADULT_SODIUM_CDRR_MG
+                cap = lim.cap * sodium_cdrr_mg / ADULT_SODIUM_CDRR_MG
+                source += (f" · 연령별 질환 기준이 없어 성인 일반 기준(만성질환위험감소섭취량 2,300mg) 대비 비율 "
+                           f"{ratio:.0%}를 {who} 기준 {sodium_cdrr_mg:,.0f}mg에 적용(2025 한국인 영양소 섭취기준)")
+            elif not sodium_cdrr_mg:
+                source += f" · {who} — 성인 기준 적용"
+        if lim.key != "carb_ratio" and meal_frac < 1.0:
+            cap *= meal_frac
+        out.append(NutrientLimit(lim.key, lim.label, round(cap, 1), lim.unit, source))
+    return out
 
 
 # ===========================================================================
@@ -99,11 +126,7 @@ WITH ing AS (
            SUM(rim.per_serving_grams) FILTER (WHERE n.energy_kcal IS NOT NULL)   AS g_e,
            SUM(rim.per_serving_grams * n.energy_kcal / 100)                      AS e,
            SUM(rim.per_serving_grams) FILTER (WHERE n.sugar_g IS NOT NULL)       AS g_s,
-           SUM(rim.per_serving_grams * n.sugar_g / 100)                          AS s,
-           SUM(rim.per_serving_grams) FILTER (WHERE n.potassium_mg IS NOT NULL)  AS g_k,
-           SUM(rim.per_serving_grams * n.potassium_mg / 100)                     AS k,
-           SUM(rim.per_serving_grams) FILTER (WHERE n.phosphorus_mg IS NOT NULL) AS g_p,
-           SUM(rim.per_serving_grams * n.phosphorus_mg / 100)                    AS p
+           SUM(rim.per_serving_grams * n.sugar_g / 100)                          AS s
     FROM recipe r
     JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id AND rim.per_serving_grams > 0
     JOIN ingredient i               ON i.ingredient_id = rim.ingredient_id
@@ -112,7 +135,7 @@ WITH ing AS (
     GROUP BY r.nutrition_recipe_id
 )
 SELECT nr.nutrition_id AS menu_id, nr.calories, nr.sodium, nr.carbs,
-       ing.g, ing.g_e, ing.e, ing.g_s, ing.s, ing.g_k, ing.k, ing.g_p, ing.p
+       ing.g, ing.g_e, ing.e, ing.g_s, ing.s
 FROM nutrition_recipe nr
 LEFT JOIN ing ON ing.menu_id = nr.nutrition_id
 WHERE nr.nutrition_id = ANY(:ids)
@@ -120,8 +143,8 @@ WHERE nr.nutrition_id = ANY(:ids)
 
 
 def estimate_from_ingredients(row: dict) -> dict:
-    """재료 합산 행 → {sugar, potassium, phosphorus} 1인분 추정(모르면 None). 순수 함수(테스트용)."""
-    out = {"sugar": None, "potassium": None, "phosphorus": None}
+    """재료 합산 행 → {sugar} 1인분 추정(모르면 None). 순수 함수(테스트용)."""
+    out = {"sugar": None}
     row = {k: (float(v) if v is not None and not isinstance(v, str) else v) for k, v in row.items()}  # DB Decimal
     g, g_e, e, kcal = row.get("g"), row.get("g_e"), row.get("e"), row.get("calories")
     if not g or not g_e or not e or not kcal or g_e < COVERAGE_MIN * g:
@@ -130,7 +153,7 @@ def estimate_from_ingredients(row: dict) -> dict:
     scale = float(kcal) / ingredient_kcal if ingredient_kcal > 0 else 0.0
     if not (SCALE_RANGE[0] <= scale <= SCALE_RANGE[1]):
         return out
-    for key, gk, vk in (("sugar", "g_s", "s"), ("potassium", "g_k", "k"), ("phosphorus", "g_p", "p")):
+    for key, gk, vk in (("sugar", "g_s", "s"),):
         gv, v = row.get(gk), row.get(vk)
         if gv and v is not None and gv >= COVERAGE_MIN * g:
             out[key] = round(scale * float(v) / (float(gv) / float(g)), 1)
@@ -144,10 +167,10 @@ FROM nutrition_recipe WHERE nutrition_id = ANY(:ids)
 
 
 def load_menu_values(engine, menus) -> tuple[dict[int, dict], bool]:
-    """(menu_id → {kcal, sodium, carbs, sugar, potassium, phosphorus}, 재료 추정 사용 여부). 모르는 값은 None.
+    """(menu_id → {kcal, sodium, carbs, sugar}, 재료 추정 사용 여부). 모르는 값은 None.
 
     ingredient_nutrient 가 없는 DB(migrations/v6·적재 전)에서도 고혈압·당뇨는 공식 값만으로 돌아가야 하므로,
-    재료 조인이 실패하면 공식 값만 읽고 당류·칼륨·인은 None 으로 둔다(두 번째 반환값 False).
+    재료 조인이 실패하면 공식 값만 읽고 당류는 None 으로 둔다(두 번째 반환값 False).
     """
     from sqlalchemy import text
 
@@ -399,17 +422,20 @@ def day_report(plan, menus, limits, values_by_id, info_keys=()) -> dict:
 
 
 def derive_diet_alternatives(plan, menus, groups, values_by_id, *, hard_config=None,
-                             sodium_by_id=None, commercial_menu_ids=None, weights=None):
+                             sodium_by_id=None, commercial_menu_ids=None, weights=None,
+                             meal_frac: float = 1.0, sodium_cdrr_mg: float | None = None,
+                             target_label: str | None = None):
     """그룹(알레르기·기저질환·둘 다)별 대체식.
 
     알레르기만 → alternative_menu 그대로. 질환 있음 → derive_disease_plan 다음 알레르기 교체(extra_caps).
     Returns: list[dict] — AlternativeMenu 필드(group·plan·substitutions·unresolved·daily_kcal·total_cost) +
-             kind·diseases·pending_diseases·limits·disease_swaps·day_report·unmet_days.
+             kind·diseases·limits·disease_swaps·day_report·unmet_days.
     """
     results = []
     for grp in groups:
         diseases = normalize_diseases(getattr(grp, "diseases", ()))
-        limits = limits_for(diseases)
+        limits = limits_for(diseases, meal_frac, sodium_cdrr_mg, target_label)
+        daily = {l.key: l.cap for l in limits_for(diseases, 1.0, sodium_cdrr_mg, target_label)}
         base, dswaps = plan, []
         if limits:
             base, dswaps = derive_disease_plan(
@@ -423,10 +449,13 @@ def derive_diet_alternatives(plan, menus, groups, values_by_id, *, hard_config=N
         report = day_report(alt.plan, menus, limits, values_by_id, info_keys) if limits else {}
         results.append({
             "group": grp, "kind": grp.kind if isinstance(grp, DietGroup) else "알레르기",
-            "diseases": sorted(diseases), "pending_diseases": pending_diseases(diseases),
+            "diseases": sorted(diseases),
             "plan": alt.plan, "substitutions": alt.substitutions, "unresolved": alt.unresolved,
             "daily_kcal": alt.daily_kcal, "total_cost": alt.total_cost,
-            "limits": [{"key": l.key, "label": l.label, "cap": l.cap, "unit": l.unit, "source": l.source}
+            # cap = 이 식단(편성한 끼니)에 건 값, daily_cap = 대상 연령의 하루 기준(끼니 보정 전)
+            "limits": [{"key": l.key, "label": l.label, "cap": l.cap, "unit": l.unit, "source": l.source,
+                        "daily_cap": daily[l.key],
+                        "meal_fraction": 1.0 if l.key == "carb_ratio" else min(1.0, meal_frac)}
                        for l in limits],
             "disease_swaps": dswaps, "day_report": report,
             "unmet_days": sorted(d for d, r in report.items() if r["status"] != "충족"),

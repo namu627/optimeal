@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """기저질환 대체식(disease_diet) — 질환 기준 교체·알레르기 겹침·값 모름·미확정 질환을 고정한다.
 
-배경(2026-10-06 팀 결정): 고혈압·당뇨·신장질환 입력을 받지만 식단에 반영되지 않았다. A안 — 일반식은 두고
+배경(2026-10-06 팀 결정): 고혈압·당뇨 입력을 받지만 식단에 반영되지 않았다(신장질환은 2026-10-11 제외). A안 — 일반식은 두고
 질환 그룹만 기준을 넘는 날의 접시를 낮은 메뉴로 교체, 알레르기도 있으면 질환 먼저 그다음 알레르기.
 DB 없이 mock 메뉴로 검증한다.
 """
@@ -19,9 +19,8 @@ def item(mid, name, cat, kcal=100.0, allergens=()):
     return MenuItem(mid, name, cat, kcal, allergens=set(allergens), ingredients={name})
 
 
-def vals(sodium=None, carbs=None, kcal=100.0, sugar=None, potassium=None):
-    return {"sodium": sodium, "carbs": carbs, "kcal": kcal, "sugar": sugar, "potassium": potassium,
-            "phosphorus": None}
+def vals(sodium=None, carbs=None, kcal=100.0, sugar=None):
+    return {"sodium": sodium, "carbs": carbs, "kcal": kcal, "sugar": sugar}
 
 
 def group(diseases=(), allergens=()):
@@ -31,12 +30,10 @@ def group(diseases=(), allergens=()):
 # ---------------------------------------------------------------------------
 # 기준·정규화
 # ---------------------------------------------------------------------------
-def test_limits_and_pending():
+def test_limits_and_supported():
     assert [l.key for l in dd.limits_for({"고혈압"})] == ["sodium"]
     assert [l.key for l in dd.limits_for({"당뇨"})] == ["carb_ratio"]
-    # 신장질환은 기준 미확정 — 상한 없음, pending 으로 남는다
-    assert dd.limits_for({"신장질환"}) == []
-    assert dd.pending_diseases(dd.normalize_diseases(["만성콩팥병", "고혈압"])) == ["신장질환"]
+    assert dd.SUPPORTED_DISEASES == ("고혈압", "당뇨")      # 신장질환 제외(2026-10-11)
     assert dd.normalize_diseases(["당뇨병", " "]) == {"당뇨"}
 
 
@@ -48,14 +45,11 @@ def test_carb_ratio_is_linear_per_dish():
 
 
 def test_estimate_scales_to_official_kcal_and_needs_coverage():
-    row = {"calories": 200, "g": 400, "g_e": 400, "e": 400, "g_k": 400, "k": 1000,
-           "g_s": 400, "s": 10, "g_p": 200, "p": 300}
-    est = dd.estimate_from_ingredients(row)
-    assert est["potassium"] == 500.0          # 재료 합 1000 × (200/400)
-    assert est["sugar"] == 5.0
-    assert est["phosphorus"] is None          # 재료 g 50%만 값 있음 → 모름
-    # 보정비가 범위 밖(0.1)이면 전부 모름
-    assert dd.estimate_from_ingredients({**row, "calories": 40})["potassium"] is None
+    row = {"calories": 200, "g": 400, "g_e": 400, "e": 400, "g_s": 400, "s": 10}
+    assert dd.estimate_from_ingredients(row)["sugar"] == 5.0          # 재료 합 10 × (200/400)
+    assert dd.estimate_from_ingredients({**row, "g_s": 200})["sugar"] is None   # 재료 g 50%만 값 있음 → 모름
+    # 보정비가 범위 밖(0.1)이면 모름
+    assert dd.estimate_from_ingredients({**row, "calories": 40})["sugar"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -116,11 +110,6 @@ def test_diabetes_carb_ratio():
     assert rep["ok"] and rep["total"] == 50.7
 
 
-def test_pending_disease_not_applied():
-    menus = [item(1, "밥", "주식")]
-    alt = dd.derive_diet_alternatives({1: {"점심": ["밥"]}}, menus, [group({"신장질환"})], {1: vals(sodium=10)})[0]
-    assert alt["pending_diseases"] == ["신장질환"] and alt["limits"] == [] and alt["day_report"] == {}
-
 
 # ---------------------------------------------------------------------------
 # 알레르기 + 기저질환
@@ -149,3 +138,28 @@ def test_substituted_dish_uses_original_values():
     menus = [item(1, "닭꼬치", "주찬")]
     rep = dd.day_report({1: {"점심": ["닭꼬치(대체: 우유→두유)"]}}, menus, [dd.SODIUM_HTN], {1: vals(sodium=500)})
     assert rep[1]["status"] == "충족" and rep[1]["limits"]["sodium"]["total"] == 500.0
+
+
+def test_absolute_caps_scale_with_meals_but_ratio_does_not():
+    """하루 기준은 편성한 끼니만큼만 건다 — 점심 1식(0.40)에 2,000mg 을 그대로 걸면 일반식보다 느슨해진다."""
+    lims = {l.key: l.cap for l in dd.limits_for({"고혈압", "당뇨"}, meal_frac=0.4)}
+    assert lims == {"sodium": 800.0, "carb_ratio": 55.0}
+    menus = [item(1, "국밥", "주식"), item(2, "비빔밥", "주식")]
+    v = {1: vals(sodium=1200), 2: vals(sodium=700)}
+    alt = dd.derive_diet_alternatives({1: {"점심": ["국밥"]}}, menus, [group({"고혈압"})], v, meal_frac=0.4)[0]
+    assert alt["plan"][1]["점심"] == ["비빔밥"]
+    assert alt["limits"][0]["cap"] == 800.0 and alt["limits"][0]["daily_cap"] == 2000.0
+
+
+def test_sodium_cap_follows_age_ratio():
+    """연령별 질환 기준이 없어 성인 비율(2,000/2,300)을 대상 만성질환위험감소섭취량에 곱한다(2026-10-11 결정)."""
+    def cap(cdrr, frac=1.0):
+        return {l.key: l.cap for l in dd.limits_for({"고혈압", "당뇨"}, frac, cdrr, "대상")}
+
+    assert cap(None) == {"sodium": 2000.0, "carb_ratio": 55.0}      # 프로파일 없음 → 성인
+    assert cap(2300)["sodium"] == 2000.0                             # 성인
+    assert cap(1700)["sodium"] == 1478.3                             # 초등 1~3
+    assert cap(1900)["sodium"] == 1652.2                             # 노인 65~74
+    assert cap(1700, 0.4) == {"sodium": 591.3, "carb_ratio": 55.0}   # 끼니 보정까지, 비율 기준은 그대로
+    src = dd.limits_for({"고혈압"}, 1.0, 1700, "초등학교 1~3학년(혼성)")[0].source
+    assert "87%" in src and "초등학교 1~3학년(혼성)" in src

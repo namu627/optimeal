@@ -2,24 +2,25 @@
 # -*- coding: utf-8 -*-
 """
 스크립트: load_ingredient_nutrient.py
-목적: 재료(ingredient_id) → 100g당 열량·당류·인·칼륨을 ingredient_nutrient 에 적재한다(기저질환 대체식용).
+목적: 재료(ingredient_id) → 100g당 열량·당류를 ingredient_nutrient 에 적재한다(기저질환 대체식용).
 
 입력: data/manual/ingredient_nutrient_map.csv (저장소에 커밋, 사람이 검수하는 원본)
-  ingredient_id,ingredient_name,energy_kcal,sugar_g,phosphorus_mg,potassium_mg,basis,source_name,food_cd,review,spec,note
-  · 값은 식약처 식품영양성분DB(FoodNtrCpntDbInfo02 — AMT_NUM1 열량 · AMT_NUM7 당류 · AMT_NUM11 인 · AMT_NUM12 칼륨,
-    100g당). 열량은 메뉴 계산 때 1인분 양을 메뉴 공식 열량에 맞추는 데 쓴다(module_3/src/disease_diet.py).
+  ingredient_id,ingredient_name,energy_kcal,sugar_g,basis,source_name,food_cd,review,spec,note
+  · 값은 식약처 식품영양성분DB(FoodNtrCpntDbInfo02 — AMT_NUM1 열량 · AMT_NUM7 당류, 100g당). 당류는 당뇨 그룹의
+    합계 표시, 열량은 메뉴 계산 때 1인분 양을 메뉴 공식 열량에 맞추는 데 쓴다(module_3/src/disease_diet.py).
+  · 칼륨·인은 신장질환을 제외하면서(2026-10-11) 뺐다 — migrations/v7.
   · basis: 원재료(원재료성 식품) / 음식(음식 DB — 김치·육수류) / 가공품중앙값(같은 이름 가공식품들의 중앙값 —
     간장·고추장 등 양념) / 영양없음(물·얼음 — 모든 값 0)
   · review: 검수(사람이 식품을 지정 — spec 에 지정 내용) / 자동(이름 토큰이 일치한 원재료·생것 우선)
   · 빈 칸 = 원본에 값 없음. 0 으로 채우지 않는다(메뉴 계산 시 그 재료는 '모름'으로 커버리지에서 빠진다).
     원본이 비었을 때 같은 품목(예: 전복류) 생것 행 중앙값으로 보충한 경우는 note 에 적었다.
-  · CSV 에 없는 재료 = 미매핑. 2026-10-07 기준 후보 메뉴 재료 사용량(g)의 칼륨 95.7% · 인 95.5% · 당류 93.2% 가
-    값을 가진다(물 등 영양없음 포함, 열량은 96.7%).
+  · CSV 에 없는 재료 = 미매핑. 2026-10-07 기준 후보 메뉴 재료 사용량(g)의 열량 96.7% · 당류 93.2% 가
+    값을 가진다(물 등 영양없음 포함).
 
 적재 규칙:
   · CSV 의 (ingredient_id, ingredient_name) 이 DB 와 하나라도 다르면 아무것도 쓰지 않고 멈춘다(부분 적재 금지).
   · 멱등: --apply 마다 테이블을 비우고 CSV 대로 다시 만든다.
-  · 사전 조건: migrations/v6_ingredient_nutrient.sql 적용.
+  · 사전 조건: migrations/v6_ingredient_nutrient.sql → v7_drop_kidney_nutrients.sql 적용.
 
 실행:
   docker exec optimeal_app python scripts/load_ingredient_nutrient.py           # 검증·요약만(DB 미반영)
@@ -41,13 +42,13 @@ from load_nutrition_from_recipe_db import get_engine  # noqa: E402
 
 MAP_CSV = REPO_ROOT / "data" / "manual" / "ingredient_nutrient_map.csv"
 BASIS = {"원재료", "음식", "가공품중앙값", "영양없음"}
-NUTRIENTS = ("energy_kcal", "sugar_g", "phosphorus_mg", "potassium_mg")
+NUTRIENTS = ("energy_kcal", "sugar_g")
 
 DELETE_SQL = text("DELETE FROM ingredient_nutrient")
 INSERT_SQL = text("""
     INSERT INTO ingredient_nutrient
-        (ingredient_id, energy_kcal, sugar_g, phosphorus_mg, potassium_mg, basis, source_name, food_cd)
-    VALUES (:iid, :energy_kcal, :sugar_g, :phosphorus_mg, :potassium_mg, :basis, :source_name, :food_cd)
+        (ingredient_id, energy_kcal, sugar_g, basis, source_name, food_cd)
+    VALUES (:iid, :energy_kcal, :sugar_g, :basis, :source_name, :food_cd)
 """)
 # 식단 후보 메뉴의 영양소별 커버리지: 1인분 재료 g 중 값이 있는 재료 g 비율이 0.8 이상인 메뉴 수.
 #   (module_3/src/disease_diet.py 의 메뉴 계산과 같은 기준 — 0.8 미만이면 그 영양소는 '모름')
@@ -55,9 +56,8 @@ COVERAGE_SQL = text("""
     WITH g AS (
         SELECT nr.nutrition_id,
                SUM(rim.per_serving_grams) AS total,
-               SUM(rim.per_serving_grams) FILTER (WHERE n.sugar_g IS NOT NULL)       AS s,
-               SUM(rim.per_serving_grams) FILTER (WHERE n.phosphorus_mg IS NOT NULL) AS p,
-               SUM(rim.per_serving_grams) FILTER (WHERE n.potassium_mg IS NOT NULL)  AS k
+               SUM(rim.per_serving_grams) FILTER (WHERE n.energy_kcal IS NOT NULL)   AS e,
+               SUM(rim.per_serving_grams) FILTER (WHERE n.sugar_g IS NOT NULL)       AS s
         FROM nutrition_recipe nr
         JOIN recipe r ON r.nutrition_recipe_id = nr.nutrition_id
         JOIN recipe_ingredient_map rim ON rim.recipe_id = r.recipe_id AND rim.per_serving_grams > 0
@@ -66,9 +66,8 @@ COVERAGE_SQL = text("""
         GROUP BY nr.nutrition_id
     )
     SELECT count(*) AS menus,
-           count(*) FILTER (WHERE COALESCE(s, 0) >= 0.8 * total) AS sugar,
-           count(*) FILTER (WHERE COALESCE(p, 0) >= 0.8 * total) AS phosphorus,
-           count(*) FILTER (WHERE COALESCE(k, 0) >= 0.8 * total) AS potassium
+           count(*) FILTER (WHERE COALESCE(e, 0) >= 0.8 * total) AS energy,
+           count(*) FILTER (WHERE COALESCE(s, 0) >= 0.8 * total) AS sugar
     FROM g
 """)
 
@@ -131,7 +130,7 @@ def print_summary(rows: list[dict]) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="재료 영양성분(당류·인·칼륨)을 ingredient_nutrient 에 적재")
+    ap = argparse.ArgumentParser(description="재료 영양성분(열량·당류)을 ingredient_nutrient 에 적재")
     ap.add_argument("--apply", action="store_true", help="실제 적재(기본은 검증·요약만)")
     args = ap.parse_args()
 
@@ -155,7 +154,7 @@ def main() -> int:
     with engine.connect() as conn:
         cov = conn.execute(COVERAGE_SQL).mappings().one()
     print(f"[후보 메뉴 {cov['menus']}개 중 값 계산 가능(재료 g 80% 이상)] "
-          f"당류 {cov['sugar']} · 인 {cov['phosphorus']} · 칼륨 {cov['potassium']}")
+          f"열량 {cov['energy']} · 당류 {cov['sugar']}")
     return 0
 
 
