@@ -3,7 +3,7 @@
 // PDF 조판은 백엔드(/api/menu/export/pdf, 한글 폰트 임베드)가 하고, 내용은 여기서 만든 행 그대로다.
 import {
   MEAL_TABLE, budgetSummary, exportPlanPdf, planDateRange, planTargetLabel,
-  type MealPlan, type MealKind, type MealCell, type PdfExportRequest, type PdfRecipe, type WeekBlock,
+  type MealPlan, type MealKind, type MealCell, type MealItem, type PdfExportRequest, type PdfRecipe, type WeekBlock,
 } from '../../api/menu';
 import {
   altServingsOf, amountBasis, changedAltTracks, changedNames, collectEntries, entryKey, groupServings, mainServingsOf, perServing,
@@ -80,7 +80,7 @@ export const RECIPE_MISSING = '레시피 미등록';
 const RECIPE_HEADER = ['날짜', '끼니', '메뉴', '인원', '재료명', '투입량(g, 총량)', '기준', '조리순서'];
 
 function pushRecipeRows(rows: Cell[][], prefix: Cell[], weeksSrc: WeekBlock[], servingsOf: ServingsOf, entries: RecipeEntry[],
-  recipeOf: Awaited<ReturnType<typeof resolveRecipes>>, suffix?: (c: MealCell) => Cell[]) {
+  recipeOf: Awaited<ReturnType<typeof resolveRecipes>>, suffix?: (c: MealCell, it: MealItem) => Cell[]) {
   const byKey = new Map(entries.map((e) => [e.key, e]));
   weeksSrc.forEach((wk, w) => wk.days.forEach((d, di) => d.cells.forEach((c) => {
     c.items.forEach((it) => {
@@ -89,9 +89,9 @@ function pushRecipeRows(rows: Cell[][], prefix: Cell[], weeksSrc: WeekBlock[], s
       const rec = recipeOf(byKey.get(entryKey(it, servings))!);
       const head = [...prefix, d.date, MEAL_TABLE[c.kind as MealKind], it.name, servings];
       if (rec && rec.ingredients.length) {
-        rec.ingredients.forEach((ing) => rows.push([...head, ing.name, ing.amount ?? '', amountBasis(ing), ing.step ?? '', ...(suffix?.(c) ?? [])]));
+        rec.ingredients.forEach((ing) => rows.push([...head, ing.name, ing.amount ?? '', amountBasis(ing), ing.step ?? '', ...(suffix?.(c, it) ?? [])]));
       } else {
-        rows.push([...head, RECIPE_MISSING, '', '', '', ...(suffix?.(c) ?? [])]);
+        rows.push([...head, RECIPE_MISSING, '', '', '', ...(suffix?.(c, it) ?? [])]);
       }
     });
   })));
@@ -115,25 +115,17 @@ export async function altRecipeRows(plan: MealPlan): Promise<Cell[][]> {
   });
   const recipeOf = await resolveRecipes(plan, tracks.flatMap((t) => t.entries));
   // 비고: 일반식 교체·삭제가 알레르기 대체 자리에 걸린 칸이면 '대체식 재검토 필요(원인)'(altSync),
-  //   기저질환 기준 때문에 바꾼 메뉴가 있는 칸이면 '질환 대체: 메뉴(나트륨)'.
+  //   기저질환 기준 때문에 바꾼 메뉴면 그 메뉴 행에만 '질환 대체(나트륨)'(같은 끼니 다른 메뉴 행에는 붙이지 않는다).
   const rows: Cell[][] = [['그룹', ...RECIPE_HEADER, '비고']];
   tracks.forEach((t) => pushRecipeRows(rows, [t.label], t.weeks, t.servingsOf, t.entries, recipeOf,
-    (c) => [[allergyCheckText(c), altReviewText(c), dietSwapText(c)].filter(Boolean).join(' / ')]));
+    (c, it) => [[allergyCheckText(c), altReviewText(c), dietSwapNote(it)].filter(Boolean).join(' / ')]));
   return rows;
 }
 
-/** 칸에서 기저질환 기준 때문에 바꾼 메뉴 — '질환 대체: 김치볶음밥(나트륨)'. 없으면 ''. */
-function dietSwapText(c: Pick<MealCell, 'items'>): string {
-  const xs = c.items.flatMap((i) => { const r = dietSwapOf(i); return r ? [`${i.name}(${r})`] : []; });
-  return xs.length ? `질환 대체: ${xs.join(', ')}` : '';
-}
-
-/** 그룹 종류별 개수 — '알레르기 2 · 기저질환 1 · 복합 1'. */
-function kindBreakdown(plan: MealPlan): string {
-  const name = { 알레르기: '알레르기', 기저질환: '기저질환', '알레르기+기저질환': '복합' } as const;
-  const n: Record<string, number> = {};
-  plan.alternatives.forEach((t) => { const k = trackKind(t); if (k) n[name[k]] = (n[name[k]] ?? 0) + 1; });
-  return Object.entries(n).map(([k, v]) => `${k} ${v}`).join(' · ');
+/** 이 메뉴가 기저질환 기준 때문에 바뀐 메뉴면 '질환 대체(나트륨)'. 아니면 ''. CSV 비고 칸(메뉴 행 단위). */
+export function dietSwapNote(it: MealItem): string {
+  const r = dietSwapOf(it);
+  return r ? `질환 대체(${r})` : '';
 }
 
 /** PDF 상단 요약 — 확정 화면 요약 카드·KPI 와 같은 값. 이월 모드면 총액 요약 카드(BudgetSummaryCard)의 값도 싣는다. */
@@ -147,7 +139,8 @@ export function planSummary(plan: MealPlan): { label: string; value: string }[] 
     { label: '기간 · 끼니', value: `${planDateRange(plan)} 평일 ${plan.totalDays}일 · ${mealsText}` },
     { label: '1인 원가', value: `${plan.costPerPerson.toLocaleString()}원/식 (예산 ${plan.budgetPerPerson.toLocaleString()}원)` },
     { label: '총 식재료비', value: won(plan.totalCost) + (allergyN ? ` (대체식 ${allergyN}명 포함)` : '') },
-    { label: '대체식 그룹', value: `${plan.alternatives.length}그룹 · ${allergyN}명${plan.alternatives.length ? ` (${kindBreakdown(plan)})` : ''}` },
+    // 그룹 종류(알레르기·기저질환·복합)는 대체식 표 제목마다 나오므로 요약에는 개수·인원만(요약 칸이 좁아 줄바꿈되던 문제).
+    { label: '대체식 그룹', value: `${plan.alternatives.length}그룹 · ${allergyN}명` },
   ];
   if (plan.alternatives.length > PDF_MAX_GROUPS) {
     out.push({ label: '대체식 표', value: `그룹 ${plan.alternatives.length}개 중 ${PDF_MAX_GROUPS}개만 실음 — 전체는 대체식 조리 지시서 CSV` });

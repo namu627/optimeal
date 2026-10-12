@@ -6,7 +6,7 @@ import { editPlan } from './altSync';
 import { groupsFromInputs } from './cloneForm';
 import { groupProblems, problemMessage, problemRows, toDietGroups } from './dietGroups';
 import { dietDayLines, dietDayNote, dietSummary, dietSwapOf, isDietStale, pendingText } from './dietView';
-import { altTables, planSummary } from './planExport';
+import { altTables, dietSwapNote, planSummary } from './planExport';
 
 const g = (allergens: string[], diseases: string[], count: number, i = 0): DietGroup =>
   ({ label: `그룹 ${i + 1}`, allergens, diseases, count });
@@ -124,6 +124,12 @@ describe('기저질환 대체식 — 응답 매핑·검토 표시', () => {
     expect(table.title).toContain('질환 기준 충족 1/2일');
     expect(String(table.rows[0][3])).toContain('[질환 대체] 미역국');
     expect(String(table.rows[1][3])).toContain('※ 질환 기준 확인 필요(나트륨 2,350/2,000mg)');
-    expect(planSummary(plan).find((r) => r.label === '대체식 그룹')!.value).toBe('1그룹 · 4명 (기저질환 1)');
+    expect(planSummary(plan).find((r) => r.label === '대체식 그룹')!.value).toBe('1그룹 · 4명');
+  });
+
+  it('CSV 비고 — 질환 대체 문구는 바뀐 메뉴 행에만 붙는다', () => {
+    const items = altDay(makePlan(), 0).cells[0].items;
+    expect(dietSwapNote(items.find((x) => x.name === '미역국')!)).toBe('질환 대체(나트륨)');
+    expect(dietSwapNote(items.find((x) => x.name === '밥')!)).toBe('');
   });
 });
